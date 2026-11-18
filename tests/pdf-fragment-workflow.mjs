@@ -54,11 +54,13 @@ const editor=await module('src/components/OverlayEditor.tsx',{require(name){
  if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};
  if(name==='../backend')return api;if(name==='../stampLibrary')return library;
  if(name==='../overlayGeometry')return geometry;
+ if(name==='../textFrame')return{};
  if(name==='./overlayCanvas')return{DEFAULT_FONT_FAMILY:'Microsoft YaHei UI',ensureFontReady:async()=>{}};
  if(name==='./FontPicker')return{FontPicker:'FontPicker'};
  if(name.endsWith('.css'))return{};throw new Error(name);
 }});
-const live=await module('src/components/LivePageImage.tsx',{require(name){if(name==='react/jsx-runtime')return jsx;if(name==='../backend')return api;if(name==='../viewerGeometry')return viewerGeometry;throw new Error(name);}});
+const editable=await module('src/editableOverlays.ts',{require(){return{};}});
+const live=await module('src/components/LivePageImage.tsx',{require(name){if(name==='react')return react;if(['../textFrame','./MarkLayer','./overlayCanvas'].includes(name))return{};if(name==='../editableOverlays')return editable;if(name==='react/jsx-runtime')return jsx;if(name==='../backend')return api;if(name==='../viewerGeometry')return viewerGeometry;throw new Error(name);}});
 const label=node=>node==null||typeof node==='boolean'?'':typeof node==='string'||typeof node==='number'?String(node):Array.isArray(node)?node.map(label).join(''):label(node.props?.children);
 function find(node,predicate,result=[]){if(!node||typeof node!=='object')return result;if(Array.isArray(node)){for(const item of node)find(item,predicate,result);return result;}if(predicate(node))result.push(node);find(node.props?.children,predicate,result);return result;}
 const createHost=()=>({cursor:0,slots:[],effects:[],pending:[],tree:null});let editorHost=createHost();

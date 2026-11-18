@@ -1,5 +1,6 @@
 use super::*;
 mod content;
+mod project;
 
 static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static NATIVE_PDFIUM: std::sync::OnceLock<Pdfium> = std::sync::OnceLock::new();

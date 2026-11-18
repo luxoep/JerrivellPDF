@@ -107,6 +107,15 @@ assert.ok(clone.layers);assert.equal(clone.loading,false);assert.equal(timers.si
 const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
 const geometry = load('../src/viewerGeometry.ts', {});
 const live = load('../src/components/LivePageImage.tsx', { require(name) {
+  if (name === 'react') return react;
+  if (name === '../textFrame') return {};
+  if (name === './overlayCanvas') return {};
+  if (name === './MarkLayer') return {};
+  if (name === '../editableOverlays') return load('../src/editableOverlays.ts', { require(name) {
+    if (name === './markGeometry') return load('../src/markGeometry.ts', {});
+    if (name === './textFrame') return {};
+    throw new Error(name);
+  } });
   if (name === 'react/jsx-runtime') return jsx;
   if (name === '../backend') return { previewImageAsset: () => asset };
   if (name === '../viewerGeometry') return geometry;
@@ -125,9 +134,11 @@ const handles = load('../src/components/OverlayHandles.tsx', { require(name) {
   if (name === 'react/jsx-runtime') return jsx;
   if (name === '../i18n') return {useI18n:()=>({t:(zh,en)=>en??zh})};
   if (name === '../overlayGeometry') return load('../src/overlayGeometry.ts',{});
+  if (name === '../placementGeometry') return load('../src/placementGeometry.ts',{});
+  if (name === '../textFrame') return {};
   if (name.endsWith('.css')) return {};
   throw new Error(name);
-} });
+}, requestAnimationFrame(callback) { callback(); return 1; }, cancelAnimationFrame() {} });
 const handleHost={cursor:0,slots:[],effects:[]}, changes=[], previews=[];
 const surface={getBoundingClientRect:()=>({width:600,height:800}),focus(){},setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
 const handleProps={overlays:page.overlays,onChange:value=>changes.push(value),onPreview:value=>previews.push(value),pageWidth:600,pageHeight:800};

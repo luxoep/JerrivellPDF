@@ -205,6 +205,8 @@ impl WorkerClient {
         let timeout = if matches!(
             command,
             "save_document"
+                | "save_editable_project"
+                | "load_editable_project"
                 | "search_document"
                 | "search_pages"
                 | "open_document"

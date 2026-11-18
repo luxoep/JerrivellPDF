@@ -6,3 +6,17 @@
 .overlay-placement-handle:hover .overlay-item-number,.overlay-placement-handle.selected .overlay-item-number,.overlay-placement-handle:focus-visible .overlay-item-number{display:flex}
 .overlay-resize-handle{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;display:none;border:1px solid white;border-radius:3px;background:#7563d6;cursor:nwse-resize;touch-action:none}
 .overlay-placement-handle:hover .overlay-resize-handle,.overlay-placement-handle.selected .overlay-resize-handle,.overlay-placement-handle:focus-visible .overlay-resize-handle{display:block}
+.overlay-resize-handle{z-index:1}
+.handle-nw{left:-5px;top:-5px;right:auto;bottom:auto;cursor:nwse-resize}
+.handle-n{left:calc(50% - 5px);top:-5px;right:auto;bottom:auto;cursor:ns-resize}
+.handle-ne{right:-5px;top:-5px;bottom:auto;cursor:nesw-resize}
+.handle-e{right:-5px;top:calc(50% - 5px);bottom:auto;cursor:ew-resize}
+.handle-s{left:calc(50% - 5px);bottom:-5px;right:auto;cursor:ns-resize}
+.handle-sw{left:-5px;bottom:-5px;right:auto;cursor:nesw-resize}
+.handle-w{left:-5px;top:calc(50% - 5px);right:auto;bottom:auto;cursor:ew-resize}
+.overlay-placement-handle.text-frame-overflow{border-color:#c34430;background:#c3443010}
+.text-frame-warning{position:absolute;top:100%;left:0;z-index:4;white-space:nowrap;padding:4px 7px;background:#fff3e8;color:#96331c;border:1px solid #d5724c;border-radius:5px;font:12px/1.4 system-ui;pointer-events:none}
+.inline-text-editor{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;min-width:180px;min-height:100px;background:#fffdf8;border:1px solid #63859c;border-radius:5px;box-shadow:0 5px 18px #203f5525;cursor:text}
+.inline-text-editor textarea{flex:1;min-height:70px;width:100%;resize:both;border:0;outline:none;box-sizing:border-box;padding:8px;font:14px/1.5 system-ui;background:transparent;color:#213b4b}
+.inline-text-editor span{padding:3px 7px;font:11px/1.4 system-ui;color:#60778a;white-space:nowrap;pointer-events:none}
+.inline-text-editor button{align-self:flex-start;margin:2px 7px 6px;padding:4px 7px;border:1px solid #c6d2d8;border-radius:4px;background:#eff4f6;color:#36586e;font:11px/1.4 system-ui;cursor:pointer}

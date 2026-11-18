@@ -16,6 +16,10 @@ export interface PageOverlay {
   locked?: boolean;
   /** Editable only in this workspace; exported content is a transparent image. */
   textSource?: import('./components/overlayCanvas').TextOverlaySource;
+  /** Editable path geometry retained in a .jvp project; PDF export uses its image. */
+  markSource?: import('./markGeometry').MarkSource;
+  /** A leader's final point is attached to this text overlay. */
+  leaderFor?: string;
 }
 
 export interface ImageAsset {

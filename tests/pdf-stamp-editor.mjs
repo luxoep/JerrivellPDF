@@ -74,6 +74,7 @@ vm.runInNewContext(compiled, {
     if (name === './overlayCanvas') return { DEFAULT_FONT_FAMILY: 'Microsoft YaHei UI', ensureFontReady: async () => {} };
     if (name === './FontPicker') return { FontPicker: 'FontPicker' };
     if (name === '../overlayGeometry') return geometry;
+    if (name === '../textFrame') return {};
     if (name.endsWith('.css')) return {};
     throw new Error(`Unexpected import: ${name}`);
   },

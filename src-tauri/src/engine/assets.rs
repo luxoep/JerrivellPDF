@@ -14,7 +14,7 @@ pub(super) struct ImageAsset {
     pub(super) png: Vec<u8>,
     pub(super) width: u32,
     pub(super) height: u32,
-    source_paths: Vec<PathBuf>,
+    pub(super) source_paths: Vec<PathBuf>,
 }
 
 fn invalid(message: impl std::fmt::Display) -> String {

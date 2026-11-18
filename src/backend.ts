@@ -103,6 +103,10 @@ function rememberImage(value: unknown, command: string) {
 }
 function clearImageAssets() { imageAssets.clear(); stagedImages.clear(); stagedData.clear(); }
 export const previewImageAsset = (id: string) => imageAssets.get(id);
+/** Called only after a project has been completely validated and loaded. */
+export function hydrateImageAssets(assets: ImageAsset[]) {
+  for (const asset of assets) rememberImage(asset, 'get_image_asset');
+}
 
 export function stageImageAsset(dataUrl: string): { id: string; registered: Promise<ImageAsset> } {
   const existing = stagedData.get(dataUrl);
@@ -205,7 +209,7 @@ export const renderDiagnostics = () => ({ estimatedCacheBytes: cacheBytes, cache
 export function pageReference(page: PageRef): PageRef {
   return { documentId: page.documentId, pageIndex: page.pageIndex, rotation: page.rotation,
     ...(page.contentEdits?.length ? { contentEdits: page.contentEdits.map(edit => ({ ...edit, ...(edit.bounds ? { bounds: { ...edit.bounds } } : {}) })) } : {}),
-    ...(page.overlays?.length ? { overlays: page.overlays.map(({ locked: _locked, textSource: _textSource, ...overlay }) => ({ ...overlay })) } : {}),
+    ...(page.overlays?.length ? { overlays: page.overlays.map(({ locked: _locked, textSource: _textSource, markSource: _markSource, leaderFor: _leaderFor, ...overlay }) => ({ ...overlay })) } : {}),
     ...(page.decorations?.length ? { decorations: page.decorations.map(item => ({ ...item })) } : {}) };
 }
 

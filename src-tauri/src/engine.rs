@@ -16,6 +16,7 @@ mod export;
 mod image_edit;
 mod operations;
 mod preview;
+mod project;
 use assets::ImageAsset;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -673,7 +674,27 @@ impl<'a> PdfEngine<'a> {
         struct Validate {
             pages: Vec<PageRef>,
         }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct SaveProject {
+            path: String,
+            pages: Vec<Value>,
+            title: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct LoadProject {
+            path: String,
+        }
         match request.command.as_str() {
+            "save_editable_project" => {
+                let p: SaveProject = parse(&request.args)?;
+                self.save_editable_project(&p.path, p.pages, &p.title)
+            }
+            "load_editable_project" => {
+                let p: LoadProject = parse(&request.args)?;
+                self.load_editable_project(&p.path)
+            }
             "prepare_export" => {
                 let p: Prepare = parse(&request.args)?;
                 self.prepare_export(&p.parts)

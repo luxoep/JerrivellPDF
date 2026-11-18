@@ -396,6 +396,16 @@ async fn close_all_documents(state: State<'_, Backend>) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn save_editable_project(state: State<'_, Backend>, path: String, pages: Vec<Value>, title: String) -> Result<Value, String> {
+    call(state, "save_editable_project", json!({"path":path,"pages":pages,"title":title})).await
+}
+
+#[tauri::command]
+async fn load_editable_project(state: State<'_, Backend>, path: String) -> Result<Value, String> {
+    call(state, "load_editable_project", json!({"path":path})).await
+}
+
 pub fn worker_entry(args: &[std::ffi::OsString]) -> Option<i32> {
     #[cfg(windows)]
     if let Some(result) = printing::worker_entry(args) {
@@ -454,6 +464,8 @@ pub fn run() {
             list_system_fonts,
             print_document,
             open_document,
+            save_editable_project,
+            load_editable_project,
             render_page,
             render_page_layers,
             search_document,

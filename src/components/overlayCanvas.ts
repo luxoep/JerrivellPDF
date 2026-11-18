@@ -46,6 +46,8 @@ export interface TextLayoutOptions {
   lineHeight?: number;
   /** Fixed text box width in PDF points; absent means natural line width. */
   wrapWidth?: number;
+  /** Text container in PDF points, including transparent insets. It never scales glyphs. */
+  frame?: { width: number; height: number; autoHeight: boolean };
 }
 export interface TextOverlaySource extends TextLayoutOptions {
   content: string;
@@ -53,6 +55,12 @@ export interface TextOverlaySource extends TextLayoutOptions {
   fontSize: number;
   bold: boolean;
   fontFamily: string;
+}
+/** Positions are PDF points, including the text container's transparent inset. */
+export interface TextLayoutLine { text: string; x: number; y: number; width: number }
+export interface TextPngResult {
+  dataUrl: string; width: number; height: number; lineCount: number;
+  requiredHeight: number; overflow: boolean; layoutLines: TextLayoutLine[];
 }
 
 function graphemes(text: string): string[] {
@@ -62,22 +70,35 @@ function graphemes(text: string): string[] {
 }
 
 /** Layout never silently drops text or reduces the requested point size. */
-export function createTextPng(text: string, color: string, fontSize: number, bold: boolean, family = DEFAULT_FONT_FAMILY, options: TextLayoutOptions = {}): { dataUrl: string; width: number; height: number; lineCount: number } {
+export function createTextPng(text: string, color: string, fontSize: number, bold: boolean, family = DEFAULT_FONT_FAMILY, options: TextLayoutOptions = {}, measureOnly = false): TextPngResult {
   if (!text.trim() || text.length > 4000 || !Number.isFinite(fontSize) || fontSize < 6 || fontSize > 144) throw new Error('TEXT_LAYOUT_LIMIT');
-  const spacing = options.charSpacing ?? 0, leading = options.lineHeight ?? 1.45, wrap = options.wrapWidth;
-  if (!Number.isFinite(spacing) || spacing < -2 || spacing > 20 || !Number.isFinite(leading) || leading < .8 || leading > 3 || (wrap !== undefined && (!Number.isFinite(wrap) || wrap < 24 || wrap > 1800))) throw new Error('TEXT_LAYOUT_LIMIT');
+  const spacing = options.charSpacing ?? 0, leading = options.lineHeight ?? 1.45;
+  const frame = options.frame;
+  if (frame && (![frame.width, frame.height].every(Number.isFinite) || frame.width < 24 || frame.width > 2048 || frame.height < 12 || frame.height > 4096 || typeof frame.autoHeight !== 'boolean')) throw new Error('TEXT_LAYOUT_LIMIT');
   const size = fontSize * 2, padding = Math.ceil(Math.max(16, size * .25));
+  const wrap = frame ? Math.max(.5, frame.width - padding) : options.wrapWidth;
+  if (!Number.isFinite(spacing) || spacing < -2 || spacing > 20 || !Number.isFinite(leading) || leading < .8 || leading > 3 || (wrap !== undefined && (!Number.isFinite(wrap) || wrap <= 0 || (!frame && (wrap < 24 || wrap > 1800)) || wrap > 2048))) throw new Error('TEXT_LAYOUT_LIMIT');
   const [canvas, context] = surface(1, 1);
   const font = `${options.italic ? 'italic ' : ''}${bold ? '600' : '400'} ${size}px ${cssFontFamily(family)}`;
   context.font = font;
-  const measure = (line: string) => context.measureText(line).width + Math.max(0, graphemes(line).length - 1) * spacing * 2;
+  const measured = new Map<string, number>();
+  const measure = (line: string) => {
+    const cached = measured.get(line); if (cached !== undefined) return cached;
+    const width = context.measureText(line).width + Math.max(0, graphemes(line).length - 1) * spacing * 2;
+    measured.set(line, width); return width;
+  };
   const lines: string[] = [];
   for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
     if (!wrap || measure(paragraph) <= wrap * 2) { lines.push(paragraph); continue; }
     let remaining = graphemes(paragraph);
     while (remaining.length) {
-      let end = 1;
-      while (end < remaining.length && measure(remaining.slice(0, end + 1).join('')) <= wrap * 2) end++;
+      // Search line length in logarithmic measurement steps while dragging a box.
+      let low = 1, high = remaining.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (measure(remaining.slice(0, middle).join('')) <= wrap * 2) low = middle; else high = middle - 1;
+      }
+      let end = low;
       if (end < remaining.length) {
         const wordBreak = remaining.slice(0, end).map((value, index) => /\s/u.test(value) ? index + 1 : 0).filter(Boolean).at(-1);
         if (wordBreak) end = wordBreak;
@@ -88,14 +109,23 @@ export function createTextPng(text: string, color: string, fontSize: number, bol
     }
   }
   const widths = lines.map(measure), bodyWidth = wrap ? wrap * 2 : Math.max(1, ...widths);
-  const width = Math.ceil(bodyWidth + padding * 2), height = Math.ceil(Math.max(size * 1.3, (lines.length - 1) * size * leading + size * 1.3) + padding * 2);
+  const width = Math.ceil(frame ? frame.width * 2 : bodyWidth + padding * 2);
+  const requiredPixels = Math.ceil(Math.max(size * 1.3, (lines.length - 1) * size * leading + size * 1.3) + padding * 2);
+  const height = frame && !frame.autoHeight ? Math.ceil(frame.height * 2) : requiredPixels;
+  const overflow = requiredPixels > height;
+  const layoutLines = lines.map((line, index) => {
+    const lineWidth = widths[index], offset = options.alignment === 'center' ? (bodyWidth - lineWidth) / 2 : options.alignment === 'right' ? bodyWidth - lineWidth : 0;
+    return { text: line, x: (padding + offset) / 2, y: (padding + size + index * size * leading) / 2, width: lineWidth / 2 };
+  });
   if (lines.length > 80 || width > 4096 || height > 8192 || width * height > 8000000) throw new Error('TEXT_LAYOUT_LIMIT');
+  // Interactive resizing only measures a 1×1 surface. Rasterization/PNG encoding
+  // happens once when the gesture is committed, never on each pointer move.
+  if (measureOnly) return { dataUrl: '', width, height, lineCount: lines.length, requiredHeight: requiredPixels / 2, overflow, layoutLines };
   canvas.width = width; canvas.height = height;
   context.font = font; context.fillStyle = color; context.strokeStyle = color; context.textBaseline = 'alphabetic';
   context.lineWidth = Math.max(1, size / 18);
-  lines.forEach((line, index) => {
-    const lineWidth = widths[index], offset = options.alignment === 'center' ? (bodyWidth - lineWidth) / 2 : options.alignment === 'right' ? bodyWidth - lineWidth : 0;
-    const x = padding + offset, y = padding + size + index * size * leading;
+  layoutLines.forEach(position => {
+    const line = position.text, lineWidth = position.width * 2, x = position.x * 2, y = position.y * 2;
     if (spacing === 0) context.fillText(line, x, y);
     else {
       let cursor = x;
@@ -110,7 +140,7 @@ export function createTextPng(text: string, color: string, fontSize: number, bol
       if (decoratedY !== null && lineWidth > 0) { context.beginPath(); context.moveTo(x, decoratedY); context.lineTo(x + lineWidth, decoratedY); context.stroke(); }
     }
   });
-  return { dataUrl: canvas.toDataURL('image/png'), width, height, lineCount: lines.length };
+  return { dataUrl: canvas.toDataURL('image/png'), width, height, lineCount: lines.length, requiredHeight: requiredPixels / 2, overflow, layoutLines };
 }
 
 function star(context: CanvasRenderingContext2D, cx: number, cy: number, radius: number) {

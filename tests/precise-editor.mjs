@@ -40,12 +40,19 @@ const require = name => {
   if (name === '../backend') return { isDesktop: () => true, errorMessage: error => error.message, backend: async (command, args) => { calls.push({ command, args }); return { id: 'registered', dataUrl: 'data:image/png;base64,AA==', width: 200, height: 100 }; } };
   if (name === '@tauri-apps/plugin-dialog') return {};
   if (name === './overlayCanvas') return canvas;
+  if (name === './components/overlayCanvas') return canvas;
+  if (name === '../textFrame') return textFrame;
+  if (name === '../placementGeometry') return placement;
+  if (name === './overlayGeometry') return geometry;
   if (name === './FontPicker') return { FontPicker: 'FontPicker' };
   if (name === '../overlayGeometry') return geometry;
   if (name === '../stampLibrary') return { loadStampLibrary: () => [], saveStampLibrary() {}, LibraryError: class extends Error {}, MAX_LIBRARY_ITEMS: 20 };
   if (name.endsWith('.css')) return {};
   throw new Error(`Unexpected import ${name}`);
 };
+const textFrame = {}, placement = {};
+vm.runInNewContext(await transpile('../src/textFrame.ts'), { exports: textFrame, require });
+vm.runInNewContext(await transpile('../src/placementGeometry.ts'), { exports: placement, require });
 const editorExports = {};
 vm.runInNewContext(await transpile('../src/components/OverlayEditor.tsx'), { exports: editorExports, require, window: { setTimeout: () => 1, clearTimeout() {} }, crypto: { randomUUID: () => `copy-${++nextId}` }, console, Error });
 const { OverlayEditor } = editorExports;
@@ -88,7 +95,7 @@ assert.ok(drawnFonts.some(args => args[0] === 'text' && args[5] === '仿宋'));
 assert.equal(errors.length, 0);
 // Locked/disabled page handles consume navigation/deletion rather than bubbling into page actions.
 const handleExports = {};
-vm.runInNewContext(await transpile('../src/components/OverlayHandles.tsx'), { exports: handleExports, require });
+vm.runInNewContext(await transpile('../src/components/OverlayHandles.tsx'), { exports: handleExports, require, cancelAnimationFrame() {} });
 for (const disabled of [false, true]) {
   const handleHost = hostFor();
   render(handleExports.OverlayHandles, { overlays: [{ ...props.overlays[0], locked: true }], onChange() { throw new Error('Locked handle changed content'); }, disabled, pageWidth: props.pageWidth, pageHeight: props.pageHeight }, handleHost);
