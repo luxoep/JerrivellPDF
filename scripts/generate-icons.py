@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reproduce Jerrivell PDF's original J/page mark with Python's standard library.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 No external images, font programs, SVG libraries, or network access are used.
 SVG and raster assets use the same manually authored geometry.
 Run with --check to verify every output byte without modifying any file.
@@ -67,7 +67,7 @@ def svg() -> bytes:
         paths.append(f'  <path fill="{fill}" d="{d}"/>')
     return ("\n".join([
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<!-- SPDX-License-Identifier: GPL-3.0-or-later; original Jerrivell PDF geometry. -->',
+        '<!-- SPDX-License-Identifier: MIT OR Apache-2.0; original Jerrivell PDF geometry. -->',
         '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">',
         '  <title id="title">Jerrivell PDF</title>',
         '  <desc id="desc">An ivory J-shaped page edge and two copper page lines on a rounded ink-blue tile.</desc>',

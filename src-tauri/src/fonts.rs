@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Enumerate installed Windows font family names without reading font files.
 //!
 //! Windows includes fonts available to this user in the screen DC enumeration.

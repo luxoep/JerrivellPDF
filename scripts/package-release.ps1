@@ -29,10 +29,10 @@ $taskArchive = [IO.Compression.ZipArchive]::new($taskZipStream, [IO.Compression.
 try {
     $taskFiles = @(
         '.gitattributes', '.gitignore', 'index.html', 'LICENSE', 'package.json', 'package-lock.json',
-        'README.md', 'rust-toolchain.toml', 'THIRD_PARTY_NOTICES.md', 'tsconfig.json', 'vite.config.ts',
+        'README.md', 'rust-toolchain.toml', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'tsconfig.json', 'vite.config.ts',
         '启动Jerrivell.cmd', '启动页澜.cmd', '启动AuraPdf.cmd', '启动开发版.cmd', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock',
         'fixtures/README.md', 'fixtures/sample.pdf', 'fixtures/second.pdf', 'fixtures/manifest.json',
-        'src-tauri/build.rs', 'src-tauri/tauri.conf.json'
+        'src-tauri/build.rs', 'src-tauri/tauri.conf.json', 'src-tauri/windows-hooks.nsh'
     )
     foreach ($taskFolder in @('src', 'docs', 'licenses', 'scripts', 'tests', 'tools', 'src-tauri/src', 'src-tauri/icons', 'src-tauri/capabilities')) {
         $taskFolderPath = Join-Path $taskRoot $taskFolder
@@ -50,7 +50,7 @@ $taskManifest = [ordered]@{
     product = 'Jerrivell PDF'
     version = $taskVersion
     platform = 'windows-x86_64'
-    license = 'GPL-3.0-or-later'
+    license = 'MIT OR Apache-2.0'
     createdAtUtc = [DateTime]::UtcNow.ToString('o')
     installer = [ordered]@{ file = [IO.Path]::GetFileName($taskInstaller); sha256 = Get-AuraSha256 $taskInstaller }
     source = [ordered]@{ file = [IO.Path]::GetFileName($taskSourceZip); sha256 = Get-AuraSha256 $taskSourceZip }
@@ -60,7 +60,7 @@ $taskManifest = [ordered]@{
     npmLockSha256 = Get-AuraSha256 (Join-Path $taskRoot 'package-lock.json')
     pdfium = Get-Content -LiteralPath (Join-Path $taskRoot 'src-tauri/resources/pdfium/aurapdf-runtime.json') -Raw | ConvertFrom-Json
     thirdPartySourceSupplement = $null
-    note = 'Unsigned development build. Project source archive excludes dependency caches and native binaries; pinned manifests and build instructions are included. The third-party source supplement covers the components listed in its manifest, not all potential Corresponding Source obligations.'
+    note = 'Unsigned development build. Project source archive excludes dependency caches and native binaries; pinned manifests and build instructions are included. The third-party source supplement covers the components listed in its manifest, upstream terms remain separate from the project MIT OR Apache-2.0 choice.'
 }
 $taskInstalledExe = Join-Path $taskRelease 'jerrivell-app/jerrivell-pdf.exe'
 if (Test-Path -LiteralPath $taskInstalledExe -PathType Leaf) {

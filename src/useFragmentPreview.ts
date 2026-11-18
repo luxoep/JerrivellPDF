@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useRef, useState } from 'react';
 import type { ImageAsset } from './types';
 import type { ImageSelection } from './imageGeometry';
-import { selectionOutline } from './imageGeometry';
+import { selectionOutline, selectionRegions } from './imageGeometry';
 
 /** Browser-only previews do not consume native assets or reopen PDFs per drag. */
 export function useFragmentPreview(source: ImageAsset | null, crop: ImageSelection | null, removeWhite: boolean, trim: boolean) {
@@ -23,14 +23,20 @@ export function useFragmentPreview(source: ImageAsset | null, crop: ImageSelecti
         const region = crop ?? { x: 0, y: 0, width: 1, height: 1 };
         const left = Math.min(source.width - 1, Math.floor(region.x * source.width)), top = Math.min(source.height - 1, Math.floor(region.y * source.height));
         const right = Math.max(left + 1, Math.min(source.width, Math.ceil((region.x + region.width) * source.width))), bottom = Math.max(top + 1, Math.min(source.height, Math.ceil((region.y + region.height) * source.height)));
-        const canvas = document.createElement('canvas'); canvas.width = right - left; canvas.height = bottom - top;
+        const scale = Math.min(1, 1024 / Math.max(right - left, bottom - top));
+        const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.ceil((right - left) * scale)); canvas.height = Math.max(1, Math.ceil((bottom - top) * scale));
         const context = canvas.getContext('2d', { willReadFrequently: true }); if (!context) throw new Error('CANVAS_UNAVAILABLE');
-        if (crop?.points) {
-          const points = selectionOutline(crop); context.beginPath();
-          points.forEach((point, n) => n ? context.lineTo(point.x * source.width - left, point.y * source.height - top) : context.moveTo(point.x * source.width - left, point.y * source.height - top));
-          context.closePath(); context.clip('evenodd');
+        context.drawImage(image, -left * scale, -top * scale, source.width * scale, source.height * scale);
+        if (crop?.points || crop?.regions) {
+          const mask = document.createElement('canvas'); mask.width = canvas.width; mask.height = canvas.height;
+          const maskContext = mask.getContext('2d'); if (!maskContext) throw new Error('CANVAS_UNAVAILABLE');
+          for (const region of selectionRegions(crop)) {
+            maskContext.beginPath();
+            selectionOutline(region).forEach((point,n) => n ? maskContext.lineTo((point.x * source.width - left) * scale, (point.y * source.height - top) * scale) : maskContext.moveTo((point.x * source.width - left) * scale, (point.y * source.height - top) * scale));
+            maskContext.closePath(); maskContext.fill('evenodd');
+          }
+          context.globalCompositeOperation = 'destination-in'; context.drawImage(mask, 0, 0); context.globalCompositeOperation = 'source-over';
         }
-        context.drawImage(image, -left, -top);
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
         let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
         for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {

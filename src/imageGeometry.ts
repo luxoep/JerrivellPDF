@@ -1,8 +1,28 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 export interface ImagePoint { x: number; y: number }
-export interface ImageSelection { x: number; y: number; width: number; height: number; points?: ImagePoint[] }
+export interface ImageSelection { x: number; y: number; width: number; height: number; points?: ImagePoint[]; regions?: ImageSelection[] }
 export type SelectionShape = 'rectangle' | 'ellipse' | 'polygon' | 'lasso';
-export interface EraseStroke { points: ImagePoint[]; width: number }
+export interface EraseStroke { points: ImagePoint[]; width: number; mode?: 'transparent' | 'repair' }
+export const MAX_IMAGE_REGIONS = 16;
+export const selectionRegions = (crop: ImageSelection | null): ImageSelection[] => crop ? crop.regions ?? [crop] : [];
+/** A union keeps the source-relative positions, including transparent gaps. */
+export function selectionUnion(input: ImageSelection[]): ImageSelection | null {
+  const regions = input.flatMap(selectionRegions);
+  if (!regions.length) return null;
+  if (regions.length > MAX_IMAGE_REGIONS) throw new Error('SELECTION_LIMIT');
+  if (regions.length === 1) return regions[0];
+  const x = Math.min(...regions.map(region => region.x)), y = Math.min(...regions.map(region => region.y));
+  return { x, y, width: Math.max(...regions.map(region => region.x + region.width)) - x, height: Math.max(...regions.map(region => region.y + region.height)) - y, regions };
+}
+export function transformSelection(crop: ImageSelection, box: Pick<ImageSelection, 'x' | 'y' | 'width' | 'height'>): ImageSelection {
+  const transform = (region: ImageSelection): ImageSelection => ({
+    x: box.x + (region.x - crop.x) * box.width / crop.width,
+    y: box.y + (region.y - crop.y) * box.height / crop.height,
+    width: region.width * box.width / crop.width, height: region.height * box.height / crop.height,
+    ...(region.points ? { points: region.points.map(point => ({ x: box.x + (point.x - crop.x) * box.width / crop.width, y: box.y + (point.y - crop.y) * box.height / crop.height })) } : {}),
+  });
+  return crop.regions ? { ...box, regions: crop.regions.map(transform) } : transform(crop);
+}
 export const imagePoint = (x: number, y: number): ImagePoint => ({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) });
 export function selectionOutline(crop: ImageSelection): ImagePoint[] {
   return crop.points ?? [{ x: crop.x, y: crop.y }, { x: crop.x + crop.width, y: crop.y }, { x: crop.x + crop.width, y: crop.y + crop.height }, { x: crop.x, y: crop.y + crop.height }];

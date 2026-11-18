@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 export type MarkTool = 'select' | 'highlight' | 'block' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'pen';
 export type LineStyle = 'solid' | 'dashed' | 'dashDot' | 'dashDotDot';
 export interface MarkPoint { x: number; y: number }

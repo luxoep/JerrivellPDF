@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Limited, real PDF page-object edits. Source documents are immutable; this
 //! module only changes copied pages used by preview, save and printing.
 //! Public API references: PDFium public/fpdf_edit.h and public/fpdf_text.h.

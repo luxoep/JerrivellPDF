@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -179,6 +179,7 @@ const thumbnailModule = load('../src/components/PageThumbnails.tsx', {
     if (name === 'react/jsx-runtime') return jsx;
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
     if (name === '../usePageLayers' || name === './LivePageImage') return {};
+    if (name === '../viewerGeometry') return view;
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
     throw new Error(name);
   },
@@ -186,17 +187,17 @@ const thumbnailModule = load('../src/components/PageThumbnails.tsx', {
   requestAnimationFrame: handler => { rafCallback = handler; return 1; }, cancelAnimationFrame() {},
 });
 const sortHost = { cursor: 0, slots: [], effects: [] };
-const pane = { scrollTop: 0, getBoundingClientRect: () => ({ left: 100, right: 350, top: 100, bottom: 750, height: 650 }), querySelectorAll: () => pages.map((page, index) => ({ dataset: { thumbnailId: page.id }, getBoundingClientRect: () => ({ top: 110 + index * 120 - pane.scrollTop, bottom: 220 + index * 120 - pane.scrollTop, height: 110 }) })) };
+const pane = { clientHeight:650, scrollTop: 0, getBoundingClientRect: () => ({ left: 100, right: 350, top: 100, bottom: 750, height: 650 }), querySelectorAll: () => pages.map((page, index) => ({ dataset: { thumbnailId: page.id }, getBoundingClientRect: () => ({ top: 110 + index * 120 - pane.scrollTop, bottom: 220 + index * 120 - pane.scrollTop, height: 110 }) })) };
 const sortProps = { pages, activeId: 'a', selection: new Set(['a', 'c']), busy: false, onSelect() {}, onToggle() {}, onAdd() {}, onReorder: (...args) => moves.push(args) };
 function renderSort() { currentHost = sortHost; sortHost.cursor = 0; sortHost.effects = []; const tree = thumbnailModule.PageThumbnails(sortProps); tree.props.ref.current = pane; for (const effect of sortHost.effects) effect(); return tree; }
 let sortTree = renderSort();
-const sortGesture = () => sortTree.props.children[0][0].props.gesture;
+const sortGesture = () => sortTree.props.children[0].props.children[0][0].props.gesture;
 sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 152)); sortGesture().finish(event(180, 152)); sortTree = renderSort();
 assert.equal(moves.length, 0, 'A click must not start page sorting');
 assert.equal(sortGesture().suppressClick(), false);
-sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 450)); sortTree = renderSort();
-assert.equal(sortTree.props.children[0][0].props.dragged, true); assert.equal(sortTree.props.children[0][2].props.dragged, true, 'Selected pages move together');
-sortGesture().finish(event(180, 450)); sortTree = renderSort();
+sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 670)); sortTree = renderSort();
+assert.equal(sortTree.props.children[0].props.children[0][0].props.dragged, true); assert.equal(sortTree.props.children[0].props.children[0][2].props.dragged, true, 'Selected pages move together');
+sortGesture().finish(event(180, 670)); sortTree = renderSort();
 assert.deepEqual(Array.from(moves[0]), ['a', 'c', 'after']); assert.equal(sortGesture().suppressClick(), true, 'The synthetic click after a drag must not reset selection');
 sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 600)); sortGesture().finish(event(180, 600), true); sortTree = renderSort();
 assert.equal(moves.length, 1, 'Pointer cancellation must leave page order unchanged');

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { previewImageAsset } from '../backend';
 import { visiblePageSize } from '../viewerGeometry';
 import type { ObjectPreviewLayers, PageOverlay, RenderedPageLayers, WorkspacePage } from '../types';

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Keep the native Windows caption aligned with the application's light header.
 
 use std::ffi::c_void;
@@ -39,9 +39,9 @@ pub fn match_app_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
 
     for (attribute, value) in [
         (DWMWA_USE_IMMERSIVE_DARK_MODE, 0_u32),
-        (DWMWA_CAPTION_COLOR, color_ref(255, 255, 255)), // .app-header #ffffff
-        (DWMWA_TEXT_COLOR, color_ref(36, 43, 62)),       // app text #242b3e
-        (DWMWA_BORDER_COLOR, color_ref(232, 234, 240)),  // --border #e8eaf0
+        (DWMWA_CAPTION_COLOR, color_ref(255, 253, 246)), // .app-header #ffffff
+        (DWMWA_TEXT_COLOR, color_ref(43, 64, 83)),       // app text #242b3e
+        (DWMWA_BORDER_COLOR, color_ref(219, 211, 192)),  // --border #e8eaf0
     ] {
         // SAFETY: hwnd comes from this live Tauri window. DWM synchronously
         // reads a correctly sized 32-bit BOOL/COLORREF from value; it retains

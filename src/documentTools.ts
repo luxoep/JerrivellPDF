@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { parsePageRange } from './pageRanges';
 import type { PageDecoration, WorkspacePage } from './types';
 import type { ContentBounds, ContentObject } from './originalContent';

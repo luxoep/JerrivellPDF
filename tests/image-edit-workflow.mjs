@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Real UI state/events -> real asset bridge -> native PDFium -> save/reopen.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -37,7 +37,7 @@ const originalEditor=await load('src/components/OriginalContentEditor.tsx',name=
 const label=node=>node==null||typeof node==='boolean'?'':typeof node==='string'||typeof node==='number'?String(node):Array.isArray(node)?node.map(label).join(''):label(node.props?.children);
 function find(node,predicate,result=[]){if(!node||typeof node!=='object')return result;if(Array.isArray(node)){for(const value of node)find(value,predicate,result);return result;}if(predicate(node))result.push(node);find(node.props?.children,predicate,result);return result;}
 function harness(Component,props){const state={cursor:0,slots:[],effects:[],pending:[],tree:null};return{state,render(){host=state;state.cursor=0;state.pending=[];state.tree=Component(props);for(const effect of state.pending)effect();return state.tree;},button(name){const nodes=find(state.tree,node=>node.type==='button'&&(label(node).trim()===name||node.props['aria-label']===name));assert.equal(nodes.length,1,`button ${name}`);return nodes[0];},cleanup(){for(const effect of state.effects)effect?.cleanup?.();}};}
-function png(){const width=160,height=120,scan=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*(width*4+1)+1+x*4;scan.set(x<80?[210,35,69,255]:[54,188,120,255],i);}function chunk(type,data){const tag=Buffer.from(type),body=Buffer.concat([tag,data]);let crc=0xffffffff;for(const byte of body){crc^=byte;for(let n=0;n<8;n++)crc=crc>>>1^(crc&1?0xedb88320:0);}const size=Buffer.alloc(4),sum=Buffer.alloc(4);size.writeUInt32BE(data.length);sum.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([size,body,sum]);}const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(scan)),chunk('IEND',Buffer.alloc(0))]);}
+function png(withInk=false){const width=160,height=120,scan=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*(width*4+1)+1+x*4;scan.set(withInk&&x>=18&&x<34&&y>=18&&y<34?[0,0,0,255]:x<80?[210,35,69,255]:[54,188,120,255],i);}function chunk(type,data){const tag=Buffer.from(type),body=Buffer.concat([tag,data]);let crc=0xffffffff;for(const byte of body){crc^=byte;for(let n=0;n<8;n++)crc=crc>>>1^(crc&1?0xedb88320:0);}const size=Buffer.alloc(4),sum=Buffer.alloc(4);size.writeUInt32BE(data.length);sum.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([size,body,sum]);}const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(scan)),chunk('IEND',Buffer.alloc(0))]);}
 const hash=value=>createHash('sha256').update(value).digest('hex');
 async function save(plan,name){const path=join(output,name),before=await api.renderPage(plan,800);const report=await api.backend('prepare_export',{parts:[{name,pages:[api.pageReference(plan)]}]},3);assert.equal((await api.backend('save_prepared_export',{token:report.token,paths:[path]},3)).failed,0);const reopened=await api.backend('open_document',{path}),ref={documentId:reopened.id,pageIndex:0,rotation:0};assert.equal(hash((await api.renderPage(ref,800)).dataUrl),hash(before.dataUrl),'Saved pixels match the actual export preview');return{reopened,ref};}
 async function exportPng(asset,name){await api.backend('export_image',{assetId:asset.id,outputPath:join(output,name)});}
@@ -50,6 +50,7 @@ try{
  const ui=harness(editor.ImageEditDialog,{image:asset,title:'Original synthetic image',onApply:image=>applied.push(image),onClose:()=>closed++,onBusyChange:value=>busy.push(value)});ui.render();
  find(ui.state.tree,node=>node.type==='RegionSelection')[0].props.onChange(crop);ui.render();
  ui.button('Eraser').props.onClick();ui.render();
+ find(ui.state.tree,node=>node.type==='select'&&node.props['aria-label']==='Erase mode')[0].props.onChange({target:{value:'transparent'}});ui.render();
  const surface={getBoundingClientRect:()=>({left:0,top:0,width:160,height:120}),setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
  const point=(x,y)=>({button:0,pointerId:1,clientX:x,clientY:y,currentTarget:surface,preventDefault(){}});
  let svg=find(ui.state.tree,node=>node.props.className==='pixel-erase-surface')[0];const before=calls.length;
@@ -69,6 +70,29 @@ try{
  await save({...page,...saved.ref,contentEdits:originalProps.contentEdits,overlays:[]},'edited-original.pdf');original.cleanup();
  const polygon=await api.backend('import_pdf_stamp',{path:join(root,'fixtures/second.pdf'),pageIndex:0,crop:{x:0,y:0,width:1,height:1,points:crop.points},removeWhiteBackground:false,trimTransparentMargins:false});await exportPng(polygon,'pdf-polygon.png');
  await assert.rejects(api.backend('import_pdf_stamp',{path:join(root,'fixtures/second.pdf'),pageIndex:0,crop:{...crop,points:[{x:NaN,y:0}]},removeWhiteBackground:false,trimTransparentMargins:false}));
+ const multiCrop=geometry.selectionUnion([{x:0,y:0,width:.35,height:.3},{x:.65,y:.65,width:.35,height:.35}]);
+ const multiImage=await api.backend('edit_image_asset',{assetId:asset.id,crop:multiCrop,strokes:[]});await exportPng(multiImage,'multi-regions.png');
+ await save({...page,overlays:[{id:'multi',assetId:multiImage.id,x:.1,y:.1,width:.4,height:.3,opacity:1}]},'multi-regions.pdf');
+ const pdfMulti=await api.backend('import_pdf_stamp',{path:join(root,'fixtures/second.pdf'),pageIndex:0,crop:geometry.selectionUnion([{x:.1,y:.1,width:.3,height:.2},{x:.65,y:.55,width:.2,height:.25}]),removeWhiteBackground:false,trimTransparentMargins:false});await exportPng(pdfMulti,'pdf-multi-regions.png');
+ const ink=await api.backend('register_image',{dataUrl:'data:image/png;base64,'+png(true).toString('base64')});await exportPng(ink,'repair-source.png');
+ const repaired=[],repairUi=harness(editor.ImageEditDialog,{image:ink,title:'Ink on colored paper',onApply:value=>repaired.push(value),onClose(){},onBusyChange:value=>busy.push(value)});repairUi.render();repairUi.button('Eraser').props.onClick();repairUi.render();
+ assert.equal(find(repairUi.state.tree,node=>node.type==='select'&&node.props['aria-label']==='Erase mode')[0].props.value,'repair');
+ let repairSurface=find(repairUi.state.tree,node=>node.props.className==='pixel-erase-surface')[0],repairCalls=calls.length;
+ repairSurface.props.onPointerDown(point(26,26));repairSurface.props.onPointerMove(point(26,26));assert.equal(calls.length,repairCalls);repairSurface.props.onPointerUp(point(26,26));repairUi.render();assert.equal(repairUi.button('Apply edits').props.disabled,true);
+ for(let n=0;n<1000&&repairUi.button('Apply edits').props.disabled;n++){await new Promise(resolve=>setTimeout(resolve,5));repairUi.render();}
+ assert.equal(repairUi.button('Apply edits').props.disabled,false,'Native background repair preview becomes ready');
+ let repairPreview=find(repairUi.state.tree,node=>node.type==='image')[0].props.href;
+ await writeFile(join(output,'repair-preview.png'),Buffer.from(repairPreview.split(',')[1],'base64'));
+ // Mixed repair + transparency must use a fresh exact preview and retain alpha semantics.
+ find(repairUi.state.tree,node=>node.type==='select'&&node.props['aria-label']==='Erase mode')[0].props.onChange({target:{value:'transparent'}});repairUi.render();
+ repairSurface=find(repairUi.state.tree,node=>node.props.className==='pixel-erase-surface')[0];repairCalls=calls.length;repairSurface.props.onPointerDown(point(135,98));repairSurface.props.onPointerMove(point(135,98));assert.equal(calls.length,repairCalls);repairSurface.props.onPointerUp(point(135,98));repairUi.render();
+ for(let n=0;n<1000&&repairUi.button('Apply edits').props.disabled;n++){await new Promise(resolve=>setTimeout(resolve,5));repairUi.render();}
+ assert.equal(repairUi.button('Apply edits').props.disabled,false);repairPreview=find(repairUi.state.tree,node=>node.type==='image')[0].props.href;
+ await writeFile(join(output,'mixed-repair-preview.png'),Buffer.from(repairPreview.split(',')[1],'base64'));
+ for(let n=0;n<65;n++){const transient=await api.backend('preview_image_edit',{assetId:ink.id,crop:null,strokes:[{points:[{x:.1625,y:26/120}],width:24,mode:'repair'}]});assert.ok(!('id' in transient),'Preview responses cannot masquerade as persistent assets');}
+ repairUi.button('Apply edits').props.onClick();for(let n=0;n<1000&&!repaired.length;n++)await new Promise(resolve=>setTimeout(resolve,5));assert.equal(repaired.length,1);await exportPng(repaired[0],'mixed-repair-result.png');
+ assert.equal(hash(Buffer.from(repairPreview.split(',')[1],'base64')),hash(Buffer.from(repaired[0].dataUrl.split(',')[1],'base64')),'Repair preview and applied native pixels use the same algorithm');
+ await save({...page,overlays:[{id:'repair',assetId:repaired[0].id,x:.1,y:.1,width:.4,height:.3,opacity:1}]},'mixed-repair.pdf');repairUi.cleanup();
  const text=(await api.backend('inspect_page_content',{page:api.pageReference(page)})).objects.find(o=>o.kind==='text'&&o.editable);assert.ok(text);
  const layers=await api.backend('render_object_layers',{page:api.pageReference(page),objectIndex:text.objectIndex,fingerprint:text.fingerprint,targetWidth:800});
  const imageFiles={};for(const name of ['lower','moving','upper']){const file=`object-${name}.png`;await writeFile(join(output,file),Buffer.from(layers[name].dataUrl.split(',')[1],'base64'));imageFiles[name]=file;}
@@ -82,6 +106,6 @@ try{
  const raster=await api.backend('rasterize_page_asset',{page:api.pageReference(plan)});assert.ok(api.previewImageAsset(raster.id));assert.ok(Math.max(raster.width,raster.height)<=2400);
  const blank=await api.backend('generate_pages',{request:{kind:'blank',width:595,height:842,count:1}});await save({...page,documentId:blank.id,overlays:[{id:'raster',assetId:raster.id,x:0,y:0,width:1,height:1,opacity:1}]},'explicit-raster-page.pdf');
  assert.equal(hash(await readFile(join(root,'fixtures/sample.pdf'))),sourceHash);
- const result={status:'PASS',executable:exe,output,realImageEditor:true,realOriginalImageEditor:true,concaveCrop:true,transparentEraser:true,zeroNativeCallsDuringGestures:true,workspaceUndoUsesNewAsset:true,sourceUnchanged:true,savedReopenedPixelsMatch:true,originalObjectPreviewMoves:20,originalObjectLayerCalls:1,explicitPageRaster:true,foreground:layers.foreground.map(layer=>layer.blendMode)};
+ const result={status:'PASS',executable:exe,output,realImageEditor:true,realOriginalImageEditor:true,concaveCrop:true,multiRegionImageAndPdf:true,transparentEraser:true,defaultBackgroundRepair:true,mixedRepairAndTransparency:true,repairPreviewMatchesApplied:true,transientRepairPreviews:65,zeroNativeCallsDuringGestures:true,workspaceUndoUsesNewAsset:true,sourceUnchanged:true,savedReopenedPixelsMatch:true,originalObjectPreviewMoves:20,originalObjectLayerCalls:1,explicitPageRaster:true,foreground:layers.foreground.map(layer=>layer.blendMode)};
  await writeFile(join(output,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 }finally{child.stdin.end();child.kill();lines.close();}

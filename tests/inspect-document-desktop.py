@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Inspect the documented 0.6 desktop workflow, independently of PDFium.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Requires pypdf; run after the manual desktop scenario in docs/验证记录.md.
 """
 from pathlib import Path

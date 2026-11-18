@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { sourceDigest, digest, executable, library, installer, gatePath, version } from './release-checks.mjs';
@@ -6,6 +6,9 @@ import { sourceDigest, digest, executable, library, installer, gatePath, version
 try {
   const gate = JSON.parse(await readFile(gatePath, 'utf8'));
   assert.equal(gate.status, 'PASS'); assert.equal(gate.version, version);
+  assert.equal(gate.licensePolicy?.status, 'PASS', 'Missing license policy verification');
+  assert.equal(gate.licensePolicy.ownLicense, 'MIT OR Apache-2.0');
+  assert.equal(await digest(`test-results/${version}/license-policy.json`), gate.licensePolicy.reportSha256, 'License policy report changed');
   assert.equal(await sourceDigest(), gate.sourceSha256, 'Source/checks/resources changed after verification');
   assert.equal(await digest(executable), gate.executableSha256, 'Executable changed after verification');
   assert.equal(await digest(installer), gate.installerSha256, 'Installer changed after verification');

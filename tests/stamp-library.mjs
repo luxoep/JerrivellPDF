@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Exercise actual bounded storage code; no PDF or desktop IPC is mocked here.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

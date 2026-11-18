@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -56,6 +56,10 @@ for (const command of ['register_image','import_image','import_pdf_stamp','edit_
 }
 const thumbnail=backend.backend('preview_image');next('preview_image').resolve({dataUrl:asset.dataUrl,width:1200,height:800,thumbnailWidth:600,thumbnailHeight:400});await thumbnail;
 const badThumbnail=assert.rejects(backend.backend('preview_image'),/BACKEND_RESPONSE_INVALID/);next('preview_image').resolve({image:asset});await badThumbnail;
+const repairPreview=backend.backend('preview_image_edit');next('preview_image_edit').resolve({dataUrl:asset.dataUrl,width:30,height:20});await repairPreview;
+for(const response of [{image:asset},{dataUrl:'wrong',width:30,height:20},{dataUrl:asset.dataUrl,width:NaN,height:20}]) {
+  const invalidRepair=assert.rejects(backend.backend('preview_image_edit'),/BACKEND_RESPONSE_INVALID/);next('preview_image_edit').resolve(response);await invalidRepair;
+}
 const future=backend.backend('future_asset_producer');next('future_asset_producer').resolve({...asset,id:'future'});await future;
 assert.ok(backend.previewImageAsset('future'),'Valid asset-shaped responses are recognized without a command-specific cache branch');
 const failedStage = backend.stageImageAsset('data:image/png;base64,will-fail');

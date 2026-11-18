@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Independently inspect the documented 0.6.1 desktop marking scenario.
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Requires pypdf for verification only.
 """
 from pathlib import Path

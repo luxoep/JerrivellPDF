@@ -1,5 +1,5 @@
 """Independent checks for opt-in Microsoft Print to PDF verification outputs."""
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT OR Apache-2.0
 from pathlib import Path
 import json
 import shutil

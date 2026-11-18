@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Check, CircleAlert, Copy, FileText, ImagePlus, LoaderCircle, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # Match @tauri-apps/cli 2.12.4's official NSIS toolchain without using mirrors.
 [CmdletBinding()]
 param([string]$ToolsDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'tauri'))

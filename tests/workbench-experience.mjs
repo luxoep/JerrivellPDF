@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
@@ -37,11 +37,8 @@ const pages=Array.from({length:3},(_,n)=>({id:`p${n}`,documentId:'doc',pageIndex
 let current=pages[0];const hook=harness(()=>tool.useToolImage(current),{});let result=hook.render();assert.equal(result.image,null);runTimers();requests.shift().resolve({dataUrl:'first',width:1000,height:1415});await flush();result=hook.render();assert.equal(result.image.dataUrl,'first');
 current={...current,decorations:[{text:'new'}]};result=hook.render();assert.equal(result.image.dataUrl,'first','Parameter changes retain the old decoded preview');assert.equal(result.pending,true);runTimers();requests.shift().resolve({dataUrl:'second',width:1000,height:1415});await flush();result=hook.render();assert.equal(result.image.dataUrl,'second');
 current=pages[1];result=hook.render();assert.equal(result.image,null,'Source changes cannot display another page');current=pages[0];result=hook.render();assert.equal(result.image.dataUrl,'first','Previously decoded pages are available immediately when revisited');assert.equal(timers.size,0);hook.cleanup();
-const ready=[],previewProps={tab:'blank',pages,targets:[pages[0]],insertAt:1,count:2,copies:1,width:595,height:842,imagePaths:[],imagePaper:'a4',margin:20,parts:[],splitError:'',crop:{x:.1,y:.1,width:.8,height:.8},onCrop(){},working:false,onReady:value=>ready.push(value)};
-const preview=harness(tool.PageToolPreview,previewProps);tree=preview.render();assert.ok(label(tree).includes('5 pages total'));assert.equal(walk(tree,node=>node.props.className==='dt-tool-page').length,1,'Blank pages show real paper geometry');
-previewProps.count=4;tree=preview.render();assert.ok(label(tree).includes('7 pages total'));assert.equal(requests.length,0,'Changing blank paper creates no native preview calls');
-previewProps.tab='duplicate';tree=preview.render();runTimers();requests.shift().resolve({dataUrl:'duplicate',width:1000,height:1415});await flush();tree=preview.render();assert.equal(walk(tree,node=>node.type==='img')[0].props.src,'duplicate');
-previewProps.copies=3;tree=preview.render();assert.ok(label(tree).includes('6 pages total'));assert.equal(walk(tree,node=>node.type==='img')[0].props.src,'duplicate');assert.equal(requests.length,0);
+const ready=[],previewProps={tab:'number',pages,targets:[pages[0]],insertAt:1,imagePaths:[],imagePaper:'a4',margin:20,parts:[],splitError:'',crop:{x:.1,y:.1,width:.8,height:.8},onCrop(){},working:false,onReady:value=>ready.push(value)};
+const preview=harness(tool.PageToolPreview,previewProps);tree=preview.render();runTimers();requests.shift().resolve({dataUrl:'numbered',width:1000,height:1415});await flush();tree=preview.render();assert.equal(walk(tree,node=>node.type==='img')[0].props.src,'numbered');
 previewProps.tab='split';previewProps.parts=[{name:'first.pdf',pages:[pages[0],pages[2]]},{name:'second.pdf',pages:[pages[1]]}];tree=preview.render();assert.ok(label(tree).includes('first.pdf'));walk(tree,node=>node.type==='button'&&label(node).includes('second.pdf'))[0].props.onClick();tree=preview.render();assert.ok(label(tree).includes('Source page 2'));runTimers();requests.shift().resolve({dataUrl:'split',width:1000,height:1415});await flush();preview.render();
 previewProps.tab='images';previewProps.imagePaths=['one.png'];tree=preview.render();await flush();tree=preview.render();const image=walk(tree,node=>node.type==='image')[0];assert.ok(image.props.href.endsWith('one.png'));const paper=walk(tree,node=>node.type==='svg')[0];assert.ok(paper.props.viewBox.startsWith('0 0 841.89'),'Landscape images choose landscape paper');
 previewProps.margin=40;tree=preview.render();assert.ok(walk(tree,node=>node.type==='image')[0].props.width<image.props.width,'Margins affect preview scaling in place');preview.cleanup();

@@ -304,8 +304,8 @@ impl<'a> PdfEngine<'a> {
                 .map_err(pdf_error)?
                 .into_rgba8();
             if let Some(rect) = crop {
-                if !rect.points.is_empty() {
-                    super::image_edit::polygon_mask(&mut pixels, &rect.points);
+                if !rect.points.is_empty() || !rect.regions.is_empty() {
+                    super::image_edit::crop_mask(&mut pixels, rect);
                 }
                 // The full-page bitmap is already in the page's final displayed
                 // orientation, so normalized top-left selection needs no PDF-axis guess.

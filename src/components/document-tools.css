@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
 .dt-backdrop{position:fixed;inset:0;z-index:150;background:#151a2b60;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:25px;color:#545065}
 .dt-modal{width:1160px;max-width:calc(100vw - 50px);max-height:calc(100vh - 70px);background:#fff;border:1px solid #e8e2f0;border-radius:13px;box-shadow:0 20px 80px #151b3533;display:flex;flex-direction:column;overflow:hidden;font-size:12px}
 .dt-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 23px 17px;border-bottom:1px solid #ece7f2;flex:none}
@@ -18,6 +18,10 @@
 @media(max-width:1120px){.dt-backdrop{padding:15px}.dt-modal{max-width:calc(100vw - 30px)}.export-body{grid-template-columns:190px minmax(180px,1fr) 220px}.line-editor-body{grid-template-columns:175px 255px minmax(190px,1fr)}.page-tools-body{grid-template-columns:330px minmax(200px,1fr)}.dt-tabs button{padding:8px}.export-summary{gap:14px}}
 
 /* 0.7: large, stable previews for every page operation. */
+.export-order-window>li:not([role=presentation]){box-sizing:border-box;padding-bottom:4px}
+.export-order-window>li:not([role=presentation])>button{height:60px;box-sizing:border-box;align-items:center;overflow:hidden}
+.export-order-window>li>button>span{min-width:0;flex:1}
+.export-source-name,.export-order-window small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .page-tools-modal{width:1480px;width:min(1480px,96vw);height:92vh;max-height:calc(100vh - 28px)}
 .page-tools-modal .page-tools-body{height:auto;grid-template-columns:310px minmax(260px,1fr)}
 .tool-preview-workspace{display:flex;flex-direction:column;min-width:0;min-height:0;padding:16px 22px;background:#f1f0f6;overflow:hidden}

@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef, useState } from 'react';
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { Check, ChevronLeft, ChevronRight, CircleAlert, Download, LoaderCircle, X } from 'lucide-react';
 import { backend, errorMessage, pageReference, renderPage } from '../backend';
@@ -23,17 +23,41 @@ export function ExportDialog({ parts, onClose, onSaved, onBusyChange }: {
   const alive = useRef(true), pending = useRef(false), token = useRef('');
   const callbacks = useRef({ onClose, onSaved, onBusyChange }); callbacks.current = { onClose, onSaved, onBusyChange };
   const root = useRef<HTMLDivElement>(null);
-  const planKey = JSON.stringify(parts.map(part => ({ name: part.name, pages: part.pages.map(pageReference) })));
+  // Workspace/export plans are immutable. Moving the preview cursor must not
+  // serialize thousands of unchanged page references again.
+  const nativeParts = useMemo(() => parts.map(part => ({ name: part.name, pages: part.pages.map(pageReference) })), [parts]);
+  const planKey = useMemo(() => JSON.stringify(nativeParts), [nativeParts]);
   const currentPart = parts[partIndex] ?? parts[0];
   const index = Math.min(pageIndex, Math.max(0, currentPart.pages.length - 1));
   const page = currentPart.pages[index];
+  const order = useRef<HTMLOListElement>(null);
+  const [orderView, setOrderView] = useState({ top: 0, height: 380 });
+  const rowHeight = 64;
+  const orderStart = Math.max(0, Math.min(currentPart.pages.length - 1, Math.floor(orderView.top / rowHeight) - 4));
+  const orderEnd = Math.min(currentPart.pages.length, Math.ceil((orderView.top + orderView.height) / rowHeight) + 4);
+  useEffect(() => {
+    const surface = order.current;
+    if (!surface || typeof ResizeObserver === 'undefined') return;
+    const update = () => setOrderView(previous => ({ top: surface.scrollTop, height: surface.clientHeight || previous.height }));
+    const observer = new ResizeObserver(update); observer.observe(surface); update();
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const surface = order.current;
+    if (!surface) return;
+    const height = surface.clientHeight || orderView.height, top = index * rowHeight;
+    if (top < surface.scrollTop || top + rowHeight > surface.scrollTop + height) {
+      surface.scrollTop = Math.max(0, top - Math.max(0, (height - rowHeight) / 2));
+      setOrderView(previous => ({ ...previous, top: surface.scrollTop }));
+    }
+  }, [index, partIndex, currentPart.pages.length]);
   useEffect(() => {
     alive.current = true; root.current?.querySelector<HTMLButtonElement>('[data-export-close]')?.focus();
     return () => { alive.current = false; };
   }, []);
   useEffect(() => {
     let disposed = false; setPreparing(true); setReport(null); setError(''); callbacks.current.onBusyChange(true);
-    void backend<ExportReport>('prepare_export', { parts: parts.map(part => ({ name: part.name, pages: part.pages.map(pageReference) })) }, 3).then(value => {
+    void backend<ExportReport>('prepare_export', { parts: nativeParts }, 3).then(value => {
       if (disposed) { void backend('discard_export', { token: value.token }, 3).catch(() => {}); return; }
       token.current = value.token; setReport(value);
     }).catch(reason => { if (!disposed) setError(errorMessage(reason)); }).finally(() => { if (!disposed) { setPreparing(false); callbacks.current.onBusyChange(false); } });
@@ -80,7 +104,14 @@ export function ExportDialog({ parts, onClose, onSaved, onBusyChange }: {
     <div className="export-summary"><span>{t('文件', 'Files')}<b>{parts.length}</b></span><span>{t('总页数', 'Total pages')}<b>{parts.reduce((count, part) => count + part.pages.length, 0)}</b></span><span>{t('预计总大小', 'Estimated total size')}<b>{report ? size(report.totalBytes) : '—'}</b></span><p>{preparing ? <><LoaderCircle size={14} className="spin"/>{t('正在生成临时输出并检查…', 'Generating and checking temporary output…')}</> : t('大小来自当前方案的实际序列化；确认后写入这一份结果。', 'Size comes from the actual serialized plan. Confirmation writes these exact bytes.')}</p></div>
     <div className="export-body"><aside className="export-order"><label>{t('输出文件', 'Output file')}<select value={partIndex} disabled={writing} onChange={event => { setPartIndex(Number(event.target.value)); setPageIndex(0); }}>{parts.map((part, index) => <option key={index} value={index}>{index + 1}. {part.name} ({part.pages.length})</option>)}</select></label>
       {report && <p className="dt-muted">{t('当前文件', 'This file')} · {size(report.outputs[partIndex]?.bytes ?? 0)}</p>}
-      <ol aria-label={t('输出页序', 'Output page order')}>{currentPart.pages.map((item, index) => <li key={`${item.id}-${index}`}><button className={index === pageIndex ? 'active' : ''} onClick={() => setPageIndex(index)}><b>{index + 1}</b><span>{item.sourceName}<small>{t(`来源第 ${item.pageIndex + 1} 页 · 旋转 ${item.rotation}°`, `Source page ${item.pageIndex + 1} · rotation ${item.rotation}°`)}</small></span></button></li>)}</ol>
+      <ol ref={order} className="export-order-window" aria-label={t('输出页序', 'Output page order')} onScroll={event => {
+        const top = event.currentTarget.scrollTop, height = event.currentTarget.clientHeight || orderView.height;
+        setOrderView(previous => Math.floor(previous.top / rowHeight) === Math.floor(top / rowHeight) && previous.height === height ? previous : { top, height });
+      }}>
+        {orderStart > 0 && <li role="presentation" aria-hidden="true" style={{ height: orderStart * rowHeight }}/>} 
+        {currentPart.pages.slice(orderStart, orderEnd).map((item, offset) => { const position = orderStart + offset; return <li key={`${item.id}-${position}`} aria-posinset={position + 1} aria-setsize={currentPart.pages.length} style={{ height: rowHeight }}><button className={position === index ? 'active' : ''} onClick={() => setPageIndex(position)} aria-current={position === index ? 'page' : undefined}><b>{position + 1}</b><span title={item.sourceName}><span className="export-source-name">{item.sourceName}</span><small>{t(`来源第 ${item.pageIndex + 1} 页 · 旋转 ${item.rotation}°`, `Source page ${item.pageIndex + 1} · rotation ${item.rotation}°`)}</small></span></button></li>; })}
+        {orderEnd < currentPart.pages.length && <li role="presentation" aria-hidden="true" style={{ height: (currentPart.pages.length - orderEnd) * rowHeight }}/>} 
+      </ol>
     </aside><section className="export-preview"><div className="dt-preview-image">{image ? <img src={image.dataUrl} alt={t('当前导出页面预览', 'Export page preview')}/> : imageError ? <p className="dt-error">{imageError}</p> : <LoaderCircle size={25} className="spin"/>}</div><div className="dt-page-nav"><button disabled={index === 0} onClick={() => setPageIndex(index - 1)} aria-label={t('预览上一页', 'Preview previous page')}><ChevronLeft size={16}/></button><span>{index + 1} / {currentPart.pages.length}</span><button disabled={index >= currentPart.pages.length - 1} onClick={() => setPageIndex(index + 1)} aria-label={t('预览下一页', 'Preview next page')}><ChevronRight size={16}/></button></div></section>
     <aside className="export-risks"><h3><CircleAlert size={16}/>{t('可能丢失或改变的结构', 'Structures that may change')}</h3>{report && <p className="dt-muted">{t(`来源 ${report.structures.sourceCount} 份，书签 ${report.structures.bookmarks}，附件 ${report.structures.attachments}，签名 ${report.structures.signatures}，所选页批注/链接 ${report.structures.annotationsAndLinks}。`, `${report.structures.sourceCount} sources; ${report.structures.bookmarks} bookmarks; ${report.structures.attachments} attachments; ${report.structures.signatures} signatures; ${report.structures.annotationsAndLinks} page annotations/links.`)}</p>}<ul>{riskLabels.map((risk, index) => <li key={index}>{risk}</li>)}</ul><p className="dt-muted">{t('检查计数用于风险提示，不是 PDF 完整性认证。原文件保持不变。', 'Counts help identify risks and do not certify complete PDF preservation. Source files remain unchanged.')}</p></aside></div>
     {error && <div className="dt-error" role="alert">{error}</div>}{result && <ul className="dt-results">{result.results.map(item => <li key={item.path}>{item.success ? <Check size={13}/> : <CircleAlert size={13}/>}<span>{item.path}{item.error && ` · ${item.error}`}</span></li>)}</ul>}

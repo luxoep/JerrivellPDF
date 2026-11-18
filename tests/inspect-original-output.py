@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent pypdf/Poppler/Pillow checks of original-worker.mjs outputs.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Uses the inspection dependencies only; they are not app dependencies.
 """
 import hashlib

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -46,11 +46,12 @@ const jsx = { jsx: (type, props, key) => ({ type, props, key }), jsxs: (type, pr
 const text = node => node == null || node === false ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(text).join('') : text(node.props?.children);
 function walk(node, predicate, result = []) { if (!node || typeof node !== 'object') return result; if (Array.isArray(node)) { node.forEach(child => walk(child, predicate, result)); return result; } if (predicate(node)) result.push(node); walk(node.props?.children, predicate, result); return result; }
 const calls = [], busy = [], saved = [], generated = [], applied = [];
+let referenceCalls = 0;
 let reportResolve, responseMode = 'normal';
 const image = { dataUrl: 'data:image/png;base64,fixture', width: 600, height: 800 };
 const report = { token: 'export-reviewed', outputs: [{ name: 'review.pdf', pageCount: 2, bytes: 12345 }], totalBytes: 12345, pageCount: 2, structures: { sourceCount: 1, annotationsAndLinks: 1, bookmarks: 1, attachments: 0, signatures: 1, forms: false, protected: false }, risks: [] };
 const backend = {
-  pageReference: value => ({ documentId: value.documentId, pageIndex: value.pageIndex, rotation: value.rotation, ...(value.decorations?.length ? { decorations: value.decorations } : {}) }), errorMessage: error => error.message, renderPage: async () => image,
+  pageReference: value => (referenceCalls++, { documentId: value.documentId, pageIndex: value.pageIndex, rotation: value.rotation, ...(value.decorations?.length ? { decorations: value.decorations } : {}) }), errorMessage: error => error.message, renderPage: async () => image,
   async backend(command, args) {
     calls.push({ command, args });
     if (command === 'prepare_export') return new Promise(resolve => { reportResolve = resolve; });
@@ -95,6 +96,32 @@ review.button('Confirm export').props.onClick(); review.button('Confirm export')
 assert.equal(calls.filter(call => call.command === 'save_prepared_export').length, 1, 'Double-click cannot write twice');
 assert.equal(calls.find(call => call.command === 'save_prepared_export').args.token, 'export-reviewed'); assert.equal(saved.length, 1); review.cleanup();
 
+// A large output keeps the complete immutable export plan, but only mounts
+// nearby order entries. Preview navigation must not serialize all pages again.
+const largePages = Array.from({ length: 4992 }, (_, n) => ({ ...page(`many-${n}`, n % 156), documentId: `source-${Math.floor(n / 156)}`, sourceName: `A long source document name ${n}.pdf` }));
+const beforeReferences = referenceCalls;
+const largeReview = harness(ExportDialog, { parts: [{ name: 'large.pdf', pages: largePages }], onClose() {}, onSaved() {}, onBusyChange() {} });
+const largeRequest = calls.filter(call => call.command === 'prepare_export').at(-1);
+assert.equal(largeRequest.args.parts[0].pages.length, 4992, 'Native preflight still receives every page');
+assert.equal(largeRequest.args.parts[0].pages[4991].documentId, 'source-31');
+assert.equal(referenceCalls - beforeReferences, 4992, 'The native plan snapshot is built only once');
+const orderSurface = { scrollTop: 0, clientHeight: 380 };
+let orderList = largeReview.find(node => node.type === 'ol' && node.props.className === 'export-order-window')[0];
+orderList.props.ref.current = orderSurface;
+const mountedOrder = () => largeReview.find(node => node.type === 'li' && node.props['aria-posinset'] !== undefined);
+assert.ok(mountedOrder().length <= 15, '4992 pages must not mount 4992 order buttons');
+orderSurface.scrollTop = (4992 * 64) - 380;
+orderList.props.onScroll({ currentTarget: orderSurface }); largeReview.render();
+assert.equal(mountedOrder().at(-1).props['aria-posinset'], 4992);
+assert.equal(mountedOrder().at(-1).props['aria-setsize'], 4992);
+walk(mountedOrder().at(-1), node => node.type === 'button')[0].props.onClick(); largeReview.render();
+assert.ok(text(largeReview.find(node => node.props.className === 'dt-page-nav')[0]).includes('4992 / 4992'));
+largeReview.button('Preview previous page').props.onClick(); largeReview.render();
+assert.ok(text(largeReview.find(node => node.props.className === 'dt-page-nav')[0]).includes('4991 / 4992'));
+assert.equal(referenceCalls - beforeReferences, 4992, 'Scrolling/preview selection must not resnapshot the export plan');
+assert.equal(calls.filter(call => call.command === 'prepare_export').filter(call => call.args.parts[0].name === 'large.pdf').length, 1);
+largeReview.cleanup();
+
 const { TextLineEditor } = load('../src/components/TextLineEditor.tsx', { require });
 const lineEditor = harness(TextLineEditor, { page: pages[0], objects, loading: false, onClose() {}, onApplied: value => applied.push(value), onBusyChange: value => busy.push(value) });
 lineEditor.button('Generate comparison').props.onClick(); await settle(); lineEditor.render();
@@ -110,7 +137,10 @@ const { PageToolsDialog } = load('../src/components/PageToolsDialog.tsx', { requ
 let nativeBusy = false;
 const split = harness(PageToolsDialog, { pages, activeIndex: 0, selectedIds: new Set(), title: 'report.pdf', onClose() {}, onPlan() {}, onGenerated: (...args) => generated.push(args), onExport(parts) { assert.equal(nativeBusy, false, 'Split handoff must release the workspace busy guard'); assert.equal(parts.length, 7); }, onBusyChange(value) { nativeBusy = value; } });
 split.button('Split PDFs').props.onClick(); split.render(); split.button('Review split output').props.onClick(); await settle(); split.cleanup();
-const blank = harness(PageToolsDialog, { pages, activeIndex: 1, selectedIds: new Set(), title: 'report.pdf', onClose() {}, onPlan() {}, onGenerated: (...args) => generated.push(args), onExport() {}, onBusyChange() {} });
-blank.button('Apply to workspace').props.onClick(); await settle();
-assert.equal(generated.length, 1); assert.equal(generated[0][2], 2); assert.equal(calls.find(call => call.command === 'generate_pages').args.request.kind, 'blank'); blank.cleanup();
-console.log('PASS: stable text-line clustering and columns, immutable page copies/decorations, split limits and safe names, export preflight/exact-token write/double-submit, stale/overflow line previews and native apply, split modal handoff and blank-page insertion');
+const imagesDialog = harness(PageToolsDialog, { pages, activeIndex: 1, selectedIds: new Set(), title: 'report.pdf', onClose() {}, onPlan() {}, onGenerated: (...args) => generated.push(args), onExport() {}, onBusyChange() {} });
+assert.equal(imagesDialog.find(node => node.type === 'button' && ['Blank pages','Duplicate'].includes(text(node).trim())).length, 0, 'Main-page commands must not be duplicated in the batch dialog');
+imagesDialog.button('Choose images').props.onClick(); await settle(); imagesDialog.render();
+imagesDialog.button('Apply to workspace').props.onClick(); await settle();
+assert.equal(generated.length, 1); assert.equal(generated[0][2], 2); assert.equal(calls.find(call => call.command === 'generate_pages').args.request.kind, 'images'); imagesDialog.cleanup();
+console.log('PASS: stable text-line clustering and columns, immutable page copies/decorations, split limits and safe names, export preflight/exact-token write/double-submit, 4992-page virtual order and one-time plan snapshot, stale/overflow line previews and native apply, split modal handoff, image insertion and no duplicate main-page commands');
+

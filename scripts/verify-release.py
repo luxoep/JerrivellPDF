@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify the locally built, installed and source-archived development handoff.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Uses Python 3.11+ standard library only; does not alter the artifacts.
 """
 import hashlib
@@ -69,12 +69,12 @@ def main():
     expected_pdfium = directory_hashes(ROOT / 'src-tauri/resources/pdfium')
     assert expected_licenses == directory_hashes(installed / 'legal/licenses'), 'Installed license resources differ'
     assert expected_pdfium == directory_hashes(installed / 'pdfium'), 'Installed PDFium resources differ'
-    for relative in ['LICENSE', 'THIRD_PARTY_NOTICES.md']:
+    for relative in ['LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md']:
         assert sha256(ROOT / relative) == sha256(installed / 'legal' / relative)
     result = {'status': 'PASS', 'version': manifest['version'], 'sourceFiles': len(entries), 'sourceArchiveMatchesWorkspace': True,
               'installedExecutableDifference': bundle_difference,
               'sourceExclusions': 'Only the two original fixture PDFs; no native binaries, fonts, private-key containers or build/test caches',
-              'installedResources': {'licenseFiles': len(expected_licenses), 'pdfiumFiles': len(expected_pdfium), 'rootLegalFiles': 2},
+              'installedResources': {'licenseFiles': len(expected_licenses), 'pdfiumFiles': len(expected_pdfium), 'rootLegalFiles': 4},
               'artifacts': artifacts}
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

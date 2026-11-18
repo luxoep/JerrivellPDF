@@ -68,7 +68,7 @@ endobj
 << /Title (MERGE-TWO) /Parent 9 0 R /Prev 10 0 R /Dest [6 0 R /Fit] >>
 endobj
 12 0 obj
-<< /Title (Rivuleaf PDF merge sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; GPL-3.0-or-later; source: tools/generate-fixtures.py) >>
+<< /Title (Rivuleaf PDF merge sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; MIT OR Apache-2.0; source: tools/generate-fixtures.py) >>
 endobj
 xref
 0 13
@@ -88,5 +88,5 @@ xref
 trailer
 << /Size 13 /Root 1 0 R /Info 12 0 R >>
 startxref
-3495
+3496
 %%EOF

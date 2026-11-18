@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
 .oe-storage-warning{margin:13px 16px;padding:10px 11px;border:1px solid #ead5ae;border-radius:6px;background:#fff9ed;color:#967238;font-size:10px;line-height:1.7}
 .oe-panel{position:fixed;top:148px;right:16px;bottom:43px;width:355px;max-width:calc(100vw - 105px);z-index:70;display:flex;flex-direction:column;border:1px solid #e3dfed;border-radius:11px;background:#fff;box-shadow:0 12px 45px #1c183529;color:#3b4053;overflow:hidden;font-size:12px}
 .oe-header{display:flex;gap:12px;justify-content:space-between;align-items:center;padding:17px 18px 14px;border-bottom:1px solid #efedf4;flex:none}.oe-header strong{display:block;font-size:14px;font-weight:600;color:#34384c}.oe-header span{display:block;margin-top:5px;color:#9691a5;font-size:10px}.oe-icon{display:flex;align-items:center;justify-content:center;height:28px;width:28px;border-radius:6px;color:#9992aa}.oe-icon:hover:not(:disabled){background:#f3f0fb;color:#6254d9}

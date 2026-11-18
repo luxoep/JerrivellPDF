@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { RegionSelection } from './RegionSelection';
 import { useFragmentPreview } from '../useFragmentPreview';
 import { ImageEditDialog } from './ImageEditDialog';
 import type { ImageSelection, SelectionShape } from '../imageGeometry';
+import { transformSelection } from '../imageGeometry';
 import './image-workbench.css';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, ImagePlus, LoaderCircle, LockKeyhole, PenLine, Plus, RotateCw, Stamp, Trash2, Type, Upload, X } from 'lucide-react';
@@ -61,7 +62,7 @@ function PdfStampSelection(props: { image: RegisteredImage; crop: PdfStampCrop |
   const root = useRef<HTMLDivElement>(null), [size, setSize] = useState({ width: 620, height: 650 });
   useEffect(() => { if (!root.current || typeof ResizeObserver === 'undefined') return; const observer = new ResizeObserver(entries => { const {width,height}=entries[0].contentRect; setSize({width,height}); }); observer.observe(root.current); return () => observer.disconnect(); }, []);
   const height = Math.max(40,Math.min(size.height-72,(size.width-32)*props.image.height/props.image.width));
-  return <div ref={root} className="pdf-fragment-fit"><div style={{width:height*props.image.width/props.image.height,height}}><RegionSelection {...props}/></div></div>;
+  return <div ref={root} className="pdf-fragment-fit"><div style={{width:height*props.image.width/props.image.height,height}}><RegionSelection {...props} allowMultiple/></div></div>;
 }
 
 
@@ -370,7 +371,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const selectedPdfCrop = pdfStampCrop ?? { x: 0, y: 0, width: 1, height: 1 };
   const liveFragment = useFragmentPreview(pdfStampFullFresh ? pdfStampFullPage : null, pdfStampGhost ?? pdfStampCrop, pdfStampRemoveWhite, pdfStampTrim);
 
-  const updatePdfCrop = (patch: Partial<PdfStampCrop>) => { if (!locked && pdfStampFullFresh) { const next = { ...selectedPdfCrop, ...patch }; if (selectedPdfCrop.points) next.points = selectedPdfCrop.points.map(p => ({x:next.x+(p.x-selectedPdfCrop.x)/selectedPdfCrop.width*next.width,y:next.y+(p.y-selectedPdfCrop.y)/selectedPdfCrop.height*next.height})); setPdfStampCrop(next); } };
+  const updatePdfCrop = (patch: Partial<PdfStampCrop>) => { if (!locked && pdfStampFullFresh) setPdfStampCrop(transformSelection(selectedPdfCrop, { ...selectedPdfCrop, ...patch })); };
 
   const createSignature = (addToPage: boolean) => execute(async () => {
     const image = signatureCanvas.current && trimmedSignature(signatureCanvas.current);
@@ -501,7 +502,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     {working && <div className="oe-working" role="status"><LoaderCircle size={15} className="spin" />{t('正在处理内容…', 'Processing content…')}</div>}
     {imageEdit && current && <ImageEditDialog image={imageEdit} title={labels[current.id] || t('当前图像对象', 'Current image object')} onClose={() => setImageEdit(null)} onBusyChange={props.onBusyChange} onApply={image => { props.onChange(props.overlays.map(item => item.id === current.id ? { ...item, assetId: image.id } : item)); setPreviews(previous => ({ ...previous, [image.id]: image.dataUrl })); }}/>} 
     {pdfStampOpen && <div className="image-workbench-backdrop" onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && ['s','o','p'].includes(event.key.toLowerCase())) event.preventDefault(); if (event.key === 'Escape' && !locked) setPdfStampOpen(false); }}><section ref={pdfDialog} tabIndex={-1} className="image-workbench pdf-fragment-workbench" role="dialog" aria-modal="true" aria-label={t('PDF 片段工作台', 'PDF fragment workspace')}>
-      <header><div><h2>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h2><p>{t('框选、椭圆、多边形或自由套索；预览在本机实时更新。', 'Rectangle, ellipse, polygon or freehand lasso with local live previews.')}</p></div><button disabled={locked} onClick={() => setPdfStampOpen(false)} aria-label={t('关闭片段工作台','Close fragment workspace')}><X size={20}/></button></header>
+      <header><div><h2>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h2><p>{t('框选、椭圆、多边形或自由套索，可叠加最多 16 区；预览实时更新。', 'Combine up to 16 rectangle, ellipse, polygon or freehand regions with live previews.')}</p></div><button disabled={locked} onClick={() => setPdfStampOpen(false)} aria-label={t('关闭片段工作台','Close fragment workspace')}><X size={20}/></button></header>
       <div className="image-workbench-body"><aside className="image-workbench-options">
         <button className="oe-action wide" disabled={locked} onClick={() => void choosePdfStamp()}><FileText size={15}/>{pdfStampPath ? t('更换来源 PDF','Change source PDF') : t('选择来源 PDF','Choose source PDF')}</button>
         {pdfStampPath && <><p className="oe-note">{pdfStampPath.split(/[\\/]/).pop()}</p><label className="oe-field"><span>{t('来源页码','Source page')} / {pdfStampPageCount}</span><input aria-label={t('PDF 片段来源页码','PDF fragment source page')} type="number" min={1} max={pdfStampPageCount || undefined} disabled={locked} value={pdfStampPage} onChange={event => setPdfStampPage(event.target.value)}/></label><button className="oe-action wide" disabled={locked || !pdfStampValidPage} onClick={() => void execute(() => loadPdfStampPage(pdfStampPath,pdfStampPage))}>{t('载入此页','Load page')}</button></>}

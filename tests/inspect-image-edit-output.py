@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Independent pixels, image masks, original text and object-layer verification.
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 """
 from pathlib import Path
 import sys
@@ -35,6 +35,32 @@ def main():
     raster = PdfReader(output / 'explicit-raster-page.pdf')
     assert len(raster.pages) == 1 and not raster.pages[0].extract_text().strip()
     assert len(raster.pages[0].images) == 1, 'Explicit conversion is restricted to the requested page'
+    multi = Image.open(output / 'multi-regions.png').convert('RGBA')
+    assert multi.size == source.size
+    assert multi.getpixel((10, 10)) == source.getpixel((10, 10))
+    assert multi.getpixel((150, 110)) == source.getpixel((150, 110))
+    assert multi.getpixel((80, 60))[3] == 0, 'Disjoint selection gaps remain transparent'
+    multi_pdf = PdfReader(output / 'multi-regions.pdf')
+    assert multi_pdf.pages[0].extract_text().rstrip('\r\n') == original_text
+    assert list(multi_pdf.pages[0].images)[0].image.convert('RGBA').tobytes() == multi.tobytes()
+    pdf_multi = Image.open(output / 'pdf-multi-regions.png').convert('RGBA')
+    for x, y in [(.2, 1/7), (13/15, 23/28)]:
+        assert pdf_multi.getpixel((int(x * pdf_multi.width), int(y * pdf_multi.height)))[3] == 255
+    assert pdf_multi.getpixel((pdf_multi.width // 2, pdf_multi.height // 2))[3] == 0
+    repair_source = Image.open(output / 'repair-source.png').convert('RGBA')
+    repair = Image.open(output / 'repair-preview.png').convert('RGBA')
+    mixed = Image.open(output / 'mixed-repair-result.png').convert('RGBA')
+    mixed_preview = Image.open(output / 'mixed-repair-preview.png').convert('RGBA')
+    assert repair_source.getpixel((26, 26)) == (0, 0, 0, 255)
+    assert repair.getpixel((26, 26))[3] == 255, 'Background repair keeps alpha, unlike transparency erasure'
+    assert max(abs(a-b) for a, b in zip(repair.getpixel((26, 26))[:3], (210, 35, 69))) < 6
+    assert repair.getchannel('A').tobytes() == repair_source.getchannel('A').tobytes()
+    assert mixed.tobytes() == mixed_preview.tobytes()
+    assert mixed.getpixel((135, 98))[3] == 0 and mixed.getpixel((26, 26))[3] == 255
+    assert mixed.getpixel((60, 60)) == repair_source.getpixel((60, 60)), 'Pixels outside both brush footprints stay unchanged'
+    repair_pdf = PdfReader(output / 'mixed-repair.pdf')
+    assert repair_pdf.pages[0].extract_text().rstrip('\r\n') == original_text
+    assert list(repair_pdf.pages[0].images)[0].image.convert('RGBA').tobytes() == mixed.tobytes()
     result = json.loads((output / 'results.json').read_text(encoding='utf-8'))
     base = Image.open(output / 'object-lower.png').convert('RGBA')
     base = Image.alpha_composite(base, Image.open(output / 'object-moving.png').convert('RGBA'))
@@ -54,6 +80,9 @@ def main():
     report = {'status': 'PASS', 'concaveCropAlpha': True, 'eraserAlpha': True, 'unaffectedPixelsUnchanged': True,
               'originalImageIntrinsicPixelsRetained': True, 'ordinaryEditsPreserveSearchableText': True,
               'pdfImagePixelsEqualEditedPng': True, 'explicitRasterHasOneImage': True,
+              'disjointImageAndPdfRegions': True, 'backgroundRepairPreservesAlpha': True,
+              'blackFeatureRemovedOnColoredBackground': True, 'mixedRepairAndTransparency': True,
+              'repairPreviewEqualsAppliedPdfPixels': True,
               'objectLayers': {'maxColorDifference': extrema, 'meanDifference': mean}}
     (output / 'independent-results.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report, indent=2))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent inspection of 0.6 page-tool output with pypdf (not PDFium).
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Run after tests/document-worker.mjs. Requires pypdf in a local Python runtime.
 """
 from pathlib import Path

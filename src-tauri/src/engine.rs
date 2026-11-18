@@ -768,6 +768,10 @@ impl<'a> PdfEngine<'a> {
                 self.edit_image_asset(&p.asset_id, p.crop.as_ref(), &p.strokes)
                     .map(|v| json!(v))
             }
+            "preview_image_edit" => {
+                let p: EditImage = parse(&request.args)?;
+                self.preview_image_edit(&p.asset_id, p.crop.as_ref(), &p.strokes)
+            }
             "get_image_asset" => {
                 let p: AssetId = parse(&request.args)?;
                 self.get_image_asset(&p.asset_id).map(|v| json!(v))

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Original geometry and user-supplied text; no third-party artwork or bundled font.
 export type StampShape = 'round' | 'rectangle';
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Generate small, deterministic PDF fixtures using only the Python standard library.
 
 The PDF objects, text, vector artwork, and annotations are authored for Rivuleaf PDF.
@@ -100,7 +100,7 @@ def page_frame(width: int, height: int, number: int, label: str) -> str:
 
 
 def sample_pages() -> list[dict]:
-    first = page_frame(595, 842, 1, "Original synthetic fixture - GPL-3.0-or-later")
+    first = page_frame(595, 842, 1, "Original synthetic fixture - MIT OR Apache-2.0")
     first += text(42, 744, "Make room for clarity.", 29, True)
     first += text(42, 711, "A small document for a real PDF workflow.", 13, color=MUTED)
     first += rect(42, 584, 511, 96, PAPER)
@@ -240,7 +240,7 @@ def build_document(pages: list[dict], title: str) -> bytes:
     info = pdf.add(
         f"<< /Title {pdf_string(title)} /Author (Rivuleaf PDF contributors) "
         "/Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) "
-        "/Subject (Synthetic test content; GPL-3.0-or-later; source: tools/generate-fixtures.py) >>"
+        "/Subject (Synthetic test content; MIT OR Apache-2.0; source: tools/generate-fixtures.py) >>"
     )
     return pdf.finish(catalog, info)
 
@@ -254,7 +254,7 @@ def artifacts() -> dict[str, bytes]:
     manifest = {
         "schema_version": 1,
         "origin": "Original synthetic content authored for Rivuleaf PDF; no imported document or embedded font file.",
-        "license": "GPL-3.0-or-later",
+        "license": "MIT OR Apache-2.0",
         "generator": "tools/generate-fixtures.py",
         "encrypted": False,
         "javascript": False,

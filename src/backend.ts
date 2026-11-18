@@ -1,12 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ImageAsset, PageRef, RenderedPage, RenderedPageLayers } from './types';
+import type { ImageAsset, ObjectPreviewLayers, PageRef, RenderedPage, RenderedPageLayers } from './types';
 
 export const isDesktop = () => '__TAURI_INTERNALS__' in window;
 
 type QueuedCall = {
   priority: number;
+  work?: RenderWork;
   run: () => Promise<void>;
 };
+// A disposed view releases only its own lease. Another live viewer/thumbnail
+// sharing the same request must still receive the native result.
+export interface RenderLease { cancelled: boolean }
+type RenderWork = { priority: number; unleased: boolean; leases: Set<RenderLease>; aborted?: boolean };
+const isNeeded = (work: RenderWork) => work.unleased || [...work.leases].some(lease => !lease.cancelled);
+let skippedRenders = 0, nativeRenders = 0;
 
 const queue: QueuedCall[] = [];
 let active = false;
@@ -18,7 +25,7 @@ async function drainQueue() {
   if (active) return;
   active = true;
   while (queue.length) {
-    queue.sort((a, b) => b.priority - a.priority);
+    queue.sort((a, b) => (b.work?.priority ?? b.priority) - (a.work?.priority ?? a.priority));
     const next = queue.shift()!;
     await next.run();
   }
@@ -26,13 +33,16 @@ async function drainQueue() {
 }
 
 /** One PDF call at a time; foreground work precedes thumbnail rendering. */
-function enqueue<T>(command: string, args: Record<string, unknown> | undefined, priority: number, generation: number): Promise<T> {
+function enqueue<T>(command: string, args: Record<string, unknown> | undefined, priority: number, generation: number, work?: RenderWork): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     queue.push({
       priority,
+      work,
       run: async () => {
         if (generation !== requestGeneration) { reject(new Error(cancelledRequest)); return; }
+        if (work && !isNeeded(work)) { work.aborted = true; skippedRenders++; reject(new Error(cancelledRequest)); return; }
         try {
+          if (work) nativeRenders++;
           const value = await invoke<T>(command, args);
           if (generation === requestGeneration) {
             rememberImage(value, command);
@@ -61,6 +71,14 @@ const stagedData = new Map<string, string>();
 let imageSequence = 0;
 const LOCAL_IMAGE = 'jerrivell-preview-';
 function rememberImage(value: unknown, command: string) {
+  if (command === 'preview_image_edit') {
+    const preview = value as { dataUrl?: string; width?: number; height?: number } | null;
+    if (!preview || typeof preview.dataUrl !== 'string' || !preview.dataUrl.startsWith('data:image/png;base64,')
+      || ![preview.width,preview.height].every(size=>Number.isSafeInteger(size)&&Number(size)>0)) {
+      throw new Error('BACKEND_RESPONSE_INVALID: preview_image_edit 图像预览格式无效，请重试。');
+    }
+    return;
+  }
   if (command === 'preview_image') {
     const preview = value as { dataUrl?: string; width?: number; height?: number; thumbnailWidth?: number; thumbnailHeight?: number } | null;
     if (!preview || typeof preview.dataUrl !== 'string' || !preview.dataUrl.startsWith('data:image/png;base64,')
@@ -121,24 +139,68 @@ function assetArguments(value: unknown, dependencies: Set<Promise<ImageAsset>>, 
   return value;
 }
 
-export function backend<T>(command: string, args?: Record<string, unknown>, priority = 2): Promise<T> {
+export function backend<T>(command: string, args?: Record<string, unknown>, priority = 2, work?: RenderWork): Promise<T> {
   const generation = requestGeneration;
   try {
     const dependencies = new Set<Promise<ImageAsset>>();
     const native = assetArguments(args, dependencies) as typeof args;
-    if (!dependencies.size) return enqueue(command, native, priority, generation);
+    if (!dependencies.size) return enqueue(command, native, priority, generation, work);
     return Promise.all(dependencies).then(() => {
       if (generation !== requestGeneration) throw new Error(cancelledRequest);
-      return enqueue<T>(command, assetArguments(native, new Set()) as typeof args, priority, generation);
+      return enqueue<T>(command, assetArguments(native, new Set()) as typeof args, priority, generation, work);
     });
   } catch (error) { return Promise.reject(error); }
 }
 
 const renderCache = new Map<string, RenderedPage>();
-const pendingRenders = new Map<string, Promise<RenderedPage>>();
+const pendingRenders = new Map<string, { promise: Promise<RenderedPage>; work: RenderWork }>();
 const layerCache = new Map<string, RenderedPageLayers>();
-const pendingLayers = new Map<string, Promise<RenderedPageLayers>>();
+const pendingLayers = new Map<string, { promise: Promise<RenderedPageLayers>; work: RenderWork }>();
+const objectCache = new Map<string, ObjectPreviewLayers>();
+const pendingObjects = new Map<string, { promise: Promise<ObjectPreviewLayers>; work: RenderWork }>();
 let cacheGeneration = 0;
+const CACHE_LIMIT = 96 * 1024 * 1024;
+type RasterKind = 'page' | 'layers' | 'object';
+const cacheOrder = new Map<string, { kind: RasterKind; bytes: number; key: string }>();
+let cacheBytes = 0;
+const imageCost = (image: RenderedPage) => image.dataUrl.length * 2 + image.width * image.height * 4;
+function touchCache(kind: RasterKind, key: string) {
+  const id = `${kind}:${key}`, entry = cacheOrder.get(id);
+  if (entry) { cacheOrder.delete(id); cacheOrder.set(id, entry); }
+}
+function forgetRaster(kind: RasterKind, key: string) { if (kind === 'page') renderCache.delete(key); else if (kind === 'layers') layerCache.delete(key); else objectCache.delete(key); }
+function rememberRaster(kind: RasterKind, key: string, value: RenderedPage | RenderedPageLayers | ObjectPreviewLayers) {
+  const id = `${kind}:${key}`, previous = cacheOrder.get(id);
+  if (previous) { cacheBytes -= previous.bytes; cacheOrder.delete(id); forgetRaster(kind, key); }
+  const bytes = 'lower' in value ? imageCost(value.lower) + imageCost(value.moving) + imageCost(value.upper) + value.foreground.reduce((sum, layer) => sum + imageCost(layer.image), 0)
+    : 'background' in value ? imageCost(value.background) + value.foreground.reduce((sum, layer) => sum + imageCost(layer.image), 0) : imageCost(value);
+  // Oversized images can be displayed by the current view, but are not retained
+  // again by the shared cache. Estimate includes RGBA decode plus UTF-16 URLs.
+  if (bytes > CACHE_LIMIT) return;
+  if (kind === 'page') renderCache.set(key, value as RenderedPage); else if (kind === 'layers') layerCache.set(key, value as RenderedPageLayers); else objectCache.set(key, value as ObjectPreviewLayers);
+  cacheOrder.set(id, { kind, key, bytes }); cacheBytes += bytes;
+  while (cacheBytes > CACHE_LIMIT || cacheOrder.size > 160) {
+    const [oldId, entry] = cacheOrder.entries().next().value!;
+    cacheOrder.delete(oldId); cacheBytes -= entry.bytes;
+    forgetRaster(entry.kind, entry.key);
+  }
+}
+function subscribe(work: RenderWork, thumbnail: boolean, lease?: RenderLease) {
+  if (lease) work.leases.add(lease); else work.unleased = true;
+  if (!thumbnail) work.priority = 1;
+}
+function renderWork(thumbnail: boolean, lease?: RenderLease): RenderWork {
+  const work: RenderWork = { priority: thumbnail ? 0 : 1, unleased: false, leases: new Set() };
+  subscribe(work, thumbnail, lease); return work;
+}
+/** Only this resource-free preview is cancellable; writes/exports keep normal
+ * backend semantics and are never discarded when a view closes. */
+export function previewImageEdit(args: Record<string, unknown>, lease: RenderLease): Promise<RenderedPage> {
+  const work = renderWork(false, lease); work.priority = 2;
+  return backend<RenderedPage>('preview_image_edit', args, 2, work);
+}
+/** Diagnostics measure retained rasters and avoided IPC, not total process/GPU memory. */
+export const renderDiagnostics = () => ({ estimatedCacheBytes: cacheBytes, cacheLimitBytes: CACHE_LIMIT, cacheEntries: cacheOrder.size, queued: queue.length, skippedRenders, nativeRenders });
 
 export function pageReference(page: PageRef): PageRef {
   return { documentId: page.documentId, pageIndex: page.pageIndex, rotation: page.rotation,
@@ -147,60 +209,68 @@ export function pageReference(page: PageRef): PageRef {
     ...(page.decorations?.length ? { decorations: page.decorations.map(item => ({ ...item })) } : {}) };
 }
 
-export function renderPage(page: PageRef, targetWidth: number, thumbnail = false): Promise<RenderedPage> {
+export function renderPage(page: PageRef, targetWidth: number, thumbnail = false, lease?: RenderLease): Promise<RenderedPage> {
   const width = Math.max(80, Math.round(targetWidth));
   const key = `${JSON.stringify(pageReference(page))}:${width}`;
   const cached = renderCache.get(key);
   if (cached) {
-    renderCache.delete(key);
-    renderCache.set(key, cached);
+    touchCache('page', key);
     return Promise.resolve(cached);
   }
   const pending = pendingRenders.get(key);
-  if (pending) return pending;
+  if (pending && !pending.work.aborted) { subscribe(pending.work, thumbnail, lease); return pending.promise; }
   const generation = cacheGeneration;
-  const request = backend<RenderedPage>('render_page', { page: pageReference(page), targetWidth: width }, thumbnail ? 0 : 1)
+  const work = renderWork(thumbnail, lease);
+  const request = backend<RenderedPage>('render_page', { page: pageReference(page), targetWidth: width }, thumbnail ? 0 : 1, work)
     .then((result) => {
       if (generation === cacheGeneration) {
-        renderCache.set(key, result);
-        let largeCount = 0;
-        for (const value of renderCache.values()) if (value.width > 220) largeCount++;
-        if (largeCount > 8) {
-          for (const [oldKey, value] of renderCache) {
-            if (value.width > 220) { renderCache.delete(oldKey); break; }
-          }
-        }
-        while (renderCache.size > 140) renderCache.delete(renderCache.keys().next().value!);
+        if (isNeeded(work)) rememberRaster('page', key, result);
       }
       return result;
     })
-    .finally(() => { if (pendingRenders.get(key) === request) pendingRenders.delete(key); });
-  pendingRenders.set(key, request);
+    .finally(() => { if (pendingRenders.get(key)?.promise === request) pendingRenders.delete(key); });
+  pendingRenders.set(key, { promise: request, work });
   return request;
 }
 
 /** Overlay placement/opacity/history do not change the expensive native raster. */
 export function rasterReference(page: PageRef): PageRef { return pageReference({ ...page, overlays: [] }); }
 export function cachedPageLayers(page: PageRef, targetWidth: number): RenderedPageLayers | undefined {
-  return layerCache.get(`${JSON.stringify(rasterReference(page))}:${Math.max(80,Math.round(targetWidth))}`);
+  const key = `${JSON.stringify(rasterReference(page))}:${Math.max(80,Math.round(targetWidth))}`;
+  const cached = layerCache.get(key); if (cached) touchCache('layers', key); return cached;
 }
-export function renderPageLayers(page: PageRef, targetWidth: number, thumbnail = false): Promise<RenderedPageLayers> {
+export function renderPageLayers(page: PageRef, targetWidth: number, thumbnail = false, lease?: RenderLease): Promise<RenderedPageLayers> {
   const reference = rasterReference(page), width = Math.max(80, Math.round(targetWidth));
   const key = `${JSON.stringify(reference)}:${width}`;
   const cached = layerCache.get(key);
-  if (cached) { layerCache.delete(key); layerCache.set(key, cached); return Promise.resolve(cached); }
-  const pending = pendingLayers.get(key); if (pending) return pending;
+  if (cached) { touchCache('layers', key); return Promise.resolve(cached); }
+  const pending = pendingLayers.get(key); if (pending && !pending.work.aborted) { subscribe(pending.work, thumbnail, lease); return pending.promise; }
   const generation = cacheGeneration;
-  const request = backend<RenderedPageLayers>('render_page_layers', { page: reference, targetWidth: width }, thumbnail ? 0 : 1).then(value => {
+  const work = renderWork(thumbnail, lease);
+  const request = backend<RenderedPageLayers>('render_page_layers', { page: reference, targetWidth: width }, thumbnail ? 0 : 1, work).then(value => {
     if (generation === cacheGeneration) {
-      layerCache.set(key, value);
-      const large = [...layerCache].filter(([, item]) => item.background.width > 220);
-      if (large.length > 6) layerCache.delete(large[0][0]);
-      while (layerCache.size > 140) layerCache.delete(layerCache.keys().next().value!);
+      if (isNeeded(work)) rememberRaster('layers', key, value);
     }
     return value;
-  }).finally(() => { if (pendingLayers.get(key) === request) pendingLayers.delete(key); });
-  pendingLayers.set(key, request); return request;
+  }).finally(() => { if (pendingLayers.get(key)?.promise === request) pendingLayers.delete(key); });
+  pendingLayers.set(key, { promise: request, work }); return request;
+}
+
+/** Object hover preparation shares the same bounded raster cache and queue.
+ * Disposed hover targets can be skipped without delaying the active drag. */
+export function renderObjectLayers(page: PageRef, objectIndex: number, fingerprint: string, targetWidth = 1200, prefetch = false, lease?: RenderLease): Promise<ObjectPreviewLayers> {
+  const reference = rasterReference(page), width = Math.max(80, Math.round(targetWidth));
+  const key = JSON.stringify([reference, objectIndex, fingerprint, width]);
+  const cached = objectCache.get(key);
+  if (cached) { touchCache('object', key); return Promise.resolve(cached); }
+  const pending = pendingObjects.get(key);
+  if (pending && !pending.work.aborted) { subscribe(pending.work, prefetch, lease); return pending.promise; }
+  const generation = cacheGeneration, work = renderWork(prefetch, lease);
+  const request = backend<ObjectPreviewLayers>('render_object_layers', { page: reference, objectIndex, fingerprint, targetWidth: width }, prefetch ? 0 : 1, work).then(value => {
+    if (generation === cacheGeneration && isNeeded(work)) rememberRaster('object', key, value);
+    return value;
+  }).finally(() => { if (pendingObjects.get(key)?.promise === request) pendingObjects.delete(key); });
+  pendingObjects.set(key, { promise: request, work }); return request;
 }
 
 export function clearRenderCache() {
@@ -208,6 +278,8 @@ export function clearRenderCache() {
   renderCache.clear();
   pendingRenders.clear();
   layerCache.clear(); pendingLayers.clear();
+  objectCache.clear(); pendingObjects.clear();
+  cacheOrder.clear(); cacheBytes = 0;
 }
 
 /** Cancel queued work from the old workspace before releasing its documents. */

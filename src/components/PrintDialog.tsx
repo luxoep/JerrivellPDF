@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, CircleAlert, LoaderCircle, Printer, X } from 'lucide-react';
 import { backend, errorMessage, pageReference, renderPage } from '../backend';

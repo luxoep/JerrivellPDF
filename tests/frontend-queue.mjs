@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Test the real TypeScript queue without a webview, using only a mocked IPC edge.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

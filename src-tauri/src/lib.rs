@@ -6,6 +6,7 @@ mod fonts;
 mod model;
 #[cfg(windows)]
 mod printing;
+mod startup;
 #[cfg(windows)]
 mod window_style;
 mod worker;
@@ -18,6 +19,26 @@ use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
 struct Backend(Arc<Mutex<worker::WorkerClient>>);
+
+#[tauri::command]
+fn get_startup_files() -> Vec<String> {
+    startup::pdf_paths(std::env::args_os())
+}
+
+#[tauri::command]
+async fn preview_image_edit(
+    state: State<'_, Backend>,
+    asset_id: String,
+    crop: Option<PdfStampCrop>,
+    strokes: Vec<EraseStroke>,
+) -> Result<Value, String> {
+    call(
+        state,
+        "preview_image_edit",
+        json!({"assetId":asset_id,"crop":crop,"strokes":strokes}),
+    )
+    .await
+}
 
 #[tauri::command]
 async fn list_system_fonts() -> Result<fonts::SystemFonts, String> {
@@ -409,6 +430,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_startup_files,
+            preview_image_edit,
             get_backend_status,
             list_system_fonts,
             print_document,

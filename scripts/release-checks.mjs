@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -17,8 +17,8 @@ export const digest = path => readFile(path).then(data => createHash('sha256').u
 // Documentation and generated build/test outputs do not affect executable behavior.
 export async function sourceDigest() {
   const files = ['package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.ts',
-    'rust-toolchain.toml', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'src-tauri/build.rs',
-    'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json'];
+    'rust-toolchain.toml', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'src-tauri/build.rs',
+    'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json', 'src-tauri/windows-hooks.nsh'];
   async function walk(folder) {
     for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
       if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) continue;
@@ -46,7 +46,7 @@ export function run(command, args) {
 export async function frontendChecks() {
   const names = ['frontend-queue', 'frontend-pages-i18n', 'local-font-canvas', 'overlay-geometry',
     'original-content', 'pdf-stamp-editor', 'precise-editor', 'printing', 'reader-experience',
-    'stamp-library', 'document-tools', 'live-preview', 'workbench-experience'];
+    'stamp-library', 'document-tools', 'live-preview', 'workbench-experience', 'multi-region', 'performance'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`]);
   return names;
 }

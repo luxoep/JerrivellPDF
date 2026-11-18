@@ -94,6 +94,13 @@ def main() -> None:
             entry["files"] = copy_notices(directory, files, DEST / "rust" / f"{name}-{version}")
             entry["status"] = "original-notices-copied" if files else "upstream-notice-supplement-required"
             attach_supplement("rust", entry)
+            # This published crate contains only a dual-license pointer. A
+            # successful file copy alone does not establish full notice coverage.
+            if name == "pdfium-render" and version == "0.9.4" and not any(
+                item.get("selectedLicense") == "Apache-2.0"
+                for item in entry.get("supplementalFiles", [])
+            ):
+                raise ValueError("pdfium-render 0.9.4 requires its pinned Apache text/copyright supplement")
         cargo_entries.append(entry)
     for relative, locked in npm_lock["packages"].items():
         if not relative:

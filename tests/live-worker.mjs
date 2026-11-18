@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Actual frontend queue/staging code connected to the installed native worker.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';

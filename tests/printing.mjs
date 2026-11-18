@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Compile actual TypeScript modules; fake only React scheduling/native I/O.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

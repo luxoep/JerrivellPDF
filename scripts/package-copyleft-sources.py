@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare exact MPL crate and NSIS source archives for the local release.
 
-SPDX-License-Identifier: GPL-3.0-or-later
-This supplements, but does not certify completeness of, GPL Corresponding Source.
+SPDX-License-Identifier: MIT OR Apache-2.0
+Original project material is MIT OR Apache-2.0; upstream obligations remain separate.
 Uses Python 3.11+ standard library. Originals keep their own licenses.
 """
 from __future__ import annotations
@@ -74,13 +74,13 @@ def main() -> None:
             raise FileNotFoundError("Missing NSIS source; run with --download-missing.")
         download(NSIS_URL, nsis, NSIS_SHA256)
     entries.append({"component": "NSIS", "version": "3.13", "license": "zlib/libpng; bzip2; CPL-1.0 with NSIS LZMA linking exception", "path": nsis.name, "sourceUrl": NSIS_URL, "sha256": digest(nsis), "upstreamChecksumPage": "https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/nsis-3.13-src.tar.bz2/download", "unchangedSourceArchive": True})
-    manifest = {"product": "Jerrivell PDF", "version": config["version"], "purpose": "Exact source archives for identified MPL components and NSIS installer; not a complete GPL Corresponding Source certification.", "cargoLockSha256": inventory["cargoLockSha256"], "entries": entries}
+    manifest = {"product": "Jerrivell PDF", "version": config["version"], "purpose": "Exact source archives for identified MPL components and NSIS installer; original project material is separately MIT OR Apache-2.0.", "cargoLockSha256": inventory["cargoLockSha256"], "entries": entries}
     (destination / "source-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (destination / "README.md").write_text("""# Third-party source archives
 
 These are unchanged source archives for the exact identified MPL-2.0 crates and NSIS 3.13. They retain their own licenses, copyright notices and source headers. A `.crate` file is a gzip-compressed tar archive containing the published package's source. The NSIS tar.bz2 includes the LZMA compression module and its CPL-1.0 terms/linking exception. See source-manifest.json for exact versions, original source URLs and SHA-256 values.
 
-These archives accompany the local Jerrivell PDF development handoff. The project's own preferred source/configuration/build instructions are supplied separately. This selection does not assert that every component required by GPL Corresponding Source is present, or replace full release/source availability review. Preserve MPL rights when further distributing these source files; do not relabel all third-party source as proprietary or exclusively GPL.
+These archives accompany the local Jerrivell PDF development handoff. The project's own preferred source/configuration/build instructions are supplied separately. This selection covers the components listed in its manifest and does not replace full release/source availability review. The original project uses MIT OR Apache-2.0. Preserve MPL and installer source rights when further distributing these archives; do not relabel third-party files under the project license.
 
 Recreate with Python 3.11+: `python scripts/package-copyleft-sources.py --download-missing`. Once the archives exist and match, no network is needed.
 """, encoding="utf-8")

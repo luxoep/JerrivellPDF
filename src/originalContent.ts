@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 /** Bounds use the final displayed PDF page, normalized from its top-left. */
 export interface ContentBounds { x: number; y: number; width: number; height: number }
 export interface ContentEdit {

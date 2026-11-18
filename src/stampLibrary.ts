@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // The library stores user-authored PNG data locally, never native worker handles.
 export type LibraryKind = 'stamp' | 'signature';
 export interface LibraryItem {

@@ -22,11 +22,11 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Rotate 90 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R  >>
 endobj
 8 0 obj
-<< /Length 2443  >>
+<< /Length 2444  >>
 stream
 q 1 1 1 rg 1 w 0 0 595 842 re f Q
 BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 800 Tm (RIVULEAF / PDF) Tj ET
-BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Original synthetic fixture - GPL-3.0-or-later) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Original synthetic fixture - MIT OR Apache-2.0) Tj ET
 BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 525 24 Tm (01) Tj ET
 q 0.84 0.88 0.87 RG 1 w 42 43 m 553 43 l S Q
 BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 744 Tm (Make room for clarity.) Tj ET
@@ -142,7 +142,7 @@ endobj
 << /Title (Rotated page) /Parent 14 0 R /Prev 16 0 R /Dest [7 0 R /Fit] >>
 endobj
 18 0 obj
-<< /Title (Rivuleaf PDF sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; GPL-3.0-or-later; source: tools/generate-fixtures.py) >>
+<< /Title (Rivuleaf PDF sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; MIT OR Apache-2.0; source: tools/generate-fixtures.py) >>
 endobj
 xref
 0 19
@@ -155,18 +155,18 @@ xref
 0000000526 00000 n 
 0000000690 00000 n 
 0000000839 00000 n 
-0000003335 00000 n 
-0000003586 00000 n 
-0000003851 00000 n 
-0000005963 00000 n 
-0000006080 00000 n 
-0000007140 00000 n 
-0000007214 00000 n 
-0000007300 00000 n 
-0000007407 00000 n 
-0000007498 00000 n 
+0000003336 00000 n 
+0000003587 00000 n 
+0000003852 00000 n 
+0000005964 00000 n 
+0000006081 00000 n 
+0000007141 00000 n 
+0000007215 00000 n 
+0000007301 00000 n 
+0000007408 00000 n 
+0000007499 00000 n 
 trailer
 << /Size 19 /Root 1 0 R /Info 18 0 R >>
 startxref
-7760
+7762
 %%EOF

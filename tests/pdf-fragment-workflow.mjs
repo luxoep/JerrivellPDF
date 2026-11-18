@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Actual editor -> actual frontend asset bridge -> actual PDFium worker -> SVG
 // reader -> saved/reopened PDF. Only React scheduling and native file pickers
 // are substituted; no asset response, library serialization or PDF result is mocked.
@@ -44,6 +44,7 @@ const imageGeometry=await module('src/imageGeometry.ts',{});
 const region=await module('src/components/RegionSelection.tsx',{require(name){if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;if(name==='../imageGeometry')return imageGeometry;if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};throw new Error(name);}});
 const pngPath=join(output,'fragment-library.png');
 const editor=await module('src/components/OverlayEditor.tsx',{require(name){
+ if(name==='../imageGeometry')return imageGeometry;
  if(name==='./RegionSelection')return region;
  if(name==='./ImageEditDialog')return{ImageEditDialog:'ImageEditDialog'};
  if(name==='../useFragmentPreview')return{useFragmentPreview:()=>({image:null,error:''})};
@@ -71,14 +72,24 @@ try{
  const target=await api.backend('open_document',{path:join(root,'fixtures/sample.pdf')});let page={id:'target',documentId:target.id,pageIndex:0,rotation:0,width:595,height:842};
  const base=await api.renderPageLayers(page,600);render();await click('Stamp');await click('PDF fragment');await click('Choose source PDF');
  assert.equal(button('Overlay on this page').props.disabled,false);
- const selection=find(editorHost.tree,node=>node.type?.name==='PdfStampSelection')[0];assert.ok(selection,'Real source page must be available for selection');
- const selectionHost=createHost();host=selectionHost;const selectionTree=region.RegionSelection(selection.props);const group=selectionTree.props.children[0];
+ const selectionHost=createHost();
+ function selectionSurface(){
+  const selection=find(editorHost.tree,node=>node.type?.name==='PdfStampSelection')[0];assert.ok(selection,'Real source page must be available for selection');
+  // Mount the production wrapper as well: it enables additive selections.
+  const wrapperHost=createHost();host=wrapperHost;const wrapper=selection.type(selection.props);for(const effect of wrapperHost.pending)effect();
+  const regionNode=find(wrapper,node=>node.type===region.RegionSelection)[0];assert.ok(regionNode);assert.equal(regionNode.props.allowMultiple,true);
+  host=selectionHost;host.cursor=0;host.pending=[];const tree=region.RegionSelection(regionNode.props);for(const effect of host.pending)effect();
+  const surfaces=find(tree,node=>node.props.role==='group'&&node.props.className?.split(/\s+/).includes('region-selection-surface'));assert.equal(surfaces.length,1,'Select the actual pointer surface rather than a positional child');return surfaces[0];
+ }
+ let group=selectionSurface();
  const surface={getBoundingClientRect:()=>({left:0,top:0,width:200,height:300}),focus(){},setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
  group.props.ref.current=surface;
  const pointer=(x,y)=>({button:0,pointerId:1,currentTarget:surface,clientX:x,clientY:y,preventDefault(){},stopPropagation(){}});
  group.props.onPointerDown(pointer(40,60));group.props.onPointerMove(pointer(160,180));group.props.onPointerUp(pointer(160,180));render();
  await click('Update fragment preview');const importCall=calls.filter(item=>item.command==='import_pdf_stamp').at(-1);assert.ok(Math.abs(importCall.args.crop.x-.2)<1e-8);assert.ok(Math.abs(importCall.args.crop.width-.6)<1e-8);
+ group=selectionSurface();group.props.ref.current=surface;group.props.onPointerDown(pointer(10,15));group.props.onPointerMove(pointer(30,45));group.props.onPointerUp(pointer(30,45));render();
  await click('Overlay on this page');assert.equal(props.overlays.length,1);assert.equal(props.overlays[0].blendMode,'multiply');checkLive(page,base);
+ const multiCall=calls.filter(item=>item.command==='import_pdf_stamp').at(-1);assert.equal(multiCall.args.crop.regions.length,2,'Two real editor gestures reach the native union crop');assert.ok(Math.abs(multiCall.args.crop.regions[0].x-.2)<1e-8);assert.ok(Math.abs(multiCall.args.crop.regions[1].x-.05)<1e-8);
  assert.equal(await api.renderPageLayers({...page,overlays:props.overlays},600),base,'Placing fragments must preserve the no-refresh reader');
  await saveRoundTrip(page,'placed-fragment.pdf');
  await click('Open PDF fragment workspace'); const white=find(editorHost.tree,node=>node.type==='label'&&label(node).includes('Make near-white transparent'))[0];find(white,node=>node.type==='input')[0].props.onChange({target:{checked:true}});render();
@@ -92,6 +103,6 @@ try{
  const nextBase=await api.renderPageLayers(page,600);checkLive(page,nextBase);assert.ok(calls.some(item=>item.command==='register_image'),'Library reuse must re-register PNGs after native session reset');
  const imported=await api.backend('import_image',{path:pngPath});assert.ok(api.previewImageAsset(imported.id),'PNG import must share the same validated cache path');
  await saveRoundTrip(page,'library-reopened.pdf');assert.equal(createHash('sha256').update(await readFile(source)).digest('hex'),originalHash);
- const result={status:'PASS',executable:exe,output,realEditor:true,realNativeResponses:true,readerPixelsPresent:true,selectCropAndPreview:true,multiply:true,stalePreviewBlocked:true,pageSwitch:true,pngExport:true,libraryAfterSessionReset:true,savedAndReopenedPixelsMatch:true,assetCommands:[...new Set(calls.filter(call=>['register_image','import_image','import_pdf_stamp'].includes(call.command)).map(call=>call.command))]};
+ const result={status:'PASS',executable:exe,output,realEditor:true,realNativeResponses:true,readerPixelsPresent:true,selectCropAndPreview:true,multiRegionEditorSelection:true,multiply:true,stalePreviewBlocked:true,pageSwitch:true,pngExport:true,libraryAfterSessionReset:true,savedAndReopenedPixelsMatch:true,assetCommands:[...new Set(calls.filter(call=>['register_image','import_image','import_pdf_stamp'].includes(call.command)).map(call=>call.command))]};
  await writeFile(join(output,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 }finally{worker.stdin.end();worker.kill();lines.close();}

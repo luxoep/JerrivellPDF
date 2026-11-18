@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import type { PageOverlay } from './types';
 
 export const POINTS_PER_MM = 72 / 25.4;

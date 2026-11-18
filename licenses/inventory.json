@@ -1,7 +1,7 @@
 {
   "scope": "All Cargo.lock registry entries and locally installed npm lock packages, including build/dev dependencies. An uncached lock entry is not proof that it ships in the Windows binary.",
-  "cargoLockSha256": "977e3add02c094b654c52abe9d1557651e05316ab559b26dfea8f126cde5bdba",
-  "npmLockSha256": "29982ee3d00c0e9849e81230f89972c953afe61e9a3b090057577ea0c6052cbf",
+  "cargoLockSha256": "c792a9f998f6f34c5639d4388b41476c6b7d66065421b7e3c0f26a3c04c9210b",
+  "npmLockSha256": "47927defbe1f5247575294253518a8c3c689e55b80f70d57feb61ee6d355a415",
   "cargo": [
     {
       "name": "adler2",
@@ -4718,7 +4718,22 @@
           "sha256": "819dfb7c49a24bec7511f29304478d67f272bfd1f976b728095f2eb2c522791c"
         }
       ],
-      "status": "original-notices-copied"
+      "status": "original-notices-copied",
+      "supplementalFiles": [
+        {
+          "path": "licenses/upstream/pdfium-render-0.9.4-APACHE-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "sourceUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+          "note": "Canonical Apache-2.0 standard text; not a file from the wrapper repository.",
+          "selectedLicense": "Apache-2.0"
+        },
+        {
+          "path": "licenses/upstream/pdfium-render-0.9.4-build.rs.txt",
+          "sha256": "d197d27dce67a6e01ad07a2b4978bd73734898ce43b233fa8ac0e60f68b22879",
+          "sourceUrl": "https://raw.githubusercontent.com/ajrcarey/pdfium-render/6cee8b9a3951832ac0ff62ce4c32800278001cb8/build.rs",
+          "note": "Unmodified fixed-commit build.rs preserving the wrapper developers copyright and original dual-license header."
+        }
+      ]
     },
     {
       "name": "percent-encoding",

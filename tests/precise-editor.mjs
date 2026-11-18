@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Real editor/handle callbacks, with React scheduling and native asset I/O stubbed.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -7,6 +7,8 @@ import ts from 'typescript';
 
 const transpile = async path => ts.transpileModule(await readFile(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const geometry = {};
+const imageGeometry = {};
+vm.runInNewContext(await transpile('../src/imageGeometry.ts'), { exports: imageGeometry });
 vm.runInNewContext(await transpile('../src/overlayGeometry.ts'), { exports: geometry });
 let activeHost;
 const react = {
@@ -26,6 +28,7 @@ const canvas = {
   createTextPng: (...args) => { drawnFonts.push(['text', ...args]); return { dataUrl: 'data:image/png;base64,AA==', width: 200, height: 100 }; },
 };
 const require = name => {
+  if (name === '../imageGeometry') return imageGeometry;
   if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
   if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};

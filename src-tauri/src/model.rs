@@ -185,6 +185,8 @@ pub struct PdfStampCrop {
     pub height: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub points: Vec<ImagePoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<PdfStampCrop>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +201,16 @@ pub struct ImagePoint {
 pub struct EraseStroke {
     pub points: Vec<ImagePoint>,
     pub width: f32,
+    #[serde(default)]
+    pub mode: EraseMode,
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EraseMode {
+    #[default]
+    Transparent,
+    Repair,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

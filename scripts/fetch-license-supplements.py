@@ -51,7 +51,7 @@ def main() -> None:
             elif entry.get("sourceUrl"):
                 url = entry["sourceUrl"]
                 parsed = urlparse(url)
-                if parsed.scheme != "https" or parsed.hostname not in {"raw.githubusercontent.com", "www.mozilla.org"}:
+                if parsed.scheme != "https" or parsed.hostname not in {"raw.githubusercontent.com", "www.mozilla.org", "www.apache.org"}:
                     raise ValueError("Unexpected license source: " + url)
                 with urlopen(Request(url, headers={"User-Agent": "AuraPdf-license-provenance/0.1"}), timeout=45) as response:
                     data = response.read(2 * 1024 * 1024 + 1)

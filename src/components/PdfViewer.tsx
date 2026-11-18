@@ -1,11 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { usePageLayers } from '../usePageLayers';
 import { LivePageImage } from './LivePageImage';
 import { useI18n } from '../i18n';
-import { buildDocumentLayout, captureViewAnchor, pageAtPosition, restoreViewAnchor, visiblePageSize, wheelZoom } from '../viewerGeometry';
+import { buildDocumentLayout, captureViewAnchor, pageAtPosition, rasterTargetWidth, restoreViewAnchor, visiblePageSize, visibleRows, wheelZoom } from '../viewerGeometry';
 import type { ViewAnchor, ViewerZoom, ViewportSize } from '../viewerGeometry';
 import type { PageOverlay, WorkspacePage } from '../types';
 import './reader-experience.css';
@@ -15,7 +15,8 @@ function PageRaster({ page, width, index, total, controls, onActivate }: {
   controls: PageControls; onActivate: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const targetWidth = Math.min(2400, Math.round(width * Math.min(window.devicePixelRatio || 1, 1.5)));
+  // Nearby wheel ticks share one raster resolution; CSS geometry remains exact.
+  const targetWidth = rasterTargetWidth(width, window.devicePixelRatio);
   const { layers, error, loading, refreshing } = usePageLayers(page, targetWidth, true);
   const [placement, setPlacement] = useState<PageOverlay | null>(null);
   return <><div className="pdf-sheet" aria-busy={loading || refreshing} onPointerDownCapture={() => onActivate(page.id)}>
@@ -123,7 +124,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     return () => surface.removeEventListener('wheel', handleWheel);
   }, []);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
-  const visibleRows = layout.pages.filter(row => row.top + row.height >= scroll.top - 650 && row.top <= scroll.top + size.height + 650);
+  const mountedRows = visibleRows(layout.pages, scroll.top - 350, scroll.top + size.height + 350);
   return <div ref={viewport} className="page-viewport continuous-viewport" role="region" aria-label={t('PDF 连续阅读视口，Ctrl 加滚轮缩放', 'Continuous PDF reader; Ctrl plus wheel zooms')} tabIndex={0}
     onPointerDownCapture={event => { if (event.target instanceof HTMLElement && !event.target.closest('button, input, select, textarea, [role="button"]')) event.currentTarget.focus({ preventScroll: true }); }}
     onKeyDown={event => {
@@ -131,7 +132,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     }}
     onScroll={() => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(reportScroll); }}>
     <div className="continuous-stage" style={{ width: layout.width, height: layout.height }}>
-      {visibleRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
+      {mountedRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
         <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onActiveChange}/>
       </div>)}
     </div>

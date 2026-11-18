@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Inspect the documented 0.5.0 desktop marking + single/group sort scenario.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Verification-only pypdf/Pillow/Poppler dependencies; not application dependencies.
 """
 import hashlib

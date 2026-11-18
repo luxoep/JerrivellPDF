@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "origin": "Original synthetic content authored for Rivuleaf PDF; no imported document or embedded font file.",
-  "license": "GPL-3.0-or-later",
+  "license": "MIT OR Apache-2.0",
   "generator": "tools/generate-fixtures.py",
   "encrypted": false,
   "javascript": false,
   "files": [
     {
       "name": "sample.pdf",
-      "sha256": "eecb7f7bc356362313291eed5605656efe223aa0200806e5394d1f285d374808",
-      "bytes": 8219,
+      "sha256": "e4b689f1d8cc69676a8abd13f954b4bd23be7278cb4a96ebc4a176c49bacfec3",
+      "bytes": 8221,
       "page_count": 3,
       "media_boxes": [
         [
@@ -44,8 +44,8 @@
     },
     {
       "name": "second.pdf",
-      "sha256": "12165021c53300d2bd6d14c8155b83dbe0b9c2254ea5585b5d965b8bf9a318c5",
-      "bytes": 3834,
+      "sha256": "0bbb7309658ac77a7edd47c9a3f93eba34434836b0b92ace6b24d0217a017445",
+      "bytes": 3835,
       "page_count": 2,
       "media_boxes": [
         [

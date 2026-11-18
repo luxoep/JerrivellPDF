@@ -107,6 +107,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
         width: 0.3125,
         height: 0.375,
         points: Vec::new(),
+        regions: Vec::new(),
     };
     let cropped = engine
         .import_pdf_stamp(source.to_str().unwrap(), 0, false, false, Some(&rect))
@@ -157,6 +158,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
         width: 0.375,
         height: 0.3125,
         points: Vec::new(),
+        regions: Vec::new(),
     };
     let rotated_crop = engine
         .import_pdf_stamp(
@@ -203,6 +205,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
             width: 0.2,
             height: 1.0,
             points: Vec::new(),
+            regions: Vec::new(),
         },
         PdfStampCrop {
             x: f32::NAN,
@@ -210,6 +213,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
             width: 1.0,
             height: 1.0,
             points: Vec::new(),
+            regions: Vec::new(),
         },
         PdfStampCrop {
             x: 0.0,
@@ -217,6 +221,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
             width: 0.0,
             height: 1.0,
             points: Vec::new(),
+            regions: Vec::new(),
         },
     ] {
         assert!(engine

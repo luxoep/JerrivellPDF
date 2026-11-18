@@ -1,10 +1,10 @@
 [package]
 name = "jerrivell-pdf"
-version = "0.7.0"
+version = "0.8.0"
 description = "A local, open-source PDF workspace for Windows"
 authors = ["Jerry and contributors"]
 edition = "2021"
-license = "GPL-3.0-or-later"
+license = "MIT OR Apache-2.0"
 default-run = "jerrivell-pdf"
 
 [lib]

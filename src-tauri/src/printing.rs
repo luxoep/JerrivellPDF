@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Windows printing uses a separate process and a prepared PDF snapshot.
 //!
 //! Native driver dialogs and GDI may block for an arbitrary amount of time. They

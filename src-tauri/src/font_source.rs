@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Runtime access to an installed TrueType face, for editable PDF text only.
 //!
 //! No font program is copied into the project, installer or persistent font cache.

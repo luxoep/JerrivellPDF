@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // End-to-end worker protocol tests: real executable, PDFium and Windows fonts.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';

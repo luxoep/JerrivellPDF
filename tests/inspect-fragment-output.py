@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Independently inspect the real PDF fragment editor workflow outputs.
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT OR Apache-2.0
 Requires pypdf and Pillow for verification only.
 """
 from pathlib import Path

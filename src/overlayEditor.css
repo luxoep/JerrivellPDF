@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
 .oe-unit-row,.oe-font-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px;color:#898195;font-size:10px}
 .oe-unit-row select{padding:5px 8px;border:1px solid #e1dbe9;border-radius:5px;color:#6a597b;background:#fff;font:inherit}
 .oe-align-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:10px 0}

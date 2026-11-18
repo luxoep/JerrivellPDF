@@ -101,5 +101,20 @@
       "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae",
       "sourceUrl": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/ae42d22078b98549e987d2f03d12df7b984fde47/LICENSE"
     }
+  ],
+  "rust/pdfium-render@0.9.4": [
+    {
+      "path": "licenses/upstream/pdfium-render-0.9.4-APACHE-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "sourceUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "note": "Canonical Apache-2.0 standard text; not a file from the wrapper repository.",
+      "selectedLicense": "Apache-2.0"
+    },
+    {
+      "path": "licenses/upstream/pdfium-render-0.9.4-build.rs.txt",
+      "sha256": "d197d27dce67a6e01ad07a2b4978bd73734898ce43b233fa8ac0e60f68b22879",
+      "sourceUrl": "https://raw.githubusercontent.com/ajrcarey/pdfium-render/6cee8b9a3951832ac0ff62ce4c32800278001cb8/build.rs",
+      "note": "Unmodified fixed-commit build.rs preserving the wrapper developers copyright and original dual-license header."
+    }
   ]
 }

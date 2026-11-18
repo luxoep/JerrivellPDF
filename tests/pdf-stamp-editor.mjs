@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Actual editor state and geometry, with only React scheduling and native I/O stubbed.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -9,6 +9,8 @@ const compiled = ts.transpileModule(await readFile(new URL('../src/components/Ov
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 const geometry = {};
+const imageGeometry = {};
+vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/imageGeometry.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: imageGeometry });
 vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/overlayGeometry.ts', import.meta.url), 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, { exports: geometry });
@@ -48,6 +50,7 @@ const png = 'data:image/png;base64,demo';
 vm.runInNewContext(compiled, {
   exports, console, crypto: { randomUUID: () => `generated-${++ids}` },
   require(name) {
+    if (name === '../imageGeometry') return imageGeometry;
     if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
   if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
