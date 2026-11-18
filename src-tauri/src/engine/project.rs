@@ -125,6 +125,7 @@ fn validate_text(value: &Value) -> Result<(), String> {
             "charSpacing",
             "lineHeight",
             "wrapWidth",
+            "padding",
             "frame",
         ],
     )?;
@@ -151,12 +152,16 @@ fn validate_text(value: &Value) -> Result<(), String> {
         }
     }
     if let Some(frame) = value.get("frame") {
+        let compact = value.get("padding").is_some();
         keys(frame, &["width", "height", "autoHeight"])?;
-        number(&frame["width"], 24.0, 2048.0)?;
-        number(&frame["height"], 12.0, 4096.0)?;
+        number(&frame["width"], if compact { 1.0 } else { 24.0 }, 2048.0)?;
+        number(&frame["height"], if compact { 1.0 } else { 12.0 }, 4096.0)?;
         if !frame["autoHeight"].is_boolean() {
             return Err(invalid("文字框高度模式无效。"));
         }
+    }
+    if let Some(padding) = value.get("padding") {
+        number(padding, 0.0, 24.0)?;
     }
     Ok(())
 }
@@ -627,7 +632,7 @@ impl<'a> PdfEngine<'a> {
         }
         let file = ProjectFile {
             format: "jerrivell-project".into(),
-            version: 1,
+            version: 2,
             title: title.into(),
             workspace: pages,
             sources,
@@ -675,7 +680,7 @@ impl<'a> PdfEngine<'a> {
             serde_json::from_slice(&bytes).map_err(|e| invalid(format!("项目文件无效：{e}")))?;
         drop(bytes);
         if project.format != "jerrivell-project"
-            || project.version != 1
+            || !matches!(project.version, 1 | 2)
             || project.sources.is_empty()
             || project.sources.len() > 32
             || project.assets.len() > 64

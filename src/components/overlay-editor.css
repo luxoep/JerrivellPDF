@@ -15,3 +15,14 @@
 .oe-text-styles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px; margin:4px 0 12px; }
 .oe-text-preview { height:210px; min-height:150px; position:relative; overflow:hidden; margin:12px 0; }
 .oe-text-preview > span { padding:14px; font-size:12px; text-align:center; }
+
+/* Separate action rows: no adjacent button borders or narrow no-wrap labels. */
+.oe-text-actions{display:grid;gap:12px;margin-top:14px}
+.oe-text-actions>.oe-action{width:100%;min-height:38px}
+.oe-text-actions>.oe-button-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+.oe-text-actions .oe-button-row>.oe-action{min-width:0;min-height:38px;white-space:normal;overflow-wrap:anywhere}
+.oe-text-frame-tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:end;gap:10px;margin:10px 0 0}
+.oe-text-frame-tools>.oe-field{margin-bottom:0}
+.oe-text-frame-tools>.oe-action{min-height:34px;white-space:normal}
+.oe-frame-hint{margin-top:8px;margin-bottom:14px}
+.oe-field input[aria-invalid=true]{border-color:#ba6848}

@@ -20,7 +20,8 @@ import type { StampShape, TextOverlaySource } from './overlayCanvas';
 import { FontPicker } from './FontPicker';
 import { alignedOverlay, duplicatedOverlay, MIN_OVERLAY_SIDE, normalizedOverlay, overlayStep, POINTS_PER_MM, resizeOverlay, rotatedOverlay90, translatedOverlay } from '../overlayGeometry';
 import type { PageAlignment } from '../overlayGeometry';
-import { resizeTextFrame } from '../textFrame';
+import { fitTextFrame, resizeTextFrame } from '../textFrame';
+import { useNumberDraft } from '../useNumberDraft';
 import './overlay-editor.css';
 import '../overlayEditor.css';
 
@@ -111,8 +112,8 @@ function SignaturePad({ color, disabled, resetKey, onChange }: { color: string; 
 }
 
 function PercentField({ label, value, maximum, minimum = 0, onChange, disabled }: { label: string; value: number; maximum: number; minimum?: number; onChange: (value: number) => void; disabled: boolean }) {
-  return <label className="oe-field oe-percent-field"><span>{label}</span><div><input type="number" min={minimum * 100} max={maximum * 100} step="0.5" value={Math.round(value * 1000) / 10}
-    disabled={disabled} onChange={event => { const next = Number(event.target.value); if (event.target.value !== '' && Number.isFinite(next)) onChange(Math.max(minimum, Math.min(maximum, next / 100))); }} /><span>%</span></div></label>;
+  const number = useNumberDraft(value * 100, next => onChange(next / 100), { min: minimum * 100, max: maximum * 100, step: .5 });
+  return <label className="oe-field oe-percent-field"><span>{label}</span><div><input {...number} disabled={disabled}/><span>%</span></div></label>;
 }
 
 function MeasureField({ label, value, maximum, minimum = 0, extent, unit, onChange, disabled }: { label: string; value: number; maximum: number; minimum?: number; extent: number; unit: '%' | 'mm'; onChange: (value: number) => void; disabled: boolean }) {
@@ -152,13 +153,21 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const [textBoxWidth, setTextBoxWidth] = useState(100);
   const [textBoxHeight, setTextBoxHeight] = useState(30);
   const [textAutoHeight, setTextAutoHeight] = useState(true);
+  const [textPadding, setTextPadding] = useState<number | undefined>(0);
+  const numberKey = selectedOverlay;
+  const sizeInput = useNumberDraft(fontSize, setFontSize, { min: 6, max: 144, resetKey: numberKey });
+  const leadingInput = useNumberDraft(lineHeight, setLineHeight, { min: .8, max: 3, step: .05, resetKey: numberKey });
+  const spacingInput = useNumberDraft(charSpacing, setCharSpacing, { min: -2, max: 20, step: .1, resetKey: numberKey });
+  const widthInput = useNumberDraft(textBoxWidth, setTextBoxWidth, { min: 1 / POINTS_PER_MM, max: props.pageWidth / POINTS_PER_MM, step: .1, resetKey: numberKey });
+  const heightInput = useNumberDraft(textBoxHeight, setTextBoxHeight, { min: 1 / POINTS_PER_MM, max: props.pageHeight / POINTS_PER_MM, step: .1, resetKey: numberKey });
+  const paddingInput = useNumberDraft(textPadding ?? Math.ceil(Math.max(16, fontSize * .5)) / 2, setTextPadding, { min: 0, max: 24, step: .5, resetKey: numberKey });
   const [textPreview, setTextPreview] = useState<ReturnType<typeof createTextPng> | null>(null);
   const [textPreviewError, setTextPreviewError] = useState('');
   const textSource = useMemo<TextOverlaySource>(() => ({ content: text, color: textColor, fontSize, bold, fontFamily: textFont,
-    italic, underline, strikeout, alignment: textAlignment, charSpacing, lineHeight,
-    ...(textWrap ? { frame: { width: Math.min(Math.max(24, textBoxWidth * POINTS_PER_MM), Math.max(24, props.pageWidth)),
-      height: Math.min(Math.max(12, textBoxHeight * POINTS_PER_MM), Math.max(12, props.pageHeight)), autoHeight: textAutoHeight } } : {}),
-  }), [text, textColor, fontSize, bold, textFont, italic, underline, strikeout, textAlignment, charSpacing, lineHeight, textWrap, textBoxWidth, textBoxHeight, textAutoHeight, props.pageWidth, props.pageHeight]);
+    italic, underline, strikeout, alignment: textAlignment, charSpacing, lineHeight, ...(textPadding === undefined ? {} : { padding: textPadding }),
+    ...(textWrap ? { frame: { width: Math.min(Math.max(textPadding === undefined ? 24 : 1, textBoxWidth * POINTS_PER_MM), Math.floor(props.pageWidth * 2) / 2),
+      height: Math.min(Math.max(textPadding === undefined ? 12 : 1, textBoxHeight * POINTS_PER_MM), Math.floor(props.pageHeight * 2) / 2), autoHeight: textAutoHeight } } : {}),
+  }), [text, textColor, fontSize, bold, textFont, italic, underline, strikeout, textAlignment, charSpacing, lineHeight, textWrap, textBoxWidth, textBoxHeight, textAutoHeight, textPadding, props.pageWidth, props.pageHeight]);
   useEffect(() => {
     let cancelled = false;
     if (!textSource.content.trim()) { setTextPreview(null); setTextPreviewError(''); return; }
@@ -175,6 +184,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     setTab('text'); setText(source.content); setTextColor(source.color); setFontSize(source.fontSize); setBold(source.bold); setTextFont(source.fontFamily);
     setItalic(source.italic ?? false); setUnderline(source.underline ?? false); setStrikeout(source.strikeout ?? false);
     setTextAlignment(source.alignment ?? 'left'); setCharSpacing(source.charSpacing ?? 0); setLineHeight(source.lineHeight ?? 1.45);
+    setTextPadding(source.padding);
     setTextWrap(Boolean(source.frame) || source.wrapWidth !== undefined);
     if (source.frame) { setTextBoxWidth(source.frame.width / POINTS_PER_MM); setTextBoxHeight(source.frame.height / POINTS_PER_MM); setTextAutoHeight(source.frame.autoHeight); }
     else { setTextAutoHeight(true); if (source.wrapWidth !== undefined) setTextBoxWidth((source.wrapWidth + Math.ceil(Math.max(16, source.fontSize * .5))) / POINTS_PER_MM); }
@@ -286,7 +296,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     const { pageWidth, pageHeight, overlays, onChange } = latest.current;
     if (overlays.length >= 30) throw new Error(t('当前页面最多添加 30 个内容对象。', 'A page can contain up to 30 added objects.'));
     let width = requestedWidth, height = width * pageWidth / pageHeight * asset.height / asset.width;
-    if (textSource && (width > .9 || height > .85)) throw new Error('TEXT_PAGE_OVERFLOW');
+    if (textSource && (width > 1 || height > 1)) throw new Error('TEXT_PAGE_OVERFLOW');
     if (!textSource && height > 0.65) { width *= 0.65 / height; height = 0.65; }
     height = Math.max(textSource ? .001 : .01, height); width = Math.max(textSource ? .001 : .01, width);
     const overlay: Overlay = normalizedOverlay({ id: crypto.randomUUID(), assetId: asset.id, x: 0.12, y: 0.12, width, height, opacity: 1, rotation: 0, blendMode, ...(textSource ? { textSource } : {}) });
@@ -323,16 +333,23 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (kind) remember(asset, kind, name); else place(asset, name);
   };
 
-  const addText = (replaceId?: string) => execute(async () => {
+  const addText = (replaceId?: string, fit = false) => execute(async () => {
     if (!text.trim()) throw new Error(t('请先输入要添加的文字。', 'Enter the text to add.'));
-    const source = { ...textSource };
+    let source = { ...textSource };
     await ensureFontReady(source.fontFamily, source.content, source.bold, source.italic);
     if (!alive.current) return;
+    let fitted: Overlay | undefined;
+    if (fit && replaceId) {
+      const previous = latest.current.overlays.find(item => item.id === replaceId);
+      if (!previous?.textSource || previous.locked) return;
+      fitted = fitTextFrame({ ...previous, textSource: source }, latest.current.pageWidth, latest.current.pageHeight);
+      source = fitted.textSource!;
+    }
     const png = createTextPng(source.content, source.color, source.fontSize, source.bold, source.fontFamily, source);
     if (png.overflow) throw new Error('TEXT_FRAME_OVERFLOW');
     if (source.frame) source.frame = { ...source.frame, width: png.width / 2, height: png.height / 2 };
     const width = png.width / 2 / latest.current.pageWidth, height = png.height / 2 / latest.current.pageHeight;
-    if (width > .9 || height > .85) throw new Error('TEXT_PAGE_OVERFLOW');
+    if (width > 1 || height > 1) throw new Error('TEXT_PAGE_OVERFLOW');
     const asset = await register(png.dataUrl);
     if (!alive.current) return;
     if (replaceId) {
@@ -342,7 +359,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
       const visibleWidth = quarterTurn ? png.height / 2 / latest.current.pageWidth : width;
       const visibleHeight = quarterTurn ? png.width / 2 / latest.current.pageHeight : height;
       if (visibleWidth > 1 || visibleHeight > 1) throw new Error('TEXT_PAGE_OVERFLOW');
-      latest.current.onChange(latest.current.overlays.map(item => item.id === replaceId ? normalizedOverlay({ ...item, assetId: asset.id, width: visibleWidth, height: visibleHeight, textSource: source }) : item));
+      latest.current.onChange(latest.current.overlays.map(item => item.id === replaceId ? normalizedOverlay({ ...item, ...(fitted ? { x: fitted.x, y: fitted.y } : {}), assetId: asset.id, width: visibleWidth, height: visibleHeight, textSource: source }) : item));
       setPreviews(values => ({ ...values, [asset.id]: asset.dataUrl }));
       setMessage(t('已更新选中文字，可撤销。', 'Selected text updated. Undo is available.'));
     } else place(asset, t('文字', 'Text'), width, 'normal', source);
@@ -527,16 +544,18 @@ export function OverlayEditor(props: OverlayEditorProps) {
       {tab === 'text' && <section className="oe-section"><h3>{t('多行文字框', 'Multiline text box')}</h3>
         <label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={4000} rows={5} value={text} disabled={locked} placeholder={t('输入中文或英文，支持多行与自动换行…', 'Enter text, including multiple lines…')} onChange={event => setText(event.target.value)} /></label>
         <FontPicker value={textFont} onChange={setTextFont} disabled={locked} sample={text}/>
-        <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input type="number" min={6} max={144} value={fontSize} disabled={locked} onChange={event => setFontSize(Math.max(6, Math.min(144, Number(event.target.value) || 24)))} /></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label></div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input {...sizeInput} disabled={locked}/></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label></div>
         <div className="oe-text-styles">{[{ label: t('加粗', 'Bold'), value: bold, change: setBold }, { label: t('斜体', 'Italic'), value: italic, change: setItalic }, { label: t('下划线', 'Underline'), value: underline, change: setUnderline }, { label: t('删除线', 'Strikeout'), value: strikeout, change: setStrikeout }].map(style => <label className="oe-check" key={style.label}><input type="checkbox" checked={style.value} disabled={locked} onChange={event => style.change(event.target.checked)}/>{style.label}</label>)}</div>
-        <div className="oe-fields"><label className="oe-field"><span>{t('段内对齐', 'Line alignment')}</span><select value={textAlignment} disabled={locked} onChange={event => setTextAlignment(event.target.value as typeof textAlignment)}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label><label className="oe-field"><span>{t('行距倍数', 'Line spacing')}</span><input type="number" min={.8} max={3} step={.05} value={lineHeight} disabled={locked} onChange={event => setLineHeight(Math.max(.8, Math.min(3, Number(event.target.value) || 1.45)))}/></label></div>
-        <div className="oe-fields"><label className="oe-field"><span>{t('字距（pt）', 'Character spacing (pt)')}</span><input type="number" min={-2} max={20} step={.1} value={charSpacing} disabled={locked} onChange={event => setCharSpacing(Math.max(-2, Math.min(20, Number(event.target.value) || 0)))}/></label><label className="oe-field"><span>{t('框宽（mm）', 'Box width (mm)')}</span><input type="number" min={9} max={Math.max(9, Math.floor(props.pageWidth / POINTS_PER_MM))} step={.1} value={Math.round(textBoxWidth * 100) / 100} disabled={locked || !textWrap} onChange={event => setTextBoxWidth(Math.max(9, Math.min(props.pageWidth / POINTS_PER_MM, Number(event.target.value) || 100)))}/></label></div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('段内对齐', 'Line alignment')}</span><select value={textAlignment} disabled={locked} onChange={event => setTextAlignment(event.target.value as typeof textAlignment)}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label><label className="oe-field"><span>{t('行距倍数', 'Line spacing')}</span><input {...leadingInput} disabled={locked}/></label></div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字距（pt）', 'Character spacing (pt)')}</span><input {...spacingInput} disabled={locked}/></label><label className="oe-field"><span>{t('框宽（mm）', 'Box width (mm)')}</span><input {...widthInput} disabled={locked || !textWrap}/></label></div>
         <label className="oe-check"><input type="checkbox" checked={textWrap} disabled={locked} onChange={event => setTextWrap(event.target.checked)}/>{t('按框宽自动换行', 'Wrap to box width')}</label>
-        {textWrap && <><label className="oe-check"><input type="checkbox" checked={textAutoHeight} disabled={locked} onChange={event => setTextAutoHeight(event.target.checked)}/>{t('高度随文字自动增长', 'Grow height to fit text')}</label><label className="oe-field"><span>{t('框高（mm）', 'Box height (mm)')}</span><input type="number" min={5} max={Math.max(5, Math.floor(props.pageHeight / POINTS_PER_MM))} step={.1} value={Math.round(textBoxHeight * 100) / 100} disabled={locked || textAutoHeight} onChange={event => setTextBoxHeight(Math.max(5, Math.min(props.pageHeight / POINTS_PER_MM, Number(event.target.value) || 30)))}/></label></>}
+        {textWrap && <><label className="oe-check"><input type="checkbox" checked={textAutoHeight} disabled={locked} onChange={event => setTextAutoHeight(event.target.checked)}/>{t('高度随文字自动增长', 'Grow height to fit text')}</label><label className="oe-field"><span>{t('框高（mm）', 'Box height (mm)')}</span><input {...heightInput} disabled={locked || textAutoHeight}/></label></>}
+        <div className="oe-text-frame-tools"><label className="oe-field"><span>{t('内边距（pt）', 'Padding (pt)')}</span><input {...paddingInput} disabled={locked}/></label>{current?.textSource && <button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError} title={t('收紧文字边框，保留字号与文字位置；去除旧版透明留白。', 'Tighten the frame without changing font size or text position; remove legacy transparent insets.')} onClick={() => void addText(current.id, true)}>{t('贴合文字', 'Fit to text')}</button>}</div>
+        <p className="oe-note oe-frame-hint">{t('内边距可设为 0，文字可贴近页边；超出 PDF 的部分不能提交。数值输入可清空后重填。', 'Use zero padding to position text at page edges. Content must stay inside the PDF. Numeric fields can be cleared and retyped.')}</p>
         <div className="oe-checker oe-text-preview">{textPreview ? <PreviewZoom width={textPreview.width} height={textPreview.height} resetKey="added-text" label={t('文字排版预览', 'Text layout preview')}><img src={textPreview.dataUrl} alt={t('修改后文字', 'Edited text')}/></PreviewZoom> : <span>{textPreviewError ? t('排版超出限制，请调整字号或文本框。', 'Layout exceeds limits. Adjust size or box width.') : t('输入文字后显示预览', 'Enter text to preview')}</span>}</div>
         {textPreview && <p className="oe-note" role={textPreview.overflow ? 'alert' : undefined}>{textPreview.overflow ? t(`文字溢出：至少需要 ${(textPreview.requiredHeight / POINTS_PER_MM).toFixed(1)} mm 高度。请增高文本框或启用自动高度。`, `Text overflows: at least ${(textPreview.requiredHeight / POINTS_PER_MM).toFixed(1)} mm height is required. Enlarge the box or enable automatic height.`) : t(`共 ${textPreview.lineCount} 行 · 拖动框边改变排版，字号保持不变`, `${textPreview.lineCount} lines · Resizing the frame reflows text without changing its font size`)}</p>}
-        <button className="oe-action primary" disabled={locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText()}><Plus size={15}/>{t('添加到当前页', 'Add to this page')}</button>
-        {current?.textSource && <div className="oe-button-row"><button className="oe-action" disabled={locked || current.locked} onClick={() => loadTextSettings(current.textSource!)}>{t('载入选中文字', 'Load selected text')}</button><button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText(current.id)}>{t('更新选中文字', 'Update selected text')}</button></div>}
+        <div className="oe-text-actions"><button className="oe-action primary wide" disabled={locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText()}><Plus size={15}/>{t('添加到当前页', 'Add to this page')}</button>
+        {current?.textSource && <div className="oe-button-row"><button className="oe-action" disabled={locked || current.locked} onClick={() => loadTextSettings(current.textSource!)}>{t('载入选中文字', 'Load selected text')}</button><button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText(current.id)}>{t('更新选中文字', 'Update selected text')}</button></div>}</div>
         <p className="oe-note">{t('拖动文字框改变排版，字号不变；双击文字可直接编辑。保存 .jvp 项目可保留文字和折点；导出 PDF 中的新增文字仍为图像。可搜索原文请使用“原文编辑 / 文字行编辑”。', 'Drag a text frame to reflow without changing font size; double-click to edit. Save a .jvp project to retain text and path nodes. Added text in exported PDFs is an image; use original text or text line editing for searchable text.')}</p>
       </section>}
       {tab === 'image' && <section className="oe-section"><h3>{t('添加图片', 'Add an image')}</h3><div className="oe-empty-symbol"><ImagePlus size={34} /></div><p className="oe-description">{t('选择本机 PNG 或 JPEG 图片，放到当前页面上。PNG 透明背景会保留。', 'Choose a local PNG or JPEG image and place it on this page. PNG transparency is preserved.')}</p><button className="oe-action primary" disabled={locked} onClick={() => void execute(() => importAsset())}><Upload size={15} />{t('选择图片', 'Choose image')}</button><p className="oe-note">{t('导入图像会进行尺寸与格式检查，最长边不超过 2400 像素。', 'Imported images are validated and limited to a 2400-pixel longest edge.')}</p></section>}

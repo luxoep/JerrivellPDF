@@ -823,7 +823,7 @@ function AppWorkspace() {
                 const text: PageOverlay = { id: nextId(), assetId: '', x: Math.max(0, Math.min(1 - width / mark.pageWidth, end.x < before.x ? end.x - width / mark.pageWidth : end.x)),
                     y: Math.max(0, Math.min(1 - height / mark.pageHeight, end.y - height / mark.pageHeight / 2)), width: width / mark.pageWidth, height: height / mark.pageHeight,
                     opacity: 1, rotation: 0, textSource: { content: t('文字说明', 'Label'), fontSize: 12, color: settings.color, bold: false,
-                        fontFamily: DEFAULT_FONT_FAMILY, frame: { width, height, autoHeight: true } } };
+                        fontFamily: DEFAULT_FONT_FAMILY, padding: 0, frame: { width, height, autoHeight: true } } };
                 overlay = attachLeader({ ...overlay, leaderFor: text.id }, text);
                 updatePageOverlays(pageId, [...(page.overlays ?? []), overlay, text]);
                 setActiveOverlayId(text.id);

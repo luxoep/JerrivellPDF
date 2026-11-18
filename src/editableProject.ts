@@ -33,9 +33,10 @@ function textSource(value: unknown) {
   optional(source.charSpacing, value => number(value, -2, 20));
   optional(source.lineHeight, value => number(value, .8, 3));
   optional(source.wrapWidth, value => number(value, 24, 1800));
+  optional(source.padding, value => number(value, 0, 24));
   if (source.frame !== undefined) {
     const frame = object(source.frame);
-    number(frame.width, 24, 2048); number(frame.height, 12, 4096); if (typeof frame.autoHeight !== 'boolean') fail();
+    number(frame.width, source.padding === undefined ? 24 : 1, 2048); number(frame.height, source.padding === undefined ? 12 : 1, 4096); if (typeof frame.autoHeight !== 'boolean') fail();
   }
 }
 function markSource(value: unknown) {

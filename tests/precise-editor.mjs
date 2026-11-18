@@ -42,6 +42,7 @@ const require = name => {
   if (name === './overlayCanvas') return canvas;
   if (name === './components/overlayCanvas') return canvas;
   if (name === '../textFrame') return textFrame;
+  if (name === '../useNumberDraft') return numbers;
   if (name === '../placementGeometry') return placement;
   if (name === './overlayGeometry') return geometry;
   if (name === './FontPicker') return { FontPicker: 'FontPicker' };
@@ -50,6 +51,7 @@ const require = name => {
   if (name.endsWith('.css')) return {};
   throw new Error(`Unexpected import ${name}`);
 };
+const numbers = {}; vm.runInNewContext(await transpile('../src/useNumberDraft.ts'), { exports: numbers, require: () => react });
 const textFrame = {}, placement = {};
 vm.runInNewContext(await transpile('../src/textFrame.ts'), { exports: textFrame, require });
 vm.runInNewContext(await transpile('../src/placementGeometry.ts'), { exports: placement, require });

@@ -64,12 +64,14 @@ async function fixture(overlays = []) {
     onError: error => errors.push(error), onClose() {},
   };
   class LibraryError extends Error {}
+  const numbers = load('../src/useNumberDraft.ts', () => react);
   const editor = load('../src/components/OverlayEditor.tsx', name => {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === './overlayCanvas') return canvas;
     if (name === '../overlayGeometry') return geometry;
     if (name === '../textFrame') return textFrame;
+    if (name === '../useNumberDraft') return numbers;
     if (name === '../imageGeometry') return imageGeometry;
     if (name === '../useFragmentPreview') return { useFragmentPreview: () => ({ image: null, error: '' }) };
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
@@ -90,7 +92,7 @@ async function fixture(overlays = []) {
   function find(predicate) { render(); return walk(tree, predicate)[0]; }
   const button = label => find(node => node.type === 'button' && (text(node) === label || node.props['aria-label'] === label));
   const control = label => { const field = find(node => node.type === 'label' && text(node).startsWith(label)); assert.ok(field, `Missing field: ${label}`); return walk(field, node => ['input', 'textarea', 'select'].includes(node.type))[0]; };
-  const change = (label, value) => { const node = control(label); node.props.onChange({ target: typeof value === 'boolean' ? { checked: value } : { value } }); render(); };
+  const change = (label, value) => { const node = control(label); node.props.onChange({ target: typeof value === 'boolean' ? { checked: value } : { value: String(value) } }); render(); };
   async function click(label) { const node = button(label); assert.ok(node, `Missing button: ${label}`); assert.equal(Boolean(node.props.disabled), false, `Disabled button: ${label}`); node.props.onClick(); await settle(); }
   const preview = () => find(node => node.type === 'PreviewZoom' && node.props.resetKey === 'added-text');
   await settle();
@@ -157,7 +159,7 @@ for (const rotation of [90, 270]) {
 {
   const ui = await fixture(); ui.change('Wrap to box width', false); ui.setText('X'.repeat(30));
   await ui.click('Add to this page'); assert.deepEqual(ui.errors, []);
-  const item = ui.props.overlays[0]; assert.ok(item.width > .88 && item.width <= .9);
+  const item = ui.props.overlays[0]; near(item.width, 30 * 24 * .6 / ui.props.pageWidth);
   assert.ok(item.x + item.width <= 1, 'New text must stay within the native worker page bounds');
   const image = JSON.parse(Buffer.from(ui.nativeCalls[0].args.dataUrl.split(',')[1], 'base64').toString());
   near(item.width * ui.props.pageWidth, image.width / 2); ui.cleanup();

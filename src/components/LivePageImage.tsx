@@ -19,8 +19,8 @@ function TextFrameShape({ item, pageWidth, pageHeight }: { item: PageOverlay; pa
   return <g data-live-overlay={item.id} data-text-frame-preview transform={`translate(${(item.x + item.width / 2) * pageWidth} ${(item.y + item.height / 2) * pageHeight}) rotate(${rotation})`} opacity={item.opacity}>
     <g transform={`translate(${-imageW / 2} ${-imageH / 2})`} fill={source.color} fontFamily={cssFontFamily(source.fontFamily)} fontSize={source.fontSize} fontWeight={source.bold ? 600 : 400} fontStyle={source.italic ? 'italic' : 'normal'} letterSpacing={source.charSpacing ?? 0}>
       {layout.layoutLines.map((line, index) => <g key={index}><text x={line.x} y={line.y} xmlSpace="preserve">{line.text}</text>
-        {source.underline && <path d={`M${line.x} ${line.y + source.fontSize * .1}h${line.width}`} stroke={source.color} strokeWidth={Math.max(.5, source.fontSize / 18)} />}
-        {source.strikeout && <path d={`M${line.x} ${line.y - source.fontSize * .33}h${line.width}`} stroke={source.color} strokeWidth={Math.max(.5, source.fontSize / 18)} />}</g>)}
+        {source.underline && <path d={`M${line.decorationX ?? line.x} ${line.y + source.fontSize * .1}h${line.width}`} stroke={source.color} strokeWidth={Math.max(.5, source.fontSize / 18)} />}
+        {source.strikeout && <path d={`M${line.decorationX ?? line.x} ${line.y - source.fontSize * .33}h${line.width}`} stroke={source.color} strokeWidth={Math.max(.5, source.fontSize / 18)} />}</g>)}
     </g>
   </g>;
 }

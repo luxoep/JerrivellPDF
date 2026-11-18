@@ -46,6 +46,8 @@ export interface TextLayoutOptions {
   lineHeight?: number;
   /** Fixed text box width in PDF points; absent means natural line width. */
   wrapWidth?: number;
+  /** Explicit padding in PDF points. Absent preserves pre-0.8.5 project layout. */
+  padding?: number;
   /** Text container in PDF points, including transparent insets. It never scales glyphs. */
   frame?: { width: number; height: number; autoHeight: boolean };
 }
@@ -57,10 +59,10 @@ export interface TextOverlaySource extends TextLayoutOptions {
   fontFamily: string;
 }
 /** Positions are PDF points, including the text container's transparent inset. */
-export interface TextLayoutLine { text: string; x: number; y: number; width: number }
+export interface TextLayoutLine { text: string; x: number; y: number; width: number; decorationX?: number }
 export interface TextPngResult {
   dataUrl: string; width: number; height: number; lineCount: number;
-  requiredHeight: number; overflow: boolean; layoutLines: TextLayoutLine[];
+  requiredHeight: number; requiredWidth?: number; overflow: boolean; layoutLines: TextLayoutLine[];
 }
 
 function graphemes(text: string): string[] {
@@ -72,6 +74,7 @@ function graphemes(text: string): string[] {
 /** Layout never silently drops text or reduces the requested point size. */
 export function createTextPng(text: string, color: string, fontSize: number, bold: boolean, family = DEFAULT_FONT_FAMILY, options: TextLayoutOptions = {}, measureOnly = false): TextPngResult {
   if (!text.trim() || text.length > 4000 || !Number.isFinite(fontSize) || fontSize < 6 || fontSize > 144) throw new Error('TEXT_LAYOUT_LIMIT');
+  if (options.padding !== undefined) return createCompactTextPng(text, color, fontSize, bold, family, options, measureOnly);
   const spacing = options.charSpacing ?? 0, leading = options.lineHeight ?? 1.45;
   const frame = options.frame;
   if (frame && (![frame.width, frame.height].every(Number.isFinite) || frame.width < 24 || frame.width > 2048 || frame.height < 12 || frame.height > 4096 || typeof frame.autoHeight !== 'boolean')) throw new Error('TEXT_LAYOUT_LIMIT');
@@ -141,6 +144,92 @@ export function createTextPng(text: string, color: string, fontSize: number, bol
     }
   });
   return { dataUrl: canvas.toDataURL('image/png'), width, height, lineCount: lines.length, requiredHeight: requiredPixels / 2, overflow, layoutLines };
+}
+
+/** Tight glyph bounds let a zero-padding frame reach the PDF edge without
+ * clipping accents, italic overhangs, descenders or text decorations. */
+function createCompactTextPng(text: string, color: string, fontSize: number, bold: boolean, family: string, options: TextLayoutOptions, measureOnly: boolean): TextPngResult {
+  const spacing = options.charSpacing ?? 0, leading = options.lineHeight ?? 1.45, padding = options.padding! * 2;
+  const frame = options.frame, size = fontSize * 2;
+  if (!Number.isFinite(padding) || padding < 0 || padding > 48 || !Number.isFinite(spacing) || spacing < -2 || spacing > 20 || !Number.isFinite(leading) || leading < .8 || leading > 3
+    || frame && (![frame.width, frame.height].every(Number.isFinite) || frame.width < 1 || frame.width > 2048 || frame.height < 1 || frame.height > 4096 || typeof frame.autoHeight !== 'boolean')) throw new Error('TEXT_LAYOUT_LIMIT');
+  const wrap = frame ? frame.width * 2 - 2 * padding : options.wrapWidth === undefined ? undefined : options.wrapWidth * 2;
+  if (wrap !== undefined && (!Number.isFinite(wrap) || wrap <= 0 || wrap > 4096)) throw new Error('TEXT_BOX_TOO_NARROW');
+  const [canvas, context] = surface(1, 1);
+  const font = `${options.italic ? 'italic ' : ''}${bold ? '600' : '400'} ${size}px ${cssFontFamily(family)}`;
+  context.font = font;
+  const finiteMetric = (number: number | undefined, fallback: number) => Number.isFinite(number) ? number! : fallback;
+  const sample = context.measureText('Hg国'), fallbackAscent = finiteMetric(sample.actualBoundingBoxAscent, size * .8), fallbackDescent = finiteMetric(sample.actualBoundingBoxDescent, size * .2);
+  type Metrics = { left: number; width: number; ascent: number; descent: number };
+  const cache = new Map<string, Metrics>();
+  const measure = (value: string): Metrics => {
+    const known = cache.get(value); if (known) return known;
+    const glyphs = graphemes(value), metric = context.measureText(value);
+    let left = -finiteMetric(metric.actualBoundingBoxLeft, 0), right = finiteMetric(metric.actualBoundingBoxRight, metric.width);
+    let ascent = finiteMetric(metric.actualBoundingBoxAscent, fallbackAscent), descent = finiteMetric(metric.actualBoundingBoxDescent, fallbackDescent);
+    if (spacing && glyphs.length) {
+      left = Infinity; right = -Infinity; ascent = descent = -Infinity;
+      let cursor = 0;
+      glyphs.forEach((glyph, index) => {
+        const box = context.measureText(glyph);
+        if (glyph.trim()) {
+          left = Math.min(left, cursor - finiteMetric(box.actualBoundingBoxLeft, 0));
+          right = Math.max(right, cursor + finiteMetric(box.actualBoundingBoxRight, box.width));
+          ascent = Math.max(ascent, finiteMetric(box.actualBoundingBoxAscent, fallbackAscent)); descent = Math.max(descent, finiteMetric(box.actualBoundingBoxDescent, fallbackDescent));
+        }
+        cursor = context.measureText(glyphs.slice(0, index + 1).join('')).width + (index + 1) * spacing * 2;
+      });
+    }
+    if (!value.trim()) { left = 0; right = metric.width + Math.max(0, glyphs.length - 1) * spacing * 2; ascent = fallbackAscent; descent = fallbackDescent; }
+    else {
+      const start = value.match(/^\s+/u)?.[0] ?? '', end = value.match(/\s+$/u)?.[0] ?? '';
+      // Preserve intentional indentation/trailing spaces while removing glyph bearings.
+      left -= context.measureText(start).width + graphemes(start).length * spacing * 2;
+      right += context.measureText(end).width + graphemes(end).length * spacing * 2;
+    }
+    const result = { left, width: Math.max(0, right - left), ascent, descent }; cache.set(value, result); return result;
+  };
+  const lines: string[] = [];
+  const append = (line: string) => { lines.push(line); if (lines.length > 80) throw new Error('TEXT_LAYOUT_LIMIT'); };
+  for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (wrap === undefined || measure(paragraph).width <= wrap + .001) { append(paragraph); continue; }
+    let remaining = graphemes(paragraph);
+    while (remaining.length) {
+      let low = 1, high = remaining.length;
+      while (low < high) { const middle = Math.ceil((low + high) / 2); if (measure(remaining.slice(0, middle).join('')).width <= wrap + .001) low = middle; else high = middle - 1; }
+      let end = low;
+      if (end < remaining.length) { const wordBreak = remaining.slice(0, end).map((value, index) => /\s/u.test(value) ? index + 1 : 0).filter(Boolean).at(-1); if (wordBreak) end = wordBreak; }
+      const line = remaining.slice(0, end).join(''); if (measure(line).width > wrap + .001) throw new Error('TEXT_BOX_TOO_NARROW');
+      append(line); remaining = remaining.slice(end);
+    }
+  }
+  const metrics = lines.map(measure), contentWidth = Math.max(1, ...metrics.map(value => value.width));
+  const bodyWidth = wrap ?? contentWidth, stroke = Math.max(1, size / 18);
+  let top = Infinity, bottom = -Infinity;
+  metrics.forEach((box, index) => {
+    const baseline = index * size * leading;
+    top = Math.min(top, baseline - box.ascent, options.strikeout ? baseline - size * .33 - stroke / 2 : Infinity);
+    bottom = Math.max(bottom, baseline + box.descent, options.underline ? baseline + size * .1 + stroke / 2 : -Infinity);
+  });
+  const requiredPixels = Math.max(2, Math.ceil(bottom - top + padding * 2)), requiredWidth = Math.max(2, Math.ceil(contentWidth + padding * 2)) / 2;
+  const width = Math.max(2, Math.ceil(frame ? frame.width * 2 : bodyWidth + padding * 2)), height = frame && !frame.autoHeight ? Math.ceil(frame.height * 2) : requiredPixels;
+  if (width > 4096 || height > 8192 || width * height > 8000000) throw new Error('TEXT_LAYOUT_LIMIT');
+  const layoutLines: TextLayoutLine[] = lines.map((line, index) => {
+    const box = metrics[index], offset = options.alignment === 'center' ? (bodyWidth - box.width) / 2 : options.alignment === 'right' ? bodyWidth - box.width : 0;
+    return { text: line, x: (padding + offset - box.left) / 2, decorationX: (padding + offset) / 2, y: (padding - top + index * size * leading) / 2, width: box.width / 2 };
+  });
+  const result = { width, height, lineCount: lines.length, requiredHeight: requiredPixels / 2, requiredWidth, overflow: requiredPixels > height, layoutLines };
+  if (measureOnly) return { ...result, dataUrl: '' };
+  canvas.width = width; canvas.height = height; context.font = font; context.fillStyle = color; context.strokeStyle = color; context.textBaseline = 'alphabetic'; context.lineWidth = stroke;
+  for (const line of layoutLines) {
+    const x = line.x * 2, y = line.y * 2;
+    if (!spacing) context.fillText(line.text, x, y);
+    else { let cursor = x; const clusters = graphemes(line.text); clusters.forEach((cluster, index) => { context.fillText(cluster, cursor, y); cursor = x + context.measureText(clusters.slice(0, index + 1).join('')).width + (index + 1) * spacing * 2; }); }
+    for (const decoratedY of [options.underline ? y + size * .1 : null, options.strikeout ? y - size * .33 : null]) if (decoratedY !== null && line.width > 0) {
+      const start = (line.decorationX ?? line.x) * 2; context.beginPath(); context.moveTo(start, decoratedY); context.lineTo(start + line.width * 2, decoratedY); context.stroke();
+    }
+  }
+  return { ...result, dataUrl: canvas.toDataURL('image/png') };
 }
 
 function star(context: CanvasRenderingContext2D, cx: number, cy: number, radius: number) {

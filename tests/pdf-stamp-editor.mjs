@@ -44,6 +44,7 @@ const react = {
     });
   },
 };
+const numbers = {}; vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/useNumberDraft.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: numbers, require: () => react });
 const exports = {};
 class LibraryError extends Error { constructor(code) { super(code); this.code = code; } }
 const png = 'data:image/png;base64,demo';
@@ -75,6 +76,7 @@ vm.runInNewContext(compiled, {
     if (name === './FontPicker') return { FontPicker: 'FontPicker' };
     if (name === '../overlayGeometry') return geometry;
     if (name === '../textFrame') return {};
+    if (name === '../useNumberDraft') return numbers;
     if (name.endsWith('.css')) return {};
     throw new Error(`Unexpected import: ${name}`);
   },

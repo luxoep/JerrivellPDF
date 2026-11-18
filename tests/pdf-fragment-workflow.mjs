@@ -43,6 +43,7 @@ const react={
 const imageGeometry=await module('src/imageGeometry.ts',{});
 const region=await module('src/components/RegionSelection.tsx',{require(name){if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;if(name==='../imageGeometry')return imageGeometry;if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};throw new Error(name);}});
 const pngPath=join(output,'fragment-library.png');
+const numbers=await module('src/useNumberDraft.ts',{require:()=>react});
 const editor=await module('src/components/OverlayEditor.tsx',{require(name){
  if(name==='../imageGeometry')return imageGeometry;
  if(name==='./RegionSelection')return region;
@@ -55,6 +56,7 @@ const editor=await module('src/components/OverlayEditor.tsx',{require(name){
  if(name==='../backend')return api;if(name==='../stampLibrary')return library;
  if(name==='../overlayGeometry')return geometry;
  if(name==='../textFrame')return{};
+ if(name==='../useNumberDraft')return numbers;
  if(name==='./overlayCanvas')return{DEFAULT_FONT_FAMILY:'Microsoft YaHei UI',ensureFontReady:async()=>{}};
  if(name==='./FontPicker')return{FontPicker:'FontPicker'};
  if(name.endsWith('.css'))return{};throw new Error(name);

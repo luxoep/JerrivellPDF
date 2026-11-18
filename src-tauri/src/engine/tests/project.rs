@@ -76,6 +76,10 @@ fn project_portable_sources_semantics_native_edits_and_asset_remapping_round_tri
         .unwrap();
     let raw = fs::read_to_string(&project).unwrap();
     assert!(!raw.contains(&source.to_string_lossy().replace('\\', "\\\\")));
+    let mut legacy: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(legacy["version"], 2);
+    legacy["version"] = json!(1);
+    fs::write(&project, serde_json::to_vec(&legacy).unwrap()).unwrap();
     fs::remove_file(&source).unwrap();
     // Mutating/removing the original file cannot change this project.
     let result = engine
@@ -153,7 +157,7 @@ fn project_invalid_load_and_save_leave_existing_session_and_destination_unchange
     let raster = engine.render_page(&original, 240).unwrap().data_url;
     let mut damaged: Value = serde_json::from_slice(&saved).unwrap();
     let bad = directory.path().join("bad.jvp");
-    for mutate in 0..5 {
+    for mutate in 0..6 {
         let mut data = damaged.clone();
         match mutate {
             0 => data["assets"][0]["pngBase64"] = json!("not-a-png"),
@@ -164,6 +168,7 @@ fn project_invalid_load_and_save_leave_existing_session_and_destination_unchange
                 data["workspace"][0]["overlays"][0]["markSource"] = json!({"color":"#112233","geometry":{"tool":"polyarrow","points":[],"bounds":{"x":0,"y":0,"width":0.2,"height":0.2},"pageWidth":240,"pageHeight":360,"lineWidth":2}})
             }
             3 => data["workspace"][0]["overlays"][0]["leaderFor"] = json!("missing-text"),
+            5 => data["version"] = json!(999),
             _ => {
                 data["sources"][0]["pdfBase64"] =
                     json!(base64::engine::general_purpose::STANDARD.encode(b"not a PDF"))
@@ -186,6 +191,44 @@ fn project_invalid_load_and_save_leave_existing_session_and_destination_unchange
     fs::write(&bad, serde_json::to_vec(&damaged).unwrap()).unwrap();
     assert!(engine.load_editable_project(bad.to_str().unwrap()).is_err());
     assert_eq!(engine.render_page(&original, 240).unwrap().data_url, raster);
+}
+
+#[test]
+fn project_compact_zero_padding_and_small_frame_round_trip() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let mut engine = PdfEngine::new(native_pdfium());
+    let document = engine
+        .generate_pages(&GeneratePages::Blank {
+            width: 240.0,
+            height: 360.0,
+            count: 1,
+        })
+        .unwrap();
+    let png = image(&mut engine);
+    let mut p = page(&document, "compact-page");
+    p["overlays"] = json!([{"id":"compact-text","assetId":png.id,"x":0,"y":0,"width":0.05,"height":0.02,"opacity":1,
+      "textSource":{"content":"123","fontFamily":"Arial","fontSize":6,"color":"#123456","bold":false,"padding":0,"frame":{"width":12,"height":6,"autoHeight":true}}}]);
+    let target = directory.path().join("compact.jvp");
+    engine
+        .save_editable_project(target.to_str().unwrap(), vec![p.clone()], "Compact")
+        .unwrap();
+    let disk: Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    assert_eq!(disk["version"], 2);
+    let loaded = engine
+        .load_editable_project(target.to_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        loaded["workspace"][0]["overlays"][0]["textSource"],
+        p["overlays"][0]["textSource"]
+    );
+    assert_eq!(loaded["workspace"][0]["overlays"][0]["x"], 0);
+    assert_eq!(loaded["workspace"][0]["overlays"][0]["y"], 0);
+    let mut invalid = disk;
+    invalid["workspace"][0]["overlays"][0]["textSource"]["padding"] = json!(-1);
+    let bad = directory.path().join("negative-padding.jvp");
+    fs::write(&bad, serde_json::to_vec(&invalid).unwrap()).unwrap();
+    assert!(engine.load_editable_project(bad.to_str().unwrap()).is_err());
 }
 
 #[test]

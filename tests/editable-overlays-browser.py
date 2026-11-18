@@ -10,6 +10,7 @@ from pathlib import Path
 import argparse, hashlib, json, os, socket, subprocess, sys, time, traceback, urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version']
 TOOL_DIR = ROOT / 'test-results/0.8.3/browser-tools'
 if TOOL_DIR.is_dir():
     sys.path.insert(0, str(TOOL_DIR))
@@ -304,8 +305,8 @@ def linked_leader(page):
     return {'targetFixedOnLabelMove':True,'targetTranslatedWithAlt':True,'previewTranslatedWithAlt':True,'actualTextDelta':[dx,dy],'commits':afterAlt['stats']['commits']}
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--browser',default=os.environ.get('JERRIVELL_TEST_BROWSER',r'C:\Program Files\Google\Chrome\Application\chrome.exe'));parser.add_argument('--output',default='test-results/0.8.4/editable-overlays-browser.json');parser.add_argument('--dpr',type=float,nargs='+',default=[1,1.25]);args=parser.parse_args()
-    folder=ROOT/'test-results/0.8.4';folder.mkdir(parents=True,exist_ok=True)
+    parser=argparse.ArgumentParser();parser.add_argument('--browser',default=os.environ.get('JERRIVELL_TEST_BROWSER',r'C:\Program Files\Google\Chrome\Application\chrome.exe'));parser.add_argument('--output',default=f'test-results/{VERSION}/editable-overlays-browser.json');parser.add_argument('--dpr',type=float,nargs='+',default=[1,1.25]);args=parser.parse_args()
+    folder=ROOT/f'test-results/{VERSION}';folder.mkdir(parents=True,exist_ok=True)
     (folder/'annotation-harness.html').write_text(HTML,encoding='utf-8');(folder/'annotation-harness.tsx').write_text(HARNESS,encoding='utf-8')
     report={'sourceSha256':{name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in SOURCES},'cases':[],'pageErrors':[]}
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
