@@ -7,12 +7,16 @@ use base64::Engine as _;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use pdfium_render::prelude::*;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
+
+#[path = "project.rs"]
+pub(super) mod project;
 
 const TILE: u32 = 1024;
 const MAX_INPUT: u64 = 128 * 1024 * 1024;
@@ -21,6 +25,7 @@ struct Source<'a> {
     document: PdfDocument<'a>,
     path: PathBuf,
     size: u64,
+    sha256: String,
     copy_allowed: Option<bool>,
 }
 #[derive(Clone, Copy)]
@@ -67,6 +72,14 @@ fn cancelled(token: &AtomicBool) -> Result<(), String> {
         Ok(())
     }
 }
+fn source_sha256(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut hex = String::with_capacity(64);
+    for byte in Sha256::digest(bytes) {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
 fn local_location(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -108,6 +121,23 @@ impl<'a> Engine<'a> {
         if !["a", "b"].contains(&side) {
             return Err("无效的对比侧。".into());
         }
+        let (source, info) = self.stage_source(path, password, None)?;
+        if side == "a" {
+            self.a = Some(source)
+        } else {
+            self.b = Some(source)
+        }
+        self.last = None;
+        self.batch = None;
+        Ok(info)
+    }
+
+    fn stage_source(
+        &self,
+        path: &str,
+        password: Option<&str>,
+        expected: Option<&project::SourceReference>,
+    ) -> Result<(Source<'a>, SourceInfo), String> {
         if password.is_some_and(|v| v.len() > 1024) {
             return Err("密码过长。".into());
         }
@@ -133,6 +163,9 @@ impl<'a> Engine<'a> {
         if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_INPUT {
             return Err("对比单文件上限为 128 MiB，且文件不能为空。".into());
         }
+        if expected.is_some_and(|source| source.bytes != meta.len()) {
+            return Err("PROJECT_SOURCE_CHANGED".into());
+        }
         let mut bytes = Vec::new();
         file.take(MAX_INPUT + 1)
             .read_to_end(&mut bytes)
@@ -141,6 +174,10 @@ impl<'a> Engine<'a> {
             return Err("PDF 读取期间超过大小上限。".into());
         }
         let size = bytes.len() as u64;
+        let sha256 = source_sha256(&bytes);
+        if expected.is_some_and(|source| source.bytes != size || source.sha256 != sha256) {
+            return Err("PROJECT_SOURCE_CHANGED".into());
+        }
         let copy_allowed = crate::engine::source_copy_allowed(self.pdfium, &bytes, password);
         let document = self
             .pdfium
@@ -189,16 +226,10 @@ impl<'a> Engine<'a> {
             document,
             path,
             size,
+            sha256,
             copy_allowed,
         };
-        if side == "a" {
-            self.a = Some(source)
-        } else {
-            self.b = Some(source)
-        }
-        self.last = None;
-        self.batch = None;
-        Ok(info)
+        Ok((source, info))
     }
     fn pages(&self, o: &Options) -> Result<(PdfPage<'_>, PdfPage<'_>, Frame), String> {
         o.validate()?;

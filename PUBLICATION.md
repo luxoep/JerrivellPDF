@@ -1,12 +1,10 @@
-# Public source publication — 0.12.0
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+# Jerrivell PDF 0.13.0 公开发布来源
 
-This public source edition is based on the original 0.12.0 archive. It includes public guides, the Jerrivell launch scripts, and updated project references in the packaging script and welcome screen. Dependency manifests, lockfiles, tests, fixture files, icons, and upstream license texts retain their original bytes. The source archive has its own SHA-256.
+[0.13.0 Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.13.0) 提供 Windows x64 安装包、可修改项目源码、第三方对应源码补充及 SHA-256 清单。清单记录归档对应的公开 Git 版本与每项发布产物的校验值。
 
-- Repository: https://github.com/luxoep/JerrivellPDF
-- Original archive SHA-256: 59315195b3df5c380bbe4d20cc9de3de8a7c4c9f45f7abbfb53a6c14851e030e
-- Installer and exact third-party source supplement are unchanged original artifacts.
-- Original code license of this version: **MIT OR Apache-2.0**. See LICENSE and source headers; later license choices do not overwrite earlier archive terms.
+公开源码归档包含该版本的应用源码、原创合成样本、锁文件、构建脚本、许可原文和公开使用文档。源码构建所需的 PDFium 版本由项目脚本固定并校验。安装包包含匹配的 PDFium 资源和许可声明。第三方源码补充保存已登记的对应源码及上游许可。详见 [构建说明](docs/BUILDING.zh-CN.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
-No private PDFs, installed-app backups, local logs, credential helper output, dependency caches or user font programs are published. PDFium runtime is prepared from the pinned upstream by the included build script; binary releases include its own notices. Exact dependency versions and source/provenance links are in the lockfiles and retained license inventory. See the corresponding Release for all downloadable materials and checksums.
+公开安装包名为 Jerrivell.PDF_0.13.0_x64-setup.exe，文件字节与通过核验的本地构建一致。公开材料使用合成样本。业务 PDF、实际复核项目、测试运行记录和本机依赖缓存属于开发环境资料。
 
-GitHub normalizes spaces in installer asset filenames to periods. Public download names use Jerrivell.PDF_<version>_x64-setup.exe; installer bytes are unchanged. The Release manifest records the public source commit and the original installer version's releaseTagCommit.
+项目自有代码采用 MIT OR Apache-2.0。历史版本的许可见 [版本索引](docs/RELEASES.zh-CN.md)。本版验证范围见 [发布验证](docs/VALIDATION.zh-CN.md)。

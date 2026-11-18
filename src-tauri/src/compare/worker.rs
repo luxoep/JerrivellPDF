@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{engine::Engine, types::*};
+use super::{
+    engine::{
+        project::{OpenRequest, SaveRequest},
+        Engine,
+    },
+    types::*,
+};
 use pdfium_render::prelude::*;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -240,6 +246,16 @@ pub fn run(library: &Path) -> Result<(), String> {
                     engine
                         .open(&input.side, &input.path, input.password.as_deref())
                         .map(|v| json!(v))
+                }
+                "save_project" => {
+                    let input: SaveRequest = serde_json::from_value(request.args)
+                        .map_err(|_| "无效的复核项目保存请求。")?;
+                    engine.save_project(input).map(|value| json!(value))
+                }
+                "open_project" => {
+                    let input: OpenRequest = serde_json::from_value(request.args)
+                        .map_err(|_| "无效的复核项目打开请求。")?;
+                    engine.open_project(input).map(|value| json!(value))
                 }
                 "clear" => {
                     #[derive(Deserialize)]

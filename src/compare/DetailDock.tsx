@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import {useEffect,useRef,useState,useCallback} from 'react';
-import {Maximize2,Minimize2,Minus,Plus,X,LoaderCircle} from 'lucide-react';
+import {Maximize2,Minimize2,Minus,Plus,X,LoaderCircle,ChevronRight} from 'lucide-react';
 import {createPreviewZoomController} from '../previewZoom';
 import {useDialogFocus} from './useDialogFocus';
+import {maxReviewNoteLength} from './project';
 import type {Preview} from './types';
 type Tr=(zh:string,en:string)=>string;
-export function DetailDock({detail,loading,id,resetKey,aspect,tr,reviewed,onReview,onResolution}:{detail:Preview|null;loading:boolean;id:number;resetKey:string;aspect:number;tr:Tr;reviewed:boolean;onReview:(value:boolean)=>void;onResolution:(width:number)=>void}){
+export function DetailDock({detail,loading,id,resetKey,aspect,tr,reviewed,note,disabled,onReview,onNote,onNext,onResolution}:{
+  detail:Preview|null;loading:boolean;id:number;resetKey:string;aspect:number;tr:Tr;reviewed:boolean;note:string;disabled:boolean;
+  onReview:(value:boolean)=>void;onNote:(value:string)=>void;onNext?:()=>void;onResolution:(width:number)=>void;
+}){
   const[expanded,setExpanded]=useState(false),[zoom,setZoom]=useState(1),[height,setHeight]=useState(280);
   const viewport=useRef<HTMLDivElement>(null),extent=useRef<HTMLDivElement>(null),paper=useRef<HTMLDivElement>(null),controller=useRef<ReturnType<typeof createPreviewZoomController>|null>(null);
   const resize=useRef<{y:number;height:number}|null>(null),resolution=useRef(onResolution);resolution.current=onResolution;
@@ -23,6 +27,12 @@ export function DetailDock({detail,loading,id,resetKey,aspect,tr,reviewed,onRevi
       <figure><figcaption>{tr('A · 旧版','A · Old')}</figcaption>{detail&&<img draggable={false} src={detail.a.dataUrl} alt={tr('旧版局部放大','Old drawing detail')}/>}</figure>
       <figure><figcaption>{tr('B · 新版','B · New')}</figcaption>{detail&&<img draggable={false} src={detail.b.dataUrl} alt={tr('新版局部放大','New drawing detail')}/>}</figure>
     </div></div></div>
-    <footer><small>{tr('原生局部预览，缩放不改变差异数量。','Native detail preview; zoom does not change analysis counts.')}</small><label><input type="checkbox" checked={reviewed} onChange={e=>onReview(e.target.checked)}/>{tr('已人工复核','Manually reviewed')}</label></footer>
+    <footer>
+      <label className="compare-review-note">{tr('复核备注','Review note')}
+        <textarea aria-label={tr('复核备注','Review note')} rows={1} maxLength={maxReviewNoteLength} value={note} disabled={disabled} onChange={event=>onNote(event.target.value)}/>
+      </label>
+      <label><input type="checkbox" checked={reviewed} disabled={disabled} onChange={e=>onReview(e.target.checked)}/>{tr('已人工复核','Manually reviewed')}</label>
+      {onNext&&<button type="button" className="button secondary compare-next-pending" disabled={disabled} onClick={onNext}>{tr('下一处待复核','Next pending')}<ChevronRight size={14}/></button>}
+    </footer>
   </section>;
 }

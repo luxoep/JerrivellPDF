@@ -4,6 +4,7 @@
 
 | 版本 | Windows x64 安装包与对应源码 | 本版原创代码许可 |
 | --- | --- | --- |
+| 0.13.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.13.0) | MIT OR Apache-2.0 |
 | 0.12.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.12.0) | MIT OR Apache-2.0 |
 | 0.11.1 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.11.1) | MIT OR Apache-2.0 |
 | 0.11.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.11.0) | MIT OR Apache-2.0 |

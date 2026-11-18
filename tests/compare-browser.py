@@ -35,6 +35,8 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'compare'},currentWeb
  if(command==='compare_call'){
   const{command:kind,args:input}=args;
   if(kind==='open')return{fileName:input.path.split('/').pop(),fileSize:100,pageCount:2,pages:stats.pages[input.side]??[{width:600,height:800},{width:600,height:800}]};
+  if(kind==='save_project')return{fileName:input.path.split('/').pop(),bytes:1200};
+  if(kind==='open_project'){if(stats.projectError)throw new Error(stats.projectError);return stats.project;}
   if(kind==='page_preview')return picture;
   if(kind==='clear')return{cleared:input.side};
   if(kind==='text_assist')return{status:stats.textStatus,limited:false,changes:stats.textStatus==='available'?[{old:'M8 +0.02',new:'M10 -0.02',dimensionLike:true}]:[]};
@@ -52,7 +54,7 @@ window.harness={snapshot(){return JSON.parse(JSON.stringify(stats));},close(){fo
 createRoot(document.getElementById('root')).render(<React.StrictMode><CompareApp/></React.StrictMode>);
 '''
 HTML='<!doctype html><meta charset="utf-8"><div id="root"></div><script type="module" src="./compare-harness.tsx"></script>'
-SOURCES=['src/compare/CompareApp.tsx','src/compare/client.ts','src/compare/types.ts','src/compare/compare.css','tests/compare-browser.py','src/compare/geometry.ts','src/compare/pairs.ts','src/compare/DetailDock.tsx','src/compare/BatchDialog.tsx','src/compare/useDialogFocus.ts','src/compare/useSourcePreview.ts']
+SOURCES=['src/compare/CompareApp.tsx','src/compare/client.ts','src/compare/types.ts','src/compare/compare.css','tests/compare-browser.py','src/compare/geometry.ts','src/compare/pairs.ts','src/compare/DetailDock.tsx','src/compare/BatchDialog.tsx','src/compare/useDialogFocus.ts','src/compare/useSourcePreview.ts','src/compare/project.ts','src/compare/ProjectDialog.tsx']
 def snap(p):return p.evaluate('harness.snapshot()')
 def calls(p,kind):return [c for c in snap(p)['calls'] if c['command']=='compare_call' and c['args']['command']==kind]
 def fresh(p,url):
@@ -209,6 +211,52 @@ def normalized_aspect_ratio(p,url):
  count=len(calls(p,'start'));p.get_by_role('checkbox',name='Fit each viewport',exact=True).uncheck();p.wait_for_timeout(400);assert len(calls(p,'start'))==count and p.get_by_role('combobox',name='Analysis scale mode',exact=True).input_value()=='normalized'
  return {'aspectRatioRetained':sizes,'coverageDifferenceExplicit':True,'viewportFitDoesNotChangeAnalysisMode':True}
 
+def review_project_resume(p,url):
+ analyzed(p,url)
+ p.locator('.compare-region-row').first.click()
+ p.get_by_label('Manually reviewed',exact=True).check()
+ p.get_by_label('Review note',exact=True).fill('Hole size checked · 已核对孔径')
+ p.evaluate("stats.save='C:/review.jvcmp'")
+ p.get_by_role('button',name='Save comparison project',exact=True).click()
+ p.wait_for_function('stats.calls.some(c=>c.args.command==="save_project")')
+ saved=calls(p,'save_project')[0]['args']['args']
+ assert saved['path']=='C:/review.jvcmp'
+ assert saved['jobId']==snap(p)['progress']['jobId']
+ assert len(saved['review'])==1 and saved['review'][0]['reviewed']
+ assert saved['review'][0]['note']=='Hole size checked · 已核对孔径'
+ assert saved['selectedRegionId']==1 and saved['review'][0]['regionId']==1
+ source=lambda filename:{'fileName':filename,'fileSize':100,'pages':[{'width':600,'height':800}]*2}
+ region=snap(p)['progress']['report']['regions'][0]
+ project={'fileName':'review.jvcmp','a':source('old.pdf'),'b':source('new.pdf'),
+          'options':saved['options'],'review':[{'region':region,'reviewed':True,'note':saved['review'][0]['note']}],
+          'selectedRegion':region}
+ fresh(p,url)
+ p.evaluate("project=>{stats.project=project;stats.dialogs=['C:/review.jvcmp'];}",project)
+ p.get_by_role('button',name='Open comparison project',exact=True).click()
+ p.get_by_text('Difference 2 · Detail',exact=True).wait_for()
+ assert len(calls(p,'start'))==1 and calls(p,'start')[0]['args']['args']['options']==saved['options']
+ assert not p.get_by_label('Manually reviewed',exact=True).is_checked()
+ p.locator('.compare-region-row').first.click()
+ assert p.get_by_label('Manually reviewed',exact=True).is_checked()
+ assert p.get_by_label('Review note',exact=True).input_value()=='Hole size checked · 已核对孔径'
+ p.evaluate("stats.dialogs=['C:/review.jvcmp'];stats.projectError='PROJECT_SOURCE_B_CHANGED: synthetic source mismatch';")
+ p.get_by_role('button',name='Open comparison project',exact=True).click()
+ confirmation=p.get_by_role('button',name='Continue',exact=True)
+ if confirmation.is_visible(): confirmation.click()
+ p.get_by_role('dialog',name='Locate original drawing B').wait_for()
+ p.get_by_role('button',name='Cancel',exact=True).click()
+ assert len(calls(p,'start'))==1
+ assert p.get_by_label('Manually reviewed',exact=True).is_checked()
+ assert p.get_by_label('Review note',exact=True).input_value()=='Hole size checked · 已核对孔径'
+ p.get_by_label('Review note',exact=True).fill('Extra observation after opening')
+ p.get_by_role('button',name='Run again',exact=True).click()
+ p.wait_for_function('stats.calls.filter(c=>c.args.command==="start").length===2&&stats.progress.status==="complete"')
+ p.locator('.compare-region-row').first.click()
+ assert p.get_by_label('Manually reviewed',exact=True).is_checked()
+ assert p.get_by_label('Review note',exact=True).input_value()=='Extra observation after opening'
+ return {'bilingualNoteSaved':True,'recomputedBeforeRestore':True,'resumedAtNextPending':True,
+         'failedOpenKeepsCurrentReview':True,'sameSettingsRerunKeepsUnwrittenNote':True}
+
 def main():
  out=ROOT/f'test-results/{VERSION}';out.mkdir(parents=True,exist_ok=True);(out/'compare-harness.html').write_text(HTML,encoding='utf-8');(out/'compare-harness.tsx').write_text(HARNESS,encoding='utf-8')
  report={'sourceSha256':{s:hashlib.sha256((ROOT/s).read_bytes()).hexdigest()for s in SOURCES},'cases':[],'pageErrors':[]}
@@ -221,7 +269,7 @@ def main():
    except Exception:time.sleep(.1)
   with sync_playwright()as pw:
    browser=pw.chromium.launch(executable_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',headless=True);context=browser.new_context(viewport={'width':1480,'height':1000});page=context.new_page();page.set_default_timeout(9000);page.on('pageerror',lambda e:report['pageErrors'].append(str(e)))
-   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel),('translated-button-groups-and-export-spacing',button_layout),('normalized-analysis-mode-coordinates-and-batch',normalized_analysis),('normalized-aspect-and-view-only-fit',normalized_aspect_ratio)]:
+   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel),('translated-button-groups-and-export-spacing',button_layout),('normalized-analysis-mode-coordinates-and-batch',normalized_analysis),('normalized-aspect-and-view-only-fit',normalized_aspect_ratio),('review-project-save-resume-and-changed-source',review_project_resume)]:
     case={'name':name}
     try:case.update(status='PASS',result=run(page,url))
     except Exception as e:case.update(status='FAIL',error=str(e),traceback=traceback.format_exc(),body=page.locator('body').inner_text()[:2500])

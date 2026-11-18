@@ -7,12 +7,12 @@ An open-source, local PDF workspace for Windows, with document editing, page org
 
 ## 下载与安装
 
-**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.12.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell.PDF_0.12.0_x64-setup.exe)**
+**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.13.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/Jerrivell.PDF_0.13.0_x64-setup.exe)**
 
-[历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载；通常建议使用最新的 0.12.0。历史归档保留当时的许可：**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。当前仓库许可不会追溯改写旧归档。
+[历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载；通常建议使用最新的 0.13.0。历史归档保留当时的许可：**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。当前仓库许可不会追溯改写旧归档。
 
 1. 准备 Windows x64 和 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装包不附带、也不自动下载 WebView2。
-2. 下载 Release 中的 `Jerrivell.PDF_0.12.0_x64-setup.exe`，按向导安装。
+2. 下载 Release 中的 `Jerrivell.PDF_0.13.0_x64-setup.exe`，按向导安装。
 3. 从开始菜单打开 **Jerrivell PDF**。普通使用不需要 Rust、Node.js、Visual Studio 或开发服务器。
 
 当前为未配置代码签名证书的开发构建。请从本仓库 Release 获取文件，并核对随版本提供的 SHA-256。升级前保存 PDF 副本和可编辑项目，正常退出旧版后安装；安装器不自动替你修改 PDF 默认打开方式。
@@ -29,10 +29,16 @@ An open-source, local PDF workspace for Windows, with document editing, page org
 | 内容编辑 | 原有对象与文字行编辑、本机字体选择、局部图像裁切和擦除；具体可编辑程度取决于 PDF 的内部结构、文字层和字体 |
 | 图章与片段 | 制作、导入、导出图章；从 PDF 多选区域制作独立图片片段，复用、拖放及叠加 |
 | 打印与保存 | PDF 副本和可编辑项目分别保存；导出预检；打印纸张、彩色/黑白及自动/150/300/600 DPI 选择 |
-| 图纸对比 | 独立工作区、单页和多页配对、150/300/600 DPI 视觉差分、区域与细点定位、自动/手动平移、忽略区、局部复核、PNG 与 CSV 报告 |
+| 图纸对比 | 独立工作区、单页和多页配对、150/300/600 DPI 视觉差分、区域与细点定位、自动/手动平移、忽略区、局部复核、复核项目保存与续审、PNG 与 CSV 报告 |
 | 界面 | 简体中文与英文切换 |
 
-## 0.12.0：统一图幅参与实际分析
+## 0.13.0 图纸复核项目
+
+在独立对比工作区，使用 **保存对比项目** 将当前 A/B 页对的分析设置、已复核状态和备注写入本地 .jvcmp 文件。重新打开时先核对两份 PDF 的 SHA-256，再按保存的设置分析，恢复匹配的复核记录并定位下一处待复核差异。若原文件移动，可重新选择内容完全相同的副本。
+
+项目按页对手动保存。原 PDF 保存在原位置，项目记录本地文件引用、指纹、分析参数和复核信息。详见 [图纸复核项目](docs/0.13.0-图纸复核项目.md)。
+
+## 统一图幅分析
 
 对比窗口的 **“分析尺寸”默认“按统一图幅（推荐）”**：以 A 页为参考，将 B 页等比例适配并居中，然后再进行完整像素差分、配准、局部预览及多页处理。适用于数据库导出或打印来源不同、页面标称尺寸不同，但图纸位置和相对边距基本一致的 PDF。
 
@@ -66,7 +72,7 @@ Jerry 有权许可的原创代码、文档和合成样本使用 **MIT OR Apache-
 - [MIT 全文](LICENSE-MIT)
 - [Apache License 2.0 全文](LICENSE-APACHE)
 
-第三方组件保留各自许可，参见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [licenses/](licenses/)。Release 同时提供 [0.12.0 第三方对应源码补充](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/JerrivellPDF-0.12.0-third-party-sources.zip)；其中的 MPL 文件级组件、安装器组件和其他上游材料不改称项目自有许可。Windows、WebView2、用户文档和字体也有各自条款。
+第三方组件保留各自许可，参见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [licenses/](licenses/)。Release 同时提供 [0.13.0 第三方对应源码补充](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/JerrivellPDF-0.13.0-third-party-sources.zip)；其中的 MPL 文件级组件、安装器组件和其他上游材料不改称项目自有许可。Windows、WebView2、用户文档和字体也有各自条款。
 
 ## 反馈
 

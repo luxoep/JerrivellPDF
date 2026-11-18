@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Jerrivell PDF 快速开始
 
-适用版本：0.12.0，Windows x64。
+适用版本：0.13.0，Windows x64。
 
 ## 安装和升级
 
-从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.12.0 的文件为 [`Jerrivell.PDF_0.12.0_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell.PDF_0.12.0_x64-setup.exe)。
+从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.13.0 的文件为 [`Jerrivell.PDF_0.13.0_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/Jerrivell.PDF_0.13.0_x64-setup.exe)。
 
 需要旧版时可在 [全部 Jerrivell Releases](https://github.com/luxoep/JerrivellPDF/releases) 选择对应版本，使用前查看该版本发布说明与随包 LICENSE；旧归档不会自动采用当前版本的许可。
 
@@ -51,6 +51,10 @@
 多页资料使用“多页对比”：生成页码配对后可逐组调整。每组分别适配对应 A 页；结果明确列出失败与未配对页。点击成功项进入该组详细分析，导出批量 CSV 保存配对状态、参数和变化数量。
 
 对比载入的是磁盘文件快照。主编辑器中尚未另存的修改不会自动加入比较；需要比较编辑结果时先保存副本。
+
+### 保存复核项目
+
+在对比工作区中填写复核备注、标记已复核差异，然后点击 **保存对比项目**。同一项目记录一个 A/B 页对。下次点击 **打开对比项目**，选中 .jvcmp 文件，等待源文件核验和差异重算。若源文件移动，按提示选择字节相同的原文件或副本。操作见 [图纸复核项目](0.13.0-图纸复核项目.md)。
 
 ## 打印
 

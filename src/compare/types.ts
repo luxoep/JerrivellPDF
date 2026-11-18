@@ -16,18 +16,19 @@ export interface Progress { jobId:string;status:'idle'|'running'|'complete'|'can
 export const optionsKey=(o:Options)=>JSON.stringify([o.pageA,o.pageB,o.dpi,o.threshold,o.offsetXmm,o.offsetYmm,o.ignored.map(r=>[r.x,r.y,r.width,r.height]),o.scaleMode??'physical']);
 export const validRect=(r:Rect)=>!!r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.x+r.width<=1.000001&&r.y+r.height<=1.000001;
 const count=(n:number)=>Number.isSafeInteger(n)&&n>=0;
-const validOptions=(o:Options)=>!!o&&[o.pageA,o.pageB].every(v=>count(v)&&v<5000)&&[150,300,600].includes(o.dpi)
+export const validOptions=(o:Options)=>!!o&&[o.pageA,o.pageB].every(v=>count(v)&&v<5000)&&[150,300,600].includes(o.dpi)
   &&count(o.threshold)&&o.threshold<=255&&[o.offsetXmm,o.offsetYmm].every(v=>Number.isFinite(v)&&Math.abs(v)<=100)
   &&(o.scaleMode===undefined||['normalized','physical'].includes(o.scaleMode))
   &&Array.isArray(o.ignored)&&o.ignored.length<=16&&o.ignored.every(validRect);
+export const validRegion=(v:Region)=>!!v&&count(v.id)&&v.id>0&&validRect(v.bounds)
+  &&count(v.pixels)&&v.pixels>0&&[v.added,v.removed,v.changed].every(count)&&v.added+v.removed+v.changed===v.pixels
+  &&Array.isArray(v.point)&&v.point.length===2&&v.point.every(p=>Number.isFinite(p)&&p>=0&&p<=1);
 export function validateReport(r:Report,jobId:string):Report {
   const ids=new Set<number>();
   if (!r || r.jobId!==jobId || !Array.isArray(r.regions) || r.regions.length>5000 || ![r.widthPt,r.heightPt,r.pixelWidth,r.pixelHeight].every(v=>Number.isFinite(v)&&v>0)
     ||![r.originXPt,r.originYPt].every(Number.isFinite)||!validOptions(r.options)||![r.pixelWidth,r.pixelHeight].every(v=>count(v)&&v<=60000)
     ||r.pixelWidth*r.pixelHeight>600_000_000||!count(r.changedPixels)||!count(r.ignoredPixels)||r.changedPixels+r.ignoredPixels>r.pixelWidth*r.pixelHeight
-    || r.regions.some(v=>{if(!v||!count(v.id)||v.id<1||ids.has(v.id))return true;ids.add(v.id);return !validRect(v.bounds)
-      ||!count(v.pixels)||v.pixels<1||![v.added,v.removed,v.changed].every(count)||v.added+v.removed+v.changed!==v.pixels
-      ||!Array.isArray(v.point)||v.point.length!==2||v.point.some(p=>!Number.isFinite(p)||p<0||p>1)})
+    || r.regions.some(v=>{if(!validRegion(v)||ids.has(v.id))return true;ids.add(v.id);return false})
     || r.regions.reduce((n,v)=>n+v.pixels,0)!==r.changedPixels ||typeof r.mask?.dataUrl!=='string'||!r.mask.dataUrl.startsWith('data:image/png;base64,')
     ||![r.mask.width,r.mask.height].every(v=>count(v)&&v>0&&v<=4096)||!count(r.tileCount)||r.tileCount<1) throw Error('COMPARE_RESPONSE_INVALID');
   return r;

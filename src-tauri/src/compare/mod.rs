@@ -74,7 +74,7 @@ pub async fn compare_call(
     if !state.guard.load(Ordering::Acquire) {
         return Err("外部资源阻断尚未就绪，暂不读取图纸。请关闭对比窗口后重试。".into());
     }
-    if !["open", "clear", "preview", "page_preview", "text_assist", "start", "cancel", "export", "export_batch", "status"].contains(&command.as_str()) {
+    if !["open", "open_project", "save_project", "clear", "preview", "page_preview", "text_assist", "start", "cancel", "export", "export_batch", "status"].contains(&command.as_str()) {
         return Err("无效的对比命令。".into());
     }
     let client = state.client.clone();

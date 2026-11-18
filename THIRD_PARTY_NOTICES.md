@@ -6,7 +6,7 @@ Jerrivell PDF 0.8.0 起，Jerry 有权许可的自有代码、文档与原创合
 
 本文件与 `licenses/` 保存的原文一同交付。精确版本以 `src-tauri/Cargo.lock`、`package-lock.json`、PDFium 来源清单及实际随包内容为准。`licenses/inventory.json` 记录从当前本地依赖取得的许可文件、元数据和 SHA-256；清单也包含部分构建/开发依赖，不代表每个包都进入最终二进制。安装后本文件位于 `legal/`，对应原文位于 `legal/licenses/`。
 
-**Jerrivell PDF** 从 0.4.1 起使用当前名称。应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.12.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.12.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell-PDF-0.12.0-manifest.json)。
+**Jerrivell PDF** 从 0.4.1 起使用当前名称。应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.13.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.13.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/Jerrivell-PDF-0.13.0-manifest.json)。
 
 ## 主要直接组件
 
@@ -21,6 +21,7 @@ Jerrivell PDF 0.8.0 起，Jerry 有权许可的自有代码、文档与原创合
 | Lucide React 1.63.0 | [lucide-icons/lucide](https://github.com/lucide-icons/lucide) | ISC；其 LICENSE 同时保留 Feather 派生图标的 MIT 版权声明 |
 | pdfium-render 0.9.4 | [ajrcarey/pdfium-render](https://github.com/ajrcarey/pdfium-render/tree/6cee8b9a3951832ac0ff62ce4c32800278001cb8) | 上游提供 MIT OR Apache-2.0；本版选择 Apache-2.0，保留原双许可指引，另补标准全文与固定提交的版权/许可头；记录于 `licenses/upstream-manifest.json` |
 | image 0.25.10 | [image-rs/image](https://github.com/image-rs/image) | MIT OR Apache-2.0；PNG/JPEG 与本地图像处理，关闭默认功能；原文位于 `licenses/rust/` |
+| sha2 0.11.1 | [RustCrypto/hashes](https://github.com/RustCrypto/hashes) | MIT OR Apache-2.0；在本机计算图纸内容指纹，沿用已锁定并纳入现有 Windows 依赖闭包的版本；原文位于 `licenses/rust/sha2-0.11.1/` |
 | windows 0.62.2 | [microsoft/windows-rs](https://github.com/microsoft/windows-rs) | MIT OR Apache-2.0；复用已锁定的 Windows API 绑定，为独立对比进程设置 Job Object 限额；不重新许可 Windows 系统组件 |
 | webview2-com 0.39.1 | [wravery/webview2-rs](https://github.com/wravery/webview2-rs) | MIT；复用已锁定的 COM 绑定，阻断对比 WebView 的外部资源；WebView2 系统运行时仍采用微软平台条款 |
 | PDFium 151.0.7881.0 | [Chromium PDFium](https://pdfium.googlesource.com/pdfium/) | 实际构建的 `pdfium/licenses/pdfium.txt` 保存 PDFium BSD-style 与 Apache-2.0 原文；组成部分分别保留 |
@@ -46,7 +47,7 @@ Windows、WebView2 及系统字体是外部平台依赖，各自采用其供应�
 
 ## MPL 覆盖源码与安装器来源
 
-本地已识别的 Rust MPL-2.0 组件如下；其源代码仍受 MPL-2.0 保护，不因本项目根目录许可而失去原有权利。确切源码包和注册表校验值已整理到同版本交付文件 `JerrivellPDF-0.12.0-third-party-sources.zip` 的 `third-party-sources/mpl-crates/`。以下官方地址也是对应源代码的取得方式：
+本地已识别的 Rust MPL-2.0 组件如下；其源代码仍受 MPL-2.0 保护，不因本项目根目录许可而失去原有权利。确切源码包和注册表校验值已整理到同版本交付文件 `JerrivellPDF-0.13.0-third-party-sources.zip` 的 `third-party-sources/mpl-crates/`。以下官方地址也是对应源代码的取得方式：
 
 | 组件 | 官方版本源包 |
 | --- | --- |
@@ -76,7 +77,7 @@ npm 中 `lightningcss` 与 `lightningcss-win32-x64-msvc` 1.33.0 也采用 MPL-2.
 
 依赖更新后执行 `python scripts/collect-licenses.py`，检查原文清单与实际构建。该脚本不访问网络，补充文件由随源码保留的 `upstream-manifest.json` 校验。需要恢复这些文件时可运行 `python scripts/fetch-license-supplements.py`。
 
-对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.12.0) 与 `PUBLICATION.md`。
+对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.13.0) 与 `PUBLICATION.md`。
 
 ## 权威原文
 

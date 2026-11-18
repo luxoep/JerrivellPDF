@@ -208,7 +208,7 @@ impl Client {
         }
         let bytes =
             serde_json::to_vec(&Request { id, command, args }).map_err(|_| "请求编码失败。")?;
-        if bytes.len() > 1024 * 1024 {
+        if bytes.len() >= 1024 * 1024 {
             self.pending.lock().unwrap().remove(&id);
             return Err("对比请求超过大小限制。".into());
         }
