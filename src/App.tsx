@@ -1,3 +1,7 @@
+import { ExportDialog } from './components/ExportDialog';
+import { PageToolsDialog } from './components/PageToolsDialog';
+import { TextLineEditor } from './components/TextLineEditor';
+import type { ExportPart, ExportResult } from './documentTools';
 import { PdfViewer } from './components/PdfViewer';
 import type { PageNavigation } from './components/PdfViewer';
 import { PageThumbnails } from './components/PageThumbnails';
@@ -22,10 +26,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, X, } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, Wrench, X, } from 'lucide-react';
 import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, resetBackendQueue, sessionInvalidatedEvent } from './backend';
 import type { BackendStatus, DocumentInfo, PageOverlay, SearchMatch, WorkspaceMatch, WorkspacePage } from './types';
 type Panel = 'pages' | 'search';
+type ExportRequest = { parts: ExportPart[]; saveWorkspace: boolean; resolve: (value: boolean) => void };
 type ImportRequest = { paths: string[]; range: string; position: 'after' | 'end' | 'before'; targetPage: string };
 type ImportOptions = { range?: string; insertAt?: number };
 type Toast = {
@@ -100,6 +105,14 @@ function AppWorkspace() {
     const originalBusyRef = useRef(false);
     const contentApplyRef = useRef(false);
     const [activeOverlayId, setActiveOverlayId] = useState('');
+    const [pageToolsOpen, setPageToolsOpen] = useState(false);
+    const [lineOpen, setLineOpen] = useState(false);
+    const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null);
+    const exportRequestRef = useRef<ExportRequest | null>(null);
+    exportRequestRef.current = exportRequest;
+    const exportOpenRef = useRef(false);
+    const workspaceModalRef = useRef(false);
+    workspaceModalRef.current = pageToolsOpen || lineOpen || Boolean(exportRequest);
     const [printOpen, setPrintOpen] = useState(false);
     const printOpenRef = useRef(false);
     printOpenRef.current = printOpen;
@@ -154,6 +167,11 @@ function AppWorkspace() {
         setEditorOpen(false);
         setOriginalOpen(false);
         setMarkOpen(false);
+        setPageToolsOpen(false);
+        setLineOpen(false);
+        exportRequestRef.current?.resolve(false);
+        setExportRequest(null);
+        exportOpenRef.current = false;
         setOriginalSelected('');
         setOriginalInspection(null);
         originalInspectionRef.current = null;
@@ -321,7 +339,7 @@ function AppWorkspace() {
     const askPassword = useCallback((path: string) => new Promise<string | null>((resolve) => setPasswordRequest({ path, resolve })), []);
     const answerPassword = (value: string | null) => { passwordRequest?.resolve(value); setPasswordRequest(null); };
     const loadPaths = useCallback(async (paths: string[], append: boolean, options: ImportOptions = {}) => {
-        if (busyRef.current || printOpenRef.current)
+        if (busyRef.current || printOpenRef.current || workspaceModalRef.current)
             return;
         const pdfs = paths.filter((path) => /\.pdf$/i.test(path));
         if (!pdfs.length) {
@@ -455,38 +473,49 @@ function AppWorkspace() {
             unlisten = cleanup; }).catch(() => { });
         return () => { disposed = true; unlisten?.(); };
     }, [loadPaths, status?.engineReady]);
+    const requestExport = useCallback((parts: ExportPart[], saveWorkspace = false): Promise<boolean> => {
+        if (busyRef.current || exportOpenRef.current || !parts.length) return Promise.resolve(false);
+        exportOpenRef.current = true;
+        return new Promise(resolve => setExportRequest({ parts, saveWorkspace, resolve }));
+    }, []);
     const saveCopy = useCallback(async (): Promise<boolean> => {
-        if (busyRef.current || !live.current.pages.length)
-            return false;
-        try {
-            const outputPath = await save({ title: t("保存 PDF 副本"), defaultPath: t(`${pdfName(title || t("文档"))}_已整理.pdf`), filters: pdfFilters() });
-            if (!outputPath)
-                return false;
-            if (live.current.sources.some((source) => normalizePath(source.path) === normalizePath(outputPath))) {
-                notify(t("请选择新的文件名保存副本\uFF0C以保留正在使用的原始文档\u3002"), 'error');
-                return false;
-            }
-            busyRef.current = true;
-            setBusy(t("正在保存副本\u2026"));
-            const snapshot = live.current.pages;
-            const result = await backend<{
-                path: string;
-                pageCount: number;
-            }>('save_document', { outputPath, pages: snapshot.map(pageReference) });
-            setSavedSignature(signature(snapshot));
-            setSavedPath(result.path);
-            notify(t(`已保存 ${result.pageCount} 页 · ${result.path.split(/[\\/]/).pop()}`), 'success');
-            return true;
+        const snapshot = live.current.pages;
+        if (!snapshot.length) return false;
+        return requestExport([{ name: `${pdfName(title || 'document')}_edited.pdf`, pages: snapshot }], true);
+    }, [title, requestExport]);
+    const cancelExport = () => {
+        exportRequestRef.current?.resolve(false);
+        setExportRequest(null); exportOpenRef.current = false;
+        setCloseRequest(false); setReplaceRequest(null);
+    };
+    const finishedExport = (result: ExportResult) => {
+        const request = exportRequestRef.current;
+        if (!request || result.failed) return;
+        if (request.saveWorkspace) { setSavedSignature(signature(request.parts[0].pages)); setSavedPath(result.results[0].path); }
+        notify(t(`已导出 ${result.succeeded} 个 PDF，共 ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} 页。`, `Exported ${result.succeeded} PDFs, ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} pages.`), 'success');
+        setExportRequest(null); exportOpenRef.current = false; request.resolve(true);
+    };
+    const documentToolsBusy = useCallback((working: boolean) => {
+        busyRef.current = working; setBusy(working ? t('正在处理文档方案…', 'Processing document plan…') : '');
+    }, []);
+    const addGeneratedPages = (document: DocumentInfo, replaceIds: string[] | null, insertAt: number) => {
+        const snapshot = live.current.pages;
+        sourceRegistry.current.set(normalizePath(document.path), document);
+        setSources(previous => [...previous.filter(source => source.id !== document.id), document]);
+        const fresh: WorkspacePage[] = document.pages.map(page => ({ id: nextId(), documentId: document.id, pageIndex: page.index, rotation: 0, width: page.width, height: page.height, sourceName: document.fileName, overlays: [], contentEdits: [], decorations: [] }));
+        if (replaceIds) {
+            const indices = new Map(replaceIds.map((id, index) => [id, index]));
+            commit(snapshot.map(page => { const index = indices.get(page.id); return index === undefined ? page : { ...fresh[index], id: page.id, sourceName: page.sourceName }; }));
+        } else {
+            const at = Math.max(0, Math.min(insertAt, snapshot.length));
+            commit([...snapshot.slice(0, at), ...fresh, ...snapshot.slice(at)]);
+            if (fresh[0]) navigateToId(fresh[0].id);
+            if (!snapshot.length) { setTitle(document.fileName); setSavedSignature(''); setSavedPath(''); }
         }
-        catch (error) {
-            notify(errorMessage(error), 'error');
-            return false;
-        }
-        finally {
-            busyRef.current = false;
-            setBusy('');
-        }
-    }, [notify, title]);
+        setOriginalSelected(''); originalInspectionRef.current = null; setOriginalInspection(null);
+        setPageToolsOpen(false); setLineOpen(false); setSelection(new Set());
+        notify(t('页面方案已更新，可撤销；请保存副本。', 'Page plan updated. Undo is available; save a copy.'), 'success');
+    };
     const exportCurrentPage = useCallback(async () => {
         if (busyRef.current || !currentPage)
             return;
@@ -523,16 +552,8 @@ function AppWorkspace() {
     const extractSelectedPages = useCallback(async () => {
         if (busyRef.current || !pages.length) return;
         const snapshot = pages.filter(page => affectedIds.has(page.id));
-        if (!snapshot.length) return;
-        try {
-            const outputPath = await save({ title: t('提取页面为新 PDF', 'Extract pages to a new PDF'), defaultPath: `${pdfName(title || 'document')}_selected.pdf`, filters: pdfFilters() });
-            if (!outputPath) return;
-            busyRef.current = true; setBusy(t('正在提取页面…', 'Extracting pages…'));
-            const result = await backend<{ path: string; pageCount: number }>('save_document', { outputPath, pages: snapshot.map(pageReference) });
-            notify(t(`已提取 ${result.pageCount} 页，当前工作区保持不变。`, `Extracted ${result.pageCount} pages. This workspace is unchanged.`), 'success');
-        } catch (error) { notify(errorMessage(error), 'error'); }
-        finally { busyRef.current = false; setBusy(''); }
-    }, [pages, affectedIds, title, notify]);
+        if (snapshot.length) await requestExport([{ name: `${pdfName(title || 'document')}_selected.pdf`, pages: snapshot }]);
+    }, [pages, affectedIds, title, requestExport]);
     const submitImport = async () => {
         if (!importRequest || busyRef.current) return;
         let insertAt = pages.length;
@@ -683,6 +704,10 @@ function AppWorkspace() {
     }, [query, pages, sources]);
     useEffect(() => {
         const handleKey = (event: globalThis.KeyboardEvent) => {
+            if (pageToolsOpen || lineOpen || exportRequest) {
+                if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault();
+                return;
+            }
             if (printOpen) {
                 if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault();
                 return;
@@ -778,7 +803,7 @@ function AppWorkspace() {
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
+    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
     const selectThumbnail = (event: React.MouseEvent, page: WorkspacePage, index: number) => {
         if (busyRef.current) return;
         if (event.shiftKey) {
@@ -802,7 +827,8 @@ function AppWorkspace() {
       <button className="rail-button rail-open" onClick={() => void chooseFiles()} disabled={!!busy || !status?.engineReady} title={t("打开 PDF \u00B7 Ctrl+O")}><FolderOpen size={21}/><span>{t("打开")}</span></button>
       <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
       <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
-      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.5.0</div></div>
+      <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={21}/><span>{t('工具', 'Tools')}</span></button>
+      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.6.0</div></div>
     </aside>
 
     <div className="app-main">
@@ -822,7 +848,7 @@ function AppWorkspace() {
         <section className="welcome-features" aria-label={t("工作台能力")}><div className="feature-card"><span className="feature-icon violet"><Layers3 size={20}/></span><div><h3>{t("页面\uFF0C自由组合")}</h3><p>{t("拖动排序\u3001旋转与删除\uFF0C多份文档轻松合一\u3002")}</p></div><span className="feature-number">01</span></div><div className="feature-card"><span className="feature-icon blue"><Search size={20}/></span><div><h3>{t("阅读\uFF0C找到重点")}</h3><p>{t("清晰预览\u3001文字搜索\uFF0C一步跳转到目标页面\u3002")}</p></div><span className="feature-number">02</span></div><div className="feature-card"><span className="feature-icon mint"><ShieldCheck size={20}/></span><div><h3>{t("文件\uFF0C留在本地")}</h3><p>{t("离线处理并保存副本\uFF0C让原始文件安心保留\u3002")}</p></div><span className="feature-number">03</span></div></section>
         <footer className="welcome-footer"><span><span className={`status-dot ${status?.engineReady ? '' : 'muted'}`}/>{checkingEngine ? t("正在准备工作台\u2026") : status?.engineReady ? t("工作台已就绪") : t("等待桌面环境")}</span><span>OPEN SOURCE. OPEN POSSIBILITIES.</span></footer>
       </main> : <>
-        <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className={`tool-button ${markOpen ? 'active' : ''}`} aria-pressed={markOpen} disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(value => !value); }} title={t('直接在页面上框选高亮、色块或绘制图形', 'Draw highlights, color blocks and shapes directly on the page')}><Highlighter size={16}/><span>{t('标记', 'Mark')}</span></button><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setMarkOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、标记、图章和签名', 'Add text, images, marks, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
+        <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className="tool-button" disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} title={t('空白页、复制、图片转 PDF、拆分、页码、水印和裁剪', 'Blank pages, copies, images, splitting, numbering, watermarks and crop')}><Wrench size={16}/><span>{t('页面工具', 'Page tools')}</span></button><button className={`tool-button ${markOpen ? 'active' : ''}`} aria-pressed={markOpen} disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(value => !value); }} title={t('直接在页面上框选高亮、色块或绘制图形', 'Draw highlights, color blocks and shapes directly on the page')}><Highlighter size={16}/><span>{t('标记', 'Mark')}</span></button><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setMarkOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、标记、图章和签名', 'Add text, images, marks, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(true); setLineOpen(true); }} title={t('识别文字行，调整字距与对齐并预览', 'Group text runs, adjust spacing and alignment, and compare')}><FileText size={16}/><span>{t('文字行', 'Text lines')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
         <div className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <aside className="document-panel"><div className="panel-tabs"><button className={panel === 'pages' ? 'selected' : ''} onClick={() => setPanel('pages')}><Layers3 size={15}/>{t("页面")}<span>{pages.length}</span></button><button className={panel === 'search' ? 'selected' : ''} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 30); }}><Search size={15}/>{t("查找")}</button></div>
             {panel === 'pages' ? <><div className="page-panel-tools"><button className="text-button" onClick={() => setSelection(selection.size === pages.length ? new Set() : new Set(pages.map((page) => page.id)))} disabled={!!busy}><CheckCheck size={14}/>{selection.size === pages.length ? t("取消全选") : t("选择全部")}</button><div><button className="icon-button small" onClick={() => movePages(-1)} disabled={!!busy} title={t("前移选中页 \u00B7 Alt+\u2191")} aria-label={t("前移选中页")}><ArrowUp size={14}/></button><button className="icon-button small" onClick={() => movePages(1)} disabled={!!busy} title={t("后移选中页 \u00B7 Alt+\u2193")} aria-label={t("后移选中页")}><ArrowDown size={14}/></button></div></div><div className="page-range-controls">
@@ -879,7 +905,10 @@ function AppWorkspace() {
     {closeRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{t("退出前保存这次修改\uFF1F")}</h2><p className="modal-description">{t("未保存的页面调整将在退出后丢失\u3002原始 PDF 文件始终保留\uFF0C你也可以先把调整保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" onClick={async () => { if (await saveCopy())
         await closeApplication(); }} disabled={!!busy}>{t("保存副本并退出")}</button><button className="button secondary" onClick={() => void closeApplication()} disabled={!!busy}>{t("不保存\uFF0C退出")}</button><button className="text-button" onClick={() => setCloseRequest(false)} disabled={!!busy}>{t("继续编辑")}</button></div></div></div>}
     {editorOpen && currentPage && <OverlayEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); }} onBusyChange={editorBusyChanged} onDrawMarks={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(true); }}/>}
-    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current}/>}
+    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
+    {pageToolsOpen && <PageToolsDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => setPageToolsOpen(false)} onBusyChange={documentToolsBusy} onPlan={next => { commit(next); setPageToolsOpen(false); notify(t('页面方案已更新，可撤销。', 'Page plan updated. You can undo it.'), 'success'); }} onGenerated={addGeneratedPages} onExport={parts => { setPageToolsOpen(false); void requestExport(parts); }}/>} 
+    {lineOpen && currentPage && <TextLineEditor page={currentPage} objects={visibleOriginal?.objects ?? []} loading={originalLoading || !visibleOriginal} onClose={() => setLineOpen(false)} onBusyChange={documentToolsBusy} onApplied={document => addGeneratedPages(document, [currentPage.id], 0)}/>}
+    {exportRequest && <ExportDialog parts={exportRequest.parts} onClose={cancelExport} onSaved={finishedExport} onBusyChange={documentToolsBusy}/>}
     {printOpen && pages.length > 0 && <PrintDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => { if (!busyRef.current) setPrintOpen(false); }} onBusyChange={printingBusyChanged} onNotify={notify}/>}
     {passwordRequest && <PasswordDialog request={passwordRequest} onAnswer={answerPassword}/>}
     {replaceRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-symbol"><FileText size={26}/></div><h2 id="replace-title">{t("先保留这次修改\uFF1F")}</h2><p className="modal-description">{t("当前文档有未保存的页面调整\u3002打开新的文档前\uFF0C可以先将它保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" onClick={async () => { const paths = replaceRequest; if (await saveCopy()) {

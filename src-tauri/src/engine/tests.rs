@@ -80,6 +80,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
     assert_eq!(two.pages[0].rotation, 90);
     let plan = vec![
         PageRef {
+            decorations: vec![],
             content_edits: Vec::new(),
             document_id: two.id.clone(),
             page_index: 0,
@@ -87,6 +88,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
             overlays: vec![],
         },
         PageRef {
+            decorations: vec![],
             content_edits: Vec::new(),
             document_id: one.id.clone(),
             page_index: 0,
@@ -94,6 +96,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
             overlays: vec![],
         },
         PageRef {
+            decorations: vec![],
             content_edits: Vec::new(),
             document_id: one.id.clone(),
             page_index: 0,
@@ -127,6 +130,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
         let saved = engine
             .render_page(
                 &PageRef {
+                    decorations: vec![],
                     content_edits: Vec::new(),
                     document_id: merged.id.clone(),
                     page_index: index as u32,
@@ -170,6 +174,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
     let reopened_preview = engine
         .render_page(
             &PageRef {
+                decorations: vec![],
                 content_edits: Vec::new(),
                 document_id: merged.id.clone(),
                 page_index: 1,
@@ -208,6 +213,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
     let protected = directory.path().join("existing.pdf");
     fs::write(&protected, b"existing destination stays intact").unwrap();
     let bad_page = PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: one.id.clone(),
         page_index: 99,
@@ -222,6 +228,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
         b"existing destination stays intact"
     );
     let bad_rotation = PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: one.id.clone(),
         page_index: 0,
@@ -273,4 +280,5 @@ fn bounded_writer_refuses_output_before_exceeding_limit() {
 }
 
 mod assets;
+mod operations;
 mod pdf_stamp;

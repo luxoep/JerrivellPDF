@@ -63,6 +63,7 @@ fn plan(document: &DocumentInfo, turn: u16) -> PageRef {
         rotation: turn,
         overlays: vec![],
         content_edits: vec![],
+        decorations: vec![],
     }
 }
 

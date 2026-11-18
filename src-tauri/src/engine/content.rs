@@ -350,6 +350,19 @@ fn inspect_object(
         editable: reason.is_none(),
         reason,
         deleted: false,
+        text_angle: object
+            .as_text_object()
+            .and_then(|_| object.matrix().ok())
+            .map(|matrix| {
+                let dx = space.inverse.a() * matrix.a() + space.inverse.c() * matrix.b();
+                let dy = space.inverse.b() * matrix.a() + space.inverse.d() * matrix.b();
+                (dy * page.height().value)
+                    .atan2(dx * page.width().value)
+                    .to_degrees()
+            }),
+        rendered_font_size: object
+            .as_text_object()
+            .map(|text| text.scaled_font_size().value),
     })
 }
 
@@ -363,7 +376,478 @@ fn validate_page_text_budget(page: &PdfPage<'_>) -> Result<(), String> {
     }
 }
 
+pub(super) fn visible_text(page: &PdfPage<'_>, text: &PdfPageText<'_>) -> Result<String, String> {
+    let space = PageSpace::new(page)?;
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+    for u in [0.0, 1.0] {
+        for v in [0.0, 1.0] {
+            let (x, y) = space
+                .forward
+                .apply_to_points(PdfPoints::new(u), PdfPoints::new(v));
+            xs.push(x.value);
+            ys.push(y.value);
+        }
+    }
+    let left = xs.iter().copied().fold(f32::INFINITY, f32::min);
+    let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let bottom = ys.iter().copied().fold(f32::INFINITY, f32::min);
+    let top = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    Ok(text.inside_rect(PdfRect::new(
+        PdfPoints::new(bottom),
+        PdfPoints::new(left),
+        PdfPoints::new(top),
+        PdfPoints::new(right),
+    )))
+}
+
+/// Only parse our own PDFium-generated one-page PDF. Change the final, newly
+/// appended text run through real PDF Tc operators; no glyph rasterization.
+fn with_last_text_spacing(
+    bytes: &[u8],
+    spacing: f32,
+    size: f32,
+    characters: usize,
+) -> Result<Vec<u8>, String> {
+    use lopdf::content::{Content, Operation};
+    let mut document = lopdf::Document::load_mem(bytes).map_err(pdf_error)?;
+    let page = *document
+        .get_pages()
+        .get(&1)
+        .ok_or_else(|| invalid("预览 PDF 缺少页面。"))?;
+    let mut content = Vec::new();
+    for id in document.get_page_contents(page) {
+        let stream = document
+            .get_object(id)
+            .and_then(lopdf::Object::as_stream)
+            .map_err(pdf_error)?;
+        let filter = stream.dict.get(b"Filter").ok();
+        let mut chunk = Vec::new();
+        match filter {
+            None => chunk.extend_from_slice(&stream.content),
+            Some(lopdf::Object::Name(name)) if name == b"FlateDecode" => {
+                flate2::read::ZlibDecoder::new(Cursor::new(&stream.content))
+                    .take(16 * 1024 * 1024 + 1)
+                    .read_to_end(&mut chunk)
+                    .map_err(pdf_error)?;
+            }
+            _ => return Err(invalid("生成的文字流压缩方式不支持字距调整。")),
+        }
+        if content.len().saturating_add(chunk.len()) > 16 * 1024 * 1024 {
+            return Err(invalid("文字行内容流超过 16 MiB。"));
+        }
+        content.extend(chunk);
+        content.push(b'\n');
+    }
+    let mut content = Content::decode(&content).map_err(pdf_error)?;
+    let start = content
+        .operations
+        .iter()
+        .rposition(|op| op.operator == "BT")
+        .ok_or_else(|| invalid("无法定位新文字行。"))?;
+    let end = start
+        + content.operations[start..]
+            .iter()
+            .position(|op| op.operator == "ET")
+            .ok_or_else(|| invalid("新文字行内容不完整。"))?;
+    let shows: Vec<_> = content.operations[start..end]
+        .iter()
+        .enumerate()
+        .filter(|(_, op)| matches!(op.operator.as_str(), "Tj" | "TJ"))
+        .map(|(i, _)| start + i)
+        .collect();
+    if shows.len() != 1 {
+        return Err(invalid("新文字行不是单一文字运行，无法安全调整字距。"));
+    }
+    let show = &content.operations[shows[0]];
+    let encoded = match show.operands.as_slice() {
+        [lopdf::Object::String(bytes, format)] => (bytes.clone(), format.clone()),
+        [lopdf::Object::Array(values)] => match values.as_slice() {
+            [lopdf::Object::String(bytes, format)] => (bytes.clone(), format.clone()),
+            _ => return Err(invalid("新文字行包含复杂字形位移，请更换字体或分段处理。")),
+        },
+        _ => return Err(invalid("新文字行的编码方式不受支持。")),
+    };
+    if characters == 0
+        || encoded.0.len() % characters != 0
+        || !matches!(encoded.0.len() / characters, 1 | 2)
+    {
+        return Err(invalid("新文字行不是可靠的单字节或双字节编码。"));
+    }
+    // Explicit TJ advances retain the requested spacing through subsequent
+    // PDFium page-content regeneration while keeping one native text run.
+    let mut values = Vec::new();
+    for (index, chunk) in encoded.0.chunks(encoded.0.len() / characters).enumerate() {
+        if index > 0 {
+            values.push(lopdf::Object::Real(-spacing * 1000.0 / size));
+        }
+        values.push(lopdf::Object::String(chunk.to_vec(), encoded.1.clone()));
+    }
+    content.operations[shows[0]] = Operation::new("TJ", vec![lopdf::Object::Array(values)]);
+    // PDFium can store Contents as an indirect reference to an array. Replace
+    // the page entry explicitly; changing that reference as if it were a Stream
+    // is a silent no-op in the generic helper.
+    let stream = lopdf::Stream::new(
+        lopdf::Dictionary::new(),
+        content.encode().map_err(pdf_error)?,
+    );
+    let stream_id = document.add_object(stream);
+    document
+        .get_dictionary_mut(page)
+        .map_err(pdf_error)?
+        .set("Contents", stream_id);
+    document.prune_objects();
+    let mut output = super::export::LimitedBuffer {
+        bytes: Vec::new(),
+        limit: MAX_FILE_BYTES as usize,
+    };
+    document.save_to(&mut output).map_err(pdf_error)?;
+    Ok(output.bytes)
+}
+
 impl<'a> PdfEngine<'a> {
+    fn editable_font_token(
+        &self,
+        output: &mut PdfDocument<'a>,
+        fonts: &mut ContentFontCache,
+        family: &str,
+        text: &str,
+    ) -> Result<PdfFontToken, String> {
+        let font = self.content_font(family, text)?;
+        let key = font.family.to_lowercase();
+        if let Some(token) = fonts.tokens.get(&key) {
+            return Ok(*token);
+        }
+        if fonts.total_bytes.saturating_add(font.bytes.len()) > MAX_FONT_BYTES {
+            return Err(font_error("输出文档字体超过 64 MiB。"));
+        }
+        let token = output
+            .fonts_mut()
+            .load_true_type_from_bytes(&font.bytes, true)
+            .map_err(pdf_error)?;
+        fonts.total_bytes += font.bytes.len();
+        fonts.tokens.insert(key, token);
+        Ok(token)
+    }
+
+    pub(super) fn append_decorations(
+        &self,
+        output: &mut PdfDocument<'a>,
+        page: &mut PdfPage<'a>,
+        reference: &PageRef,
+        fonts: &mut ContentFontCache,
+    ) -> Result<(), String> {
+        if reference.decorations.is_empty() {
+            return Ok(());
+        }
+        if reference.decorations.len() > 32 {
+            return Err(invalid("每页最多 32 个页码或水印。"));
+        }
+        let mut ids = HashSet::new();
+        let space = PageSpace::new(page)?;
+        let width = page.width().value;
+        let height = page.height().value;
+        for item in &reference.decorations {
+            if item.id.is_empty()
+                || item.id.len() > 128
+                || !ids.insert(&item.id)
+                || !matches!(item.kind.as_str(), "number" | "watermark")
+                || !matches!(item.alignment.as_str(), "left" | "center" | "right")
+                || ![item.x, item.y, item.font_size, item.opacity, item.angle]
+                    .iter()
+                    .all(|value| value.is_finite())
+                || !(0.0..=1.0).contains(&item.x)
+                || !(0.0..=1.0).contains(&item.y)
+                || !(1.0..=512.0).contains(&item.font_size)
+                || !(0.0..=1.0).contains(&item.opacity)
+                || !(-180.0..=180.0).contains(&item.angle)
+                || item.text.chars().count() > 200
+            {
+                return Err(invalid("页码或水印参数无效。"));
+            }
+            validate_text(&item.text)?;
+            let font = if let Some(family) = &item.font_family {
+                self.editable_font_token(output, fonts, family, &item.text)?
+            } else {
+                if !item.text.is_ascii() {
+                    return Err(font_error("中文页码或水印需要指定可嵌入的本机字体。"));
+                }
+                output.fonts_mut().helvetica()
+            };
+            let mut object =
+                PdfPageTextObject::new(output, &item.text, font, PdfPoints::new(item.font_size))
+                    .map_err(pdf_error)?;
+            object
+                .set_fill_color(parse_color(
+                    &item.color,
+                    (item.opacity * 255.0).round() as u8,
+                )?)
+                .map_err(pdf_error)?;
+            let bounds = object.bounds().map_err(pdf_error)?.to_rect();
+            let cx = match item.alignment.as_str() {
+                "left" => bounds.left().value,
+                "right" => bounds.right().value,
+                _ => (bounds.left().value + bounds.right().value) / 2.0,
+            };
+            let cy = (bounds.bottom().value + bounds.top().value) / 2.0;
+            let angle = item.angle.to_radians();
+            let cos = angle.cos();
+            let sin = angle.sin();
+            let ux = (space.forward.a() / width, space.forward.b() / width);
+            let uy = (space.forward.c() / height, space.forward.d() / height);
+            let a = ux.0 * cos + uy.0 * sin;
+            let b = ux.1 * cos + uy.1 * sin;
+            let c = ux.0 * sin - uy.0 * cos;
+            let d = ux.1 * sin - uy.1 * cos;
+            object
+                .reset_matrix(PdfMatrix::new(
+                    a,
+                    b,
+                    c,
+                    d,
+                    space.forward.e() + space.forward.a() * item.x + space.forward.c() * item.y
+                        - a * cx
+                        - c * cy,
+                    space.forward.f() + space.forward.b() * item.x + space.forward.d() * item.y
+                        - b * cx
+                        - d * cy,
+                ))
+                .map_err(pdf_error)?;
+            let added = page
+                .objects_mut()
+                .add_text_object(object)
+                .map_err(pdf_error)?;
+            if !is_in_page(&space.bounds(&added)?) {
+                return Err(invalid("页码或水印超出页面，请减小字号或调整位置。"));
+            }
+        }
+        if !reference.decorations.is_empty() {
+            page.regenerate_content().map_err(pdf_error)?;
+        }
+        Ok(())
+    }
+
+    pub fn preview_line_edit(&mut self, request: &LineEditRequest) -> Result<Value, String> {
+        self.prepared_line = None;
+        validate_text(&request.text)?;
+        validate_bounds(&request.bounds)?;
+        if request.text.chars().count() > 500
+            || request.objects.is_empty()
+            || request.objects.len() > 64
+            || !request.font_size.is_finite()
+            || !(1.0..=512.0).contains(&request.font_size)
+            || !request.char_spacing.is_finite()
+            || !(-5.0..=30.0).contains(&request.char_spacing)
+            || !matches!(request.alignment.as_str(), "left" | "center" | "right")
+        {
+            return Err(invalid("文字行最多 500 字、64 个片段；字距为 -5～30 pt。"));
+        }
+        let color = parse_color(&request.color, 255)?;
+        let inspection = self.inspect_page_content(&request.page)?;
+        let mut selected = Vec::new();
+        let mut seen = HashSet::new();
+        for identity in &request.objects {
+            let object = inspection
+                .objects
+                .iter()
+                .find(|object| {
+                    object.object_index == identity.object_index
+                        && object.fingerprint == identity.fingerprint
+                })
+                .ok_or_else(|| invalid("文字行来源已变化，请重新读取。"))?;
+            if !seen.insert(identity.object_index)
+                || !object.editable
+                || object.deleted
+                || object.kind != "text"
+                || object.text_angle.is_none_or(|angle| angle.abs() > 1.0)
+            {
+                return Err(invalid("文字行编辑只支持可编辑的横向顶层文字片段。"));
+            }
+            selected.push(object);
+        }
+        selected.sort_by(|left, right| left.bounds.x.total_cmp(&right.bounds.x));
+        let common_y = selected[0].bounds.y + selected[0].bounds.height / 2.0;
+        if selected.iter().any(|object| {
+            (object.bounds.y + object.bounds.height / 2.0 - common_y).abs()
+                > request.bounds.height.max(object.bounds.height) * 0.7
+        }) {
+            return Err(invalid("所选片段不属于同一横向文字行。"));
+        }
+        let old_text = selected
+            .iter()
+            .filter_map(|object| object.text.as_deref())
+            .collect::<Vec<_>>()
+            .join("");
+        let before = self.render_page(&request.page, 760)?;
+        let mut output = self.prepare_document(std::slice::from_ref(&request.page))?;
+        let mut page = output.pages().get(0).map_err(pdf_error)?;
+        let space = PageSpace::new(&page)?;
+        let width = page.width().value;
+        let height = page.height().value;
+        let removed: HashSet<_> = request
+            .page
+            .content_edits
+            .iter()
+            .filter(|edit| edit.deleted == Some(true))
+            .map(|edit| edit.object_index)
+            .collect();
+        let current_index =
+            |index: u32| index as usize - removed.iter().filter(|old| **old < index).count();
+        let first = page
+            .objects()
+            .get(current_index(selected[0].object_index))
+            .map_err(pdf_error)?;
+        let template = first
+            .as_text_object()
+            .ok_or_else(|| invalid("文字片段已失效。"))?;
+        let family = template.font().name();
+        let baseline = {
+            let text = page.text().map_err(pdf_error)?;
+            let chars = text.chars_for_object(template).map_err(pdf_error)?;
+            let origin = chars
+                .iter()
+                .find(|ch| !ch.is_generated().unwrap_or(true))
+                .ok_or_else(|| invalid("无法定位文字基线。"))?
+                .origin()
+                .map_err(pdf_error)?;
+            space.inverse.apply_to_points(origin.0, origin.1).1.value
+        };
+        let font = if let Some(family) = &request.font_family {
+            self.editable_font_token(
+                &mut output,
+                &mut ContentFontCache::default(),
+                family,
+                &request.text,
+            )?
+        } else {
+            if selected
+                .iter()
+                .any(|object| object.font_family.as_deref() != Some(family.as_str()))
+                || !original_font_covers(&old_text, &request.text, &family)
+            {
+                return Err(font_error(
+                    "原行混合字体或原字体缺少新字符，请选择可嵌入的本机字体。",
+                ));
+            }
+            template.font().token()
+        };
+        let mut replacement = PdfPageTextObject::new(
+            &output,
+            &request.text,
+            font,
+            PdfPoints::new(request.font_size),
+        )
+        .map_err(pdf_error)?;
+        replacement.set_fill_color(color).map_err(pdf_error)?;
+        let ux = (space.forward.a() / width, space.forward.b() / width);
+        let uy = (space.forward.c() / height, space.forward.d() / height);
+        replacement
+            .reset_matrix(PdfMatrix::new(
+                ux.0,
+                ux.1,
+                -uy.0,
+                -uy.1,
+                space.forward.e()
+                    + space.forward.a() * request.bounds.x
+                    + space.forward.c() * baseline,
+                space.forward.f()
+                    + space.forward.b() * request.bounds.x
+                    + space.forward.d() * baseline,
+            ))
+            .map_err(pdf_error)?;
+        drop(first);
+        let mut indices: Vec<_> = selected
+            .iter()
+            .map(|object| current_index(object.object_index))
+            .collect();
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+        for index in indices {
+            drop(
+                page.objects_mut()
+                    .remove_object_at_index(index)
+                    .map_err(pdf_error)?,
+            );
+        }
+        page.objects_mut()
+            .add_text_object(replacement)
+            .map_err(pdf_error)?;
+        page.regenerate_content().map_err(pdf_error)?;
+        drop(page);
+        let bytes = self.document_bytes(&output, MAX_FILE_BYTES as usize)?;
+        drop(output);
+        let spaced = with_last_text_spacing(
+            &bytes,
+            request.char_spacing,
+            request.font_size,
+            request.text.chars().count(),
+        )?;
+        let document = self
+            .pdfium
+            .load_pdf_from_byte_vec(spaced, None)
+            .map_err(pdf_error)?;
+        let mut page = document.pages().get(0).map_err(pdf_error)?;
+        let last = page.objects().len() as usize - 1;
+        let mut object = page.objects().get(last).map_err(pdf_error)?;
+        let space = PageSpace::new(&page)?;
+        if object_text(
+            &page,
+            object
+                .as_text_object()
+                .ok_or_else(|| invalid("预览文字对象无效。"))?,
+        )? != request.text
+        {
+            return Err(font_error("预览文字映射不完整，请选择其他字体。"));
+        }
+        let bounds = space.bounds(&object)?;
+        let x = match request.alignment.as_str() {
+            "center" => request.bounds.x + (request.bounds.width - bounds.width) / 2.0,
+            "right" => request.bounds.x + request.bounds.width - bounds.width,
+            _ => request.bounds.x,
+        };
+        let delta = PdfMatrix::new(1.0, 0.0, 0.0, 1.0, x - bounds.x, 0.0);
+        let transform = space.inverse.multiply(delta).multiply(space.forward);
+        let matrix = object.matrix().map_err(pdf_error)?;
+        object
+            .reset_matrix(matrix.multiply(transform))
+            .map_err(pdf_error)?;
+        let actual = space.bounds(&object)?;
+        drop(object);
+        page.regenerate_content().map_err(pdf_error)?;
+        let overflow_page = !is_in_page(&actual);
+        let overflow_line = actual.width > request.bounds.width + 0.0005;
+        let (rw, rh) = render_dimensions(page.width().value, page.height().value, 760, false)?;
+        let after = page
+            .render_with_config(
+                &PdfRenderConfig::new()
+                    .set_target_size(rw as i32, rh as i32)
+                    .render_form_data(false)
+                    .render_annotations(true),
+            )
+            .map_err(pdf_error)?
+            .as_image()
+            .map_err(pdf_error)?;
+        let (after_width, after_height) = (after.width(), after.height());
+        let mut png = Cursor::new(Vec::new());
+        after
+            .write_to(&mut png, ImageFormat::Png)
+            .map_err(pdf_error)?;
+        drop(page);
+        let bytes = self.document_bytes(&document, MAX_FILE_BYTES as usize)?;
+        drop(document);
+        let token = format!("line-{}-{}", std::process::id(), self.next_job);
+        self.next_job += 1;
+        let can_apply = !overflow_page && (!request.constrain_width || !overflow_line);
+        self.prepared_line = Some(super::operations::PreparedLine {
+            token: token.clone(),
+            bytes,
+            can_apply,
+        });
+        Ok(
+            json!({"token":token,"before":before,"after":{"dataUrl":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(png.into_inner())),"width":after_width,"height":after_height},
+            "bounds":actual,"textWidth":actual.width*width,"availableWidth":request.bounds.width*width,"overflowLine":overflow_line,"overflowPage":overflow_page,"canApply":can_apply,"oldText":old_text,"text":request.text}),
+        )
+    }
+
     fn copied_content_page(&self, reference: &PageRef) -> Result<PdfDocument<'a>, String> {
         let source = self.source(reference)?;
         let mut output = self.pdfium.create_new_pdf().map_err(pdf_error)?;
@@ -434,6 +918,8 @@ impl<'a> PdfEngine<'a> {
             original.font_family = current.font_family;
             original.font_size = current.font_size;
             original.fill_color = current.fill_color;
+            original.text_angle = current.text_angle;
+            original.rendered_font_size = current.rendered_font_size;
             current_index += 1;
         }
         let mut warnings = Vec::new();
@@ -459,11 +945,12 @@ impl<'a> PdfEngine<'a> {
         let mut page = output.pages().get(0).map_err(pdf_error)?;
         let mut fonts = ContentFontCache::default();
         self.apply_content_edits(&mut output, &mut page, reference, &mut fonts)?;
+        self.append_decorations(&mut output, &mut page, reference, &mut fonts)?;
         let text = page.text().map_err(pdf_error)?;
         if text.len() as usize > MAX_SEARCH_CHARS {
             return Err(invalid("页面文字超过查找预算。"));
         }
-        Ok(text.all())
+        visible_text(&page, &text)
     }
 
     pub(super) fn apply_content_edits(

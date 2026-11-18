@@ -19,6 +19,77 @@ pub struct PageRef {
     pub overlays: Vec<PageOverlay>,
     #[serde(default)]
     pub content_edits: Vec<ContentEdit>,
+    #[serde(default)]
+    pub decorations: Vec<PageDecoration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageDecoration {
+    pub id: String,
+    pub kind: String,
+    pub text: String,
+    pub font_family: Option<String>,
+    pub font_size: f32,
+    pub color: String,
+    pub opacity: f32,
+    pub angle: f32,
+    pub x: f32,
+    pub y: f32,
+    pub alignment: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportPart {
+    pub name: String,
+    pub pages: Vec<PageRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum GeneratePages {
+    Blank {
+        width: f32,
+        height: f32,
+        count: u32,
+    },
+    Images {
+        paths: Vec<String>,
+        paper: String,
+        margin: f32,
+    },
+    Crop {
+        pages: Vec<PageRef>,
+        bounds: ContentBounds,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LineObjectRef {
+    pub object_index: u32,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LineEditRequest {
+    pub page: PageRef,
+    pub objects: Vec<LineObjectRef>,
+    pub bounds: ContentBounds,
+    pub text: String,
+    pub font_family: Option<String>,
+    pub font_size: f32,
+    pub color: String,
+    pub char_spacing: f32,
+    pub alignment: String,
+    pub constrain_width: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -67,6 +138,8 @@ pub struct ContentObject {
     pub editable: bool,
     pub reason: Option<String>,
     pub deleted: bool,
+    pub text_angle: Option<f32>,
+    pub rendered_font_size: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

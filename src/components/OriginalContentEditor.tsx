@@ -29,6 +29,7 @@ export interface OriginalContentEditorProps {
   onClose: () => void;
   onError: (message: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  onEditLines?: () => void;
 }
 type GeometryDraft = { x: string; y: string; width: string; height: string };
 type Draft = { text: string; fontSize: string; fillColor: string; replaceFont: boolean; fontFamily: string; geometry: GeometryDraft; geometryChanged: boolean };
@@ -144,7 +145,7 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
     if (!typing && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); if (object?.editable && !object.deleted && !blocked) void toggleDeleted(); }
   }}>
     <header className="oc-header"><div><strong>{t('编辑原文', 'Edit original content')}</strong><span>{t('修改 PDF 中已有的文字与图片对象', 'Modify existing PDF text and image objects')}</span></div><button aria-label={t('关闭原文编辑', 'Close original content editor')} disabled={working} onClick={props.onClose}><X size={18}/></button></header>
-    <div className="oc-scroll">
+    <div className="oc-scroll">{props.onEditLines && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onEditLines}><FileText size={14}/>{t('组合文字行编辑、字距与前后预览', 'Edit grouped text lines, spacing and comparison')}</button></section>}
       <section className="oc-section"><div className="oc-section-heading"><h3>{t('本页原有对象', 'Original page objects')}</h3><button disabled={blocked} onClick={props.onRefresh} aria-label={t('重新读取原有对象', 'Refresh original objects')}><RefreshCw size={13}/></button></div>
         <p className="oc-description">{t('先在页面框内或下方列表中选择一个对象。PDF 文字可能按行或小片段拆分，不会自动重排相邻段落。', 'Choose an object on the page or in the list. PDF text may be split into lines or short runs; neighboring paragraphs do not reflow automatically.')}</p>
         <label className="oc-field"><span>{t('对象类型', 'Object type')}</span><select value={filter} disabled={blocked} onChange={event => setFilter(event.target.value as typeof filter)}><option value="all">{t('全部', 'All')}</option><option value="text">{t('文字', 'Text')}</option><option value="image">{t('图片', 'Images')}</option><option value="unsupported">{t('其他与暂不支持', 'Other and unsupported')}</option></select></label>

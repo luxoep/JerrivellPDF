@@ -21,7 +21,7 @@ fn invalid(message: impl std::fmt::Display) -> String {
     format!("ASSET_INVALID: {message}")
 }
 
-fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<DynamicImage, String> {
+pub(super) fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<DynamicImage, String> {
     let format =
         image::guess_format(bytes).map_err(|_| invalid("图片格式无效，请选择 PNG 或 JPEG。"))?;
     if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg)
@@ -419,7 +419,7 @@ impl<'a> PdfEngine<'a> {
             self.apply_content_edits(output, &mut page, reference, fonts)?;
         }
         if reference.overlays.is_empty() {
-            return Ok(());
+            return self.append_decorations(output, &mut page, reference, fonts);
         }
 
         // DeviceToPage includes the page's native rotation and CropBox/MediaBox origin.
@@ -468,6 +468,7 @@ impl<'a> PdfEngine<'a> {
                 })
                 .map_err(pdf_error)?;
         }
+        self.append_decorations(output, &mut page, reference, fonts)?;
         page.regenerate_content().map_err(pdf_error)?;
         Ok(())
     }

@@ -5,6 +5,7 @@ export function rotatePageClockwise(page: WorkspacePage): WorkspacePage {
   return {
     ...page,
     rotation: (page.rotation + 90) % 360,
+    ...(page.decorations?.length ? { decorations: page.decorations.map(item => ({ ...item, x: 1 - item.y, y: item.x, angle: ((item.angle + 90 + 180) % 360) - 180 })) } : {}),
     ...(page.contentEdits?.length ? {
       contentEdits: page.contentEdits.map(edit => edit.bounds ? {
         ...edit, bounds: { x: Math.max(0, 1 - edit.bounds.y - edit.bounds.height), y: edit.bounds.x,

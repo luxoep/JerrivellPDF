@@ -204,7 +204,15 @@ impl WorkerClient {
         }
         let timeout = if matches!(
             command,
-            "save_document" | "search_document" | "search_pages" | "open_document"
+            "save_document"
+                | "search_document"
+                | "search_pages"
+                | "open_document"
+                | "prepare_export"
+                | "save_prepared_export"
+                | "preview_line_edit"
+                | "generate_pages"
+                | "validate_document"
         ) {
             Duration::from_secs(120)
         } else {

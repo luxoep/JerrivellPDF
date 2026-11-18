@@ -154,6 +154,63 @@ async fn save_document(
 }
 
 #[tauri::command]
+async fn prepare_export(
+    state: State<'_, Backend>,
+    parts: Vec<ExportPart>,
+) -> Result<Value, String> {
+    call(state, "prepare_export", json!({"parts":parts})).await
+}
+#[tauri::command]
+async fn validate_document(
+    state: State<'_, Backend>,
+    pages: Vec<PageRef>,
+) -> Result<Value, String> {
+    call(state, "validate_document", json!({"pages":pages})).await
+}
+#[tauri::command]
+async fn save_prepared_export(
+    state: State<'_, Backend>,
+    token: String,
+    paths: Vec<String>,
+) -> Result<Value, String> {
+    call(
+        state,
+        "save_prepared_export",
+        json!({"token":token,"paths":paths}),
+    )
+    .await
+}
+#[tauri::command]
+async fn discard_export(state: State<'_, Backend>, token: String) -> Result<Value, String> {
+    call(state, "discard_export", json!({"token":token})).await
+}
+#[tauri::command]
+async fn generate_pages(
+    state: State<'_, Backend>,
+    request: GeneratePages,
+) -> Result<DocumentInfo, String> {
+    call(state, "generate_pages", json!({"request":request})).await
+}
+#[tauri::command]
+async fn preview_line_edit(
+    state: State<'_, Backend>,
+    request: LineEditRequest,
+) -> Result<Value, String> {
+    call(state, "preview_line_edit", json!({"request":request})).await
+}
+#[tauri::command]
+async fn commit_line_preview(
+    state: State<'_, Backend>,
+    token: String,
+) -> Result<DocumentInfo, String> {
+    call(state, "commit_line_preview", json!({"token":token})).await
+}
+#[tauri::command]
+async fn discard_line_preview(state: State<'_, Backend>, token: String) -> Result<Value, String> {
+    call(state, "discard_line_preview", json!({"token":token})).await
+}
+
+#[tauri::command]
 async fn export_page(
     state: State<'_, Backend>,
     page: PageRef,
@@ -286,6 +343,14 @@ pub fn run() {
             search_pages,
             inspect_page_content,
             save_document,
+            prepare_export,
+            validate_document,
+            save_prepared_export,
+            discard_export,
+            generate_pages,
+            preview_line_edit,
+            commit_line_preview,
+            discard_line_preview,
             export_page,
             register_image,
             import_image,

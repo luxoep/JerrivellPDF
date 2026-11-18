@@ -29,6 +29,12 @@ export interface PageRef {
   rotation: number;
   overlays?: PageOverlay[];
   contentEdits?: ContentEdit[];
+  decorations?: PageDecoration[];
+}
+
+export interface PageDecoration {
+  id: string; kind: 'number' | 'watermark'; text: string; fontFamily?: string | null; fontSize: number;
+  color: string; opacity: number; angle: number; x: number; y: number; alignment: 'left' | 'center' | 'right';
 }
 
 export interface SourcePage {

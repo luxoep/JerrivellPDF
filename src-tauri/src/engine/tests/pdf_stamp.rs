@@ -237,6 +237,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
         .open_document(base_path.to_str().unwrap(), None)
         .unwrap();
     let mut reference = PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: base.id,
         page_index: 0,
@@ -277,6 +278,7 @@ fn pdf_fragments_crop_transparency_multiply_and_preserve_sources() {
     let reopened_render = engine
         .render_page(
             &PageRef {
+                decorations: vec![],
                 content_edits: Vec::new(),
                 document_id: reopened.id.clone(),
                 page_index: 0,

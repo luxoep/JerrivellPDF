@@ -1,8 +1,8 @@
-# Jerrivell PDF 0.5.0
+# Jerrivell PDF 0.6.0
 
-这是 Jerrivell PDF 的历史源码快照，对应 Windows x64 安装版本 **0.5.0**。
+这是 Jerrivell PDF 的历史源码快照，对应 Windows x64 安装版本 **0.6.0**。
 
-- [本版安装包、公开源码与第三方源码补充](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.5.0)
+- [本版安装包、公开源码与第三方源码补充](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.6.0)
 - [推荐使用最新版](https://github.com/luxoep/JerrivellPDF/releases/latest)
 - [全部 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)
 

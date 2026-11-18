@@ -53,6 +53,18 @@ def main():
             assert source.is_relative_to(ROOT), entry
             assert hashlib.sha256(archive.read(entry)).hexdigest() == sha256(source), f'Source archive differs from workspace: {entry}'
     installed = (RELEASE / manifest['installedExecutable']['file']).parent
+    # Tauri patches the bundle-type marker for NSIS, then restores the standalone
+    # target executable. Verify the exact expected difference instead of assuming
+    # their SHA-256 values must match or accepting arbitrary binary differences.
+    built_bytes = executable.read_bytes()
+    installed_bytes = (installed / 'jerrivell-pdf.exe').read_bytes()
+    bundle_difference = 'identical'
+    if built_bytes != installed_bytes:
+        original_marker = b'__TAURI_BUNDLE_TYPE_VAR_UNK'
+        installer_marker = b'__TAURI_BUNDLE_TYPE_VAR_NSS'
+        assert built_bytes.count(original_marker) == installed_bytes.count(installer_marker) == 1, 'Unexpected Tauri bundle marker'
+        assert installed_bytes.replace(installer_marker, original_marker, 1) == built_bytes, 'Installed executable differs beyond the Tauri NSIS marker'
+        bundle_difference = 'Tauri bundle marker UNK -> NSS (three bytes only)'
     expected_licenses = directory_hashes(ROOT / 'licenses')
     expected_pdfium = directory_hashes(ROOT / 'src-tauri/resources/pdfium')
     assert expected_licenses == directory_hashes(installed / 'legal/licenses'), 'Installed license resources differ'
@@ -60,6 +72,7 @@ def main():
     for relative in ['LICENSE', 'THIRD_PARTY_NOTICES.md']:
         assert sha256(ROOT / relative) == sha256(installed / 'legal' / relative)
     result = {'status': 'PASS', 'version': manifest['version'], 'sourceFiles': len(entries), 'sourceArchiveMatchesWorkspace': True,
+              'installedExecutableDifference': bundle_difference,
               'sourceExclusions': 'Only the two original fixture PDFs; no native binaries, fonts, private-key containers or build/test caches',
               'installedResources': {'licenseFiles': len(expected_licenses), 'pdfiumFiles': len(expected_pdfium), 'rootLegalFiles': 2},
               'artifacts': artifacts}

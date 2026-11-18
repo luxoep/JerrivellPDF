@@ -12,6 +12,8 @@ use tempfile::NamedTempFile;
 
 mod assets;
 mod content;
+mod export;
+mod operations;
 use assets::ImageAsset;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -26,7 +28,7 @@ const MAX_SEARCH_CHARS: usize = 2_000_000;
 
 struct Source<'a> {
     document: PdfDocument<'a>,
-    path: PathBuf,
+    path: Option<PathBuf>,
     size: u64,
 }
 
@@ -38,6 +40,10 @@ pub struct PdfEngine<'a> {
     next_asset_id: u64,
     content_fonts:
         std::cell::RefCell<HashMap<String, std::sync::Arc<crate::font_source::EditableFont>>>,
+    prepared_export: Option<export::PreparedExport>,
+    prepared_line: Option<operations::PreparedLine>,
+    next_job: u64,
+    protected_inputs: Vec<PathBuf>,
 }
 
 fn pdf_error(error: impl std::fmt::Display) -> String {
@@ -111,6 +117,10 @@ impl<'a> PdfEngine<'a> {
             assets: HashMap::new(),
             next_asset_id: 1,
             content_fonts: Default::default(),
+            prepared_export: None,
+            prepared_line: None,
+            next_job: 1,
+            protected_inputs: Vec::new(),
         }
     }
 
@@ -119,7 +129,14 @@ impl<'a> PdfEngine<'a> {
         path: &str,
         password: Option<&str>,
     ) -> Result<DocumentInfo, String> {
-        if self.sources.len() >= MAX_SOURCES {
+        if self
+            .sources
+            .values()
+            .filter(|source| source.path.is_some())
+            .count()
+            >= MAX_SOURCES
+            || self.sources.len() >= 128
+        {
             return Err("当前最多同时打开 32 个来源文件，请先关闭工作区。".into());
         }
         if password.is_some_and(|p| p.len() > 1024) {
@@ -196,7 +213,7 @@ impl<'a> PdfEngine<'a> {
             id,
             Source {
                 document,
-                path,
+                path: Some(path),
                 size: file_size,
             },
         );
@@ -217,7 +234,10 @@ impl<'a> PdfEngine<'a> {
 
     fn render_image(&self, reference: &PageRef, target_width: u32) -> Result<DynamicImage, String> {
         let source = self.source(reference)?;
-        if !reference.overlays.is_empty() || !reference.content_edits.is_empty() {
+        if !reference.overlays.is_empty()
+            || !reference.content_edits.is_empty()
+            || !reference.decorations.is_empty()
+        {
             let mut temporary = self.pdfium.create_new_pdf().map_err(pdf_error)?;
             self.copy_prepared_page(&mut temporary, reference, 0)?;
             let page = temporary.pages().get(0).map_err(pdf_error)?;
@@ -310,7 +330,7 @@ impl<'a> PdfEngine<'a> {
             if text.len() as usize > MAX_SEARCH_CHARS {
                 return Err("页面文字量超过搜索限制。".into());
             }
-            let original = text.all();
+            let original = content::visible_text(&page, &text)?;
             let lower = original.to_lowercase();
             let match_count = lower.matches(&query).count();
             if match_count > 0 {
@@ -397,12 +417,14 @@ impl<'a> PdfEngine<'a> {
             return Err("输出路径不能是目录。".into());
         }
         for source in self.sources.values() {
-            let same_path = source
-                .path
+            let Some(source_path) = &source.path else {
+                continue;
+            };
+            let same_path = source_path
                 .to_string_lossy()
                 .eq_ignore_ascii_case(&path.to_string_lossy());
             let same_file =
-                path.exists() && same_file::is_same_file(&source.path, &path).unwrap_or(true);
+                path.exists() && same_file::is_same_file(source_path, &path).unwrap_or(true);
             if same_path || same_file {
                 return Err(
                     "为保护原文件，不能覆盖任何已打开的来源 PDF，请使用其他文件名。".into(),
@@ -410,6 +432,15 @@ impl<'a> PdfEngine<'a> {
             }
         }
         self.protect_asset_source(&path)?;
+        for source in &self.protected_inputs {
+            if source
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&path.to_string_lossy())
+                || (path.exists() && same_file::is_same_file(source, &path).unwrap_or(true))
+            {
+                return Err("不能覆盖用于图片转 PDF 的来源文件或其硬链接。".into());
+            }
+        }
         Ok(path)
     }
 
@@ -581,7 +612,73 @@ impl<'a> PdfEngine<'a> {
             asset_id: String,
             output_path: String,
         }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Prepare {
+            parts: Vec<ExportPart>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Token {
+            token: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct CommitExport {
+            token: String,
+            paths: Vec<String>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Generate {
+            request: GeneratePages,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct EditLine {
+            request: LineEditRequest,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Validate {
+            pages: Vec<PageRef>,
+        }
         match request.command.as_str() {
+            "prepare_export" => {
+                let p: Prepare = parse(&request.args)?;
+                self.prepare_export(&p.parts)
+            }
+            "validate_document" => {
+                let p: Validate = parse(&request.args)?;
+                let document = self.prepare_document(&p.pages)?;
+                Ok(json!({"pageCount":document.pages().len()}))
+            }
+            "save_prepared_export" => {
+                let p: CommitExport = parse(&request.args)?;
+                self.save_prepared_export(&p.token, &p.paths)
+            }
+            "discard_export" => {
+                let p: Token = parse(&request.args)?;
+                self.discard_export(&p.token);
+                Ok(Value::Null)
+            }
+            "generate_pages" => {
+                let p: Generate = parse(&request.args)?;
+                self.generate_pages(&p.request).map(|v| json!(v))
+            }
+            "preview_line_edit" => {
+                let p: EditLine = parse(&request.args)?;
+                self.preview_line_edit(&p.request)
+            }
+            "commit_line_preview" => {
+                let p: Token = parse(&request.args)?;
+                self.commit_line_preview(&p.token).map(|v| json!(v))
+            }
+            "discard_line_preview" => {
+                let p: Token = parse(&request.args)?;
+                self.discard_line_preview(&p.token);
+                Ok(Value::Null)
+            }
             "get_backend_status" => Ok(json!(BackendStatus {
                 engine_ready: true,
                 engine_version: Some("PDFium 7881 · pdfium-render 0.9.4".into()),
@@ -647,6 +744,9 @@ impl<'a> PdfEngine<'a> {
                 self.sources.clear();
                 self.assets.clear();
                 self.content_fonts.borrow_mut().clear();
+                self.prepared_export = None;
+                self.prepared_line = None;
+                self.protected_inputs.clear();
                 Ok(Value::Null)
             }
             _ => Err("未知 PDF 工作进程命令。".into()),

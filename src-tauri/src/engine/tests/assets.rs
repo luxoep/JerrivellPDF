@@ -124,6 +124,7 @@ fn overlays_preserve_alpha_direction_crop_and_original_content() {
     let mut plan = Vec::new();
     for turn in [0, 90, 180, 270] {
         plan.push(PageRef {
+            decorations: vec![],
             content_edits: Vec::new(),
             document_id: flat.id.clone(),
             page_index: 0,
@@ -132,6 +133,7 @@ fn overlays_preserve_alpha_direction_crop_and_original_content() {
         });
     }
     plan.push(PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: rotated.id.clone(),
         page_index: 0,
@@ -139,6 +141,7 @@ fn overlays_preserve_alpha_direction_crop_and_original_content() {
         overlays: vec![base_overlay.clone()],
     });
     plan.push(PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: cropped.id.clone(),
         page_index: 0,
@@ -153,6 +156,7 @@ fn overlays_preserve_alpha_direction_crop_and_original_content() {
     turned.height = base_overlay.width;
     turned.rotation = 90;
     plan.push(PageRef {
+        decorations: vec![],
         content_edits: Vec::new(),
         document_id: flat.id.clone(),
         page_index: 0,
@@ -180,6 +184,7 @@ fn overlays_preserve_alpha_direction_crop_and_original_content() {
         let saved = engine
             .render_page(
                 &PageRef {
+                    decorations: vec![],
                     content_edits: Vec::new(),
                     document_id: reopened.id.clone(),
                     page_index: index as u32,

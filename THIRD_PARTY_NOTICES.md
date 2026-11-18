@@ -6,7 +6,7 @@ Jerrivell PDF 自有代码、文档与原创合成样本采用 `GPL-3.0-or-later
 
 本文件与 `licenses/` 保存的原文一同交付。精确版本以 `src-tauri/Cargo.lock`、`package-lock.json`、PDFium 来源清单及实际随包内容为准。`licenses/inventory.json` 记录从当前本地依赖取得的许可文件、元数据和 SHA-256；清单也包含部分构建/开发依赖，不代表每个包都进入最终二进制。安装后本文件位于 `legal/`，对应原文位于 `legal/licenses/`。
 
-0.4.1 根据用户 Jerry 的名字将产品更名为 **Jerrivell PDF**。旧名 Rivuleaf PDF（页澜）在历史源码包和验证记录中保留。新应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.5.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.5.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.5.0/Jerrivell-PDF-0.5.0-manifest.json)。下方保留的旧版本归档名是历史取得材料，不表示它们已经改名。
+0.4.1 根据用户 Jerry 的名字将产品更名为 **Jerrivell PDF**。旧名 Rivuleaf PDF（页澜）在历史源码包和验证记录中保留。新应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.6.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.6.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.6.0/Jerrivell-PDF-0.6.0-manifest.json)。下方保留的旧版本归档名是历史取得材料，不表示它们已经改名。
 
 ## 主要直接组件
 
@@ -20,6 +20,8 @@ Jerrivell PDF 自有代码、文档与原创合成样本采用 `GPL-3.0-or-later
 | Lucide React 1.63.0 | [lucide-icons/lucide](https://github.com/lucide-icons/lucide) | ISC；其 LICENSE 同时保留 Feather 派生图标的 MIT 版权声明 |
 | pdfium-render 0.9.4 | [ajrcarey/pdfium-render](https://github.com/ajrcarey/pdfium-render/tree/0.9.4) | MIT OR Apache-2.0；两种许可文本应随来源记录保存 |
 | PDFium 151.0.7881.0 | [Chromium PDFium](https://pdfium.googlesource.com/pdfium/) | 实际构建的 `pdfium/licenses/pdfium.txt` 保存 PDFium BSD-style 与 Apache-2.0 原文；组成部分分别保留 |
+| lopdf 0.46.0 | [J-F-Liu/lopdf](https://github.com/J-F-Liu/lopdf) | MIT；仅用于本软件自己生成的文字行内容流字距写入，关闭默认功能，保留 `licenses/rust/lopdf-0.46.0/` 原文 |
+| flate2 1.1.10 | [rust-lang/flate2-rs](https://github.com/rust-lang/flate2-rs) | MIT OR Apache-2.0；纯 Rust 解压后端，有限额地读取自生成内容流；原文保留 |
 | PDFium Windows x64 预编译包 | [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7881) | 外层 `pdfium/LICENSE` 是该分发项目的 MIT 文本；不能代替 PDFium/组成部分原文 |
 | NSIS 3.13 | [Tauri 官方工具归档](https://github.com/tauri-apps/binary-releases/releases/tag/nsis-3.13) | 安装器工具链；原始 COPYING 位于 `licenses/upstream/nsis-3.13-COPYING`，包括 zlib/libpng、bzip2 和 LZMA CPL 1.0 各自条款 |
 | nsis_tauri_utils 0.5.3 | [Tauri NSIS 插件](https://github.com/tauri-apps/nsis-tauri-utils/releases/tag/nsis_tauri_utils-v0.5.3) | MIT OR Apache-2.0；固定源码提交的原文位于 `licenses/upstream/` |
@@ -68,7 +70,7 @@ npm 中 `lightningcss` 与 `lightningcss-win32-x64-msvc` 1.33.0 也采用 MPL-2.
 
 依赖更新后执行 `python scripts/collect-licenses.py`，检查原文清单与实际构建。该脚本不访问网络，补充文件由随源码保留的 `upstream-manifest.json` 校验。需要恢复这些文件时可运行 `python scripts/fetch-license-supplements.py`。
 
-对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.5.0) 与 `PUBLICATION.md`。
+对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.6.0) 与 `PUBLICATION.md`。
 
 ## 权威原文
 

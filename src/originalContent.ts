@@ -26,6 +26,8 @@ export interface ContentObject {
   editable: boolean;
   reason?: string;
   deleted: boolean;
+  textAngle?: number | null;
+  renderedFontSize?: number | null;
 }
 export interface ContentInspection {
   objects: ContentObject[];
