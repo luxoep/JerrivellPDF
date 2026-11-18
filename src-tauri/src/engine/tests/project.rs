@@ -290,3 +290,117 @@ fn project_restores_original_image_replacement_asset_references() {
         expected
     );
 }
+
+#[test]
+fn loading_another_project_and_releasing_its_sources_preserves_other_tab_history() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("independent-tabs.jvp");
+    let mut engine = PdfEngine::new(native_pdfium());
+    let old = engine
+        .add_generated_source(fixture("Keep tab and undo", 240, 360, 0), "old.pdf")
+        .unwrap();
+    let png = image(&mut engine);
+    let mut workspace = page(&old, "old-page");
+    workspace["overlays"] = json!([{"id":"old-image","assetId":png.id,"x":0.1,"y":0.2,"width":0.2,"height":0.1,"opacity":1}]);
+    let old_reference = super::super::project::page_reference(&workspace).unwrap();
+    let old_pixels = engine.render_page(&old_reference, 300).unwrap().data_url;
+    engine
+        .save_editable_project(path.to_str().unwrap(), vec![workspace], "Independent")
+        .unwrap();
+    let first = engine
+        .load_editable_project(path.to_str().unwrap())
+        .unwrap();
+    let second = engine
+        .load_editable_project(path.to_str().unwrap())
+        .unwrap();
+    let first_reference = super::super::project::page_reference(&first["workspace"][0]).unwrap();
+    let second_reference = super::super::project::page_reference(&second["workspace"][0]).unwrap();
+    assert_ne!(first_reference.document_id, second_reference.document_id);
+    assert_ne!(first["assets"][0]["id"], second["assets"][0]["id"]);
+    assert_eq!(engine.sources.len(), 3);
+    for reference in [&old_reference, &first_reference, &second_reference] {
+        assert_eq!(
+            engine.render_page(reference, 300).unwrap().data_url,
+            old_pixels
+        );
+    }
+    // A stale tab bookkeeping request must not partially release any live source.
+    assert!(engine
+        .retain_documents(&[old.id.clone(), "missing".into()])
+        .is_err());
+    assert_eq!(engine.sources.len(), 3);
+    assert_eq!(
+        engine.render_page(&first_reference, 300).unwrap().data_url,
+        old_pixels
+    );
+    engine
+        .retain_documents(&[old.id.clone(), second_reference.document_id.clone()])
+        .unwrap();
+    assert_eq!(engine.sources.len(), 2);
+    assert!(engine
+        .render_page(&first_reference, 300)
+        .unwrap_err()
+        .contains("DOCUMENT_CLOSED:"));
+    assert!(engine
+        .search_document(&first_reference.document_id, "Keep")
+        .unwrap_err()
+        .contains("DOCUMENT_CLOSED:"));
+    assert_eq!(
+        engine.render_page(&old_reference, 300).unwrap().data_url,
+        old_pixels
+    );
+    assert_eq!(
+        engine.render_page(&second_reference, 300).unwrap().data_url,
+        old_pixels
+    );
+    // A reusable fragment image outlives the tab from which it was imported.
+    assert!(engine
+        .get_image_asset(first["assets"][0]["id"].as_str().unwrap())
+        .is_ok());
+    assert!(engine.get_image_asset(&png.id).is_ok());
+}
+
+#[test]
+fn shared_project_resource_limit_failure_does_not_change_open_tabs_or_identifiers() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("resource-limit.jvp");
+    let mut engine = PdfEngine::new(native_pdfium());
+    let old = engine
+        .add_generated_source(fixture("Resource guard", 240, 360, 0), "old.pdf")
+        .unwrap();
+    let workspace = page(&old, "page");
+    let old_reference = super::super::project::page_reference(&workspace).unwrap();
+    engine
+        .save_editable_project(path.to_str().unwrap(), vec![workspace], "Limit")
+        .unwrap();
+    let pixels = engine.render_page(&old_reference, 240).unwrap().data_url;
+    let next_id = engine.next_id;
+    // Model the already-accounted snapshot budget without allocating half a GiB.
+    let source_size = engine.sources.get(&old.id).unwrap().size;
+    engine.sources.get_mut(&old.id).unwrap().size = MAX_SESSION_BYTES;
+    assert!(engine
+        .load_editable_project(path.to_str().unwrap())
+        .unwrap_err()
+        .contains("资源上限"));
+    assert_eq!(engine.sources.len(), 1);
+    assert_eq!(engine.next_id, next_id);
+    assert_eq!(
+        engine.render_page(&old_reference, 240).unwrap().data_url,
+        pixels
+    );
+    engine.sources.get_mut(&old.id).unwrap().size = source_size;
+    // The valid retry still receives the expected monotonic native identifier.
+    let loaded = engine
+        .load_editable_project(path.to_str().unwrap())
+        .unwrap();
+    assert!(loaded["workspace"][0]["documentId"]
+        .as_str()
+        .unwrap()
+        .ends_with(&format!("-{next_id}")));
+    assert_eq!(
+        engine.render_page(&old_reference, 240).unwrap().data_url,
+        pixels
+    );
+}

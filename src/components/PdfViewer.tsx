@@ -8,6 +8,7 @@ import { useI18n } from '../i18n';
 import { buildDocumentLayout, captureViewAnchor, pageAtPosition, rasterTargetWidth, restoreViewAnchor, visiblePageSize, visibleRows, wheelZoom } from '../viewerGeometry';
 import type { ViewAnchor, ViewerZoom, ViewportSize } from '../viewerGeometry';
 import type { PageOverlay, WorkspacePage } from '../types';
+import type { ReaderViewState } from '../documentTabs';
 import './reader-experience.css';
 
 function PageRaster({ page, width, index, total, controls, onActivate, visible, pixelRatio }: {
@@ -33,12 +34,14 @@ export interface PageNavigation { id: string; sequence: number }
 type PageControls = (page: WorkspacePage, ready: boolean, loading: boolean, onPreview: (placement: PageOverlay | null) => void) => ReactNode;
 
 /** Exact-size virtual pages preserve native wheel scrolling without rendering the entire PDF. */
-export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false, pinnedPageId }: {
+export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false, pinnedPageId, captureView, viewRestore }: {
   pages: WorkspacePage[]; zoom: ViewerZoom; navigation: PageNavigation | null;
   onZoom: (zoom: ViewerZoom) => void; onSize: (size: ViewportSize) => void;
   onActiveChange: (id: string) => void; controls: PageControls;
   interactionBlocked?: boolean;
   pinnedPageId?: string;
+  captureView?: { current: (() => ReaderViewState | null) | null };
+  viewRestore?: { sequence: number; view: ReaderViewState | null } | null;
 }) {
   const { t } = useI18n();
   const viewport = useRef<HTMLDivElement>(null);
@@ -64,10 +67,15 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
   const zoomAnchor = useRef<ViewAnchor | null>(null);
   const navigationSequence = useRef(-1);
   const navigationPosition = useRef<{ id: string; top: number } | null>(null);
+  const restoredSequence = useRef(-1);
   const frame = useRef(0);
   const reportedId = useRef('');
   const latest = useRef({ pages, layout, zoom, onZoom, onActiveChange, interactionBlocked });
   latest.current = { pages, layout, zoom, onZoom, onActiveChange, interactionBlocked };
+  if (captureView) captureView.current = () => {
+    const surface = viewport.current;
+    return surface ? { atStart: surface.scrollTop <= 1, anchor: captureViewAnchor(latest.current.layout, { left: surface.scrollLeft, top: surface.scrollTop }, { x: surface.clientWidth / 2, y: surface.clientHeight / 2 }) } : null;
+  };
   const reportScroll = () => {
     const surface = viewport.current;
     if (!surface) return;
@@ -95,7 +103,14 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     if (!surface) return;
     const old = previous.current;
     const nextNavigation = navigation && navigation.sequence !== navigationSequence.current;
-    if (nextNavigation) {
+    if (viewRestore && viewRestore.sequence !== restoredSequence.current) {
+      const position = viewRestore.view?.anchor && restoreViewAnchor(layout, { ...viewRestore.view.anchor, viewportX: size.width / 2, viewportY: size.height / 2 });
+      surface.scrollLeft = position ? position.left : 0;
+      surface.scrollTop = viewRestore.view?.atStart ? 0 : position ? position.top : 0;
+      restoredSequence.current = viewRestore.sequence;
+      navigationSequence.current = navigation?.sequence ?? -1;
+      navigationPosition.current = null; reportedId.current = ''; zoomAnchor.current = null;
+    } else if (nextNavigation) {
       const row = layout.pages.find(page => page.id === navigation.id);
       if (row) {
         surface.scrollTop = Math.max(0, row.top - 24);
@@ -117,7 +132,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     }
     previous.current = { layout, size };
     reportScroll();
-  }, [layout, size, navigation]);
+  }, [layout, size, navigation, viewRestore]);
   useEffect(() => {
     const surface = viewport.current;
     if (!surface) return;

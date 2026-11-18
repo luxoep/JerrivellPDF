@@ -253,7 +253,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
     assert!(engine
         .render_page(&plan[0], 200)
         .unwrap_err()
-        .starts_with("SESSION_INVALIDATED:"));
+        .starts_with("DOCUMENT_CLOSED:"));
 }
 
 #[test]

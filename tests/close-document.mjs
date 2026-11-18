@@ -23,9 +23,11 @@ function label(node) {
 }
 const changed = (before, after) => !before || before.length !== after.length || after.some((value, n) => !Object.is(value, before[n]));
 async function fixture() {
-  const slots = [], effects = [], listeners = new Map(), calls = [], timers = new Map();
+  const slots = [], effects = [], listeners = new Map(), nativeEvents = new Map(), calls = [], timers = new Map();
   let cursor = 0, pending = [], dirty = true, tree, nextId = 0, timerId = 0;
-  let closeListener, destroyed = 0, resetCount = 0, nativeDocuments = 0, closeFailure = null, closeDeferred = null;
+  let closeListener, destroyed = 0, resetCount = 0, closeFailure = null, closeDeferred = null, retainFailure = null;
+  let pickerPaths = ['C:\\input.pdf'];
+  const nativeDocuments = new Set();
   const setSlot = (n, value) => { const next = typeof value === 'function' ? value(slots[n]) : value; if (!Object.is(slots[n], next)) { slots[n] = next; dirty = true; } };
   const react = {
     useState(initial) { const n = cursor++; if (!(n in slots)) slots[n] = typeof initial === 'function' ? initial() : initial; return [slots[n], value => setSlot(n, value)]; },
@@ -55,12 +57,17 @@ async function fixture() {
     async backend(command, args) {
       calls.push({ command, args });
       if (command === 'get_backend_status') return { engineReady: true };
-      if (command === 'get_startup_files') return [];
-      if (command === 'open_document') { nativeDocuments++; return document; }
+      if (command === 'get_startup_files' || command === 'drain_open_requests') return [];
+      if (command === 'open_document') { const opened = args.path === document.path ? document : { ...document, id: 'native-' + args.path, path: args.path, fileName: args.path.split(/[\\/]/).at(-1) }; nativeDocuments.add(opened.id); return opened; }
+      if (command === 'retain_documents') {
+        if (retainFailure) throw retainFailure;
+        for (const id of nativeDocuments) if (!args.documentIds.includes(id)) nativeDocuments.delete(id);
+        return;
+      }
       if (command === 'close_all_documents') {
         if (closeFailure) throw closeFailure;
         if (closeDeferred) await closeDeferred.promise;
-        nativeDocuments = 0; return;
+        nativeDocuments.clear(); return;
       }
       throw new Error(`Unexpected native operation: ${command}`);
     },
@@ -77,8 +84,10 @@ async function fixture() {
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === './backend') return backend;
     if (name === './i18n') return i18n;
-    if (name === '@tauri-apps/plugin-dialog') return { open: async () => [document.path] };
+    if (name === '@tauri-apps/plugin-dialog') return { open: async () => pickerPaths };
     if (name === '@tauri-apps/api/webviewWindow') return { getCurrentWebviewWindow: () => nativeWindow };
+    if (name === '@tauri-apps/api/event') return { async listen(name, callback) { nativeEvents.set(name, callback); return () => nativeEvents.delete(name); } };
+    if (name.endsWith('.css')) return {};
     if (name === 'lucide-react' || name.startsWith('./components/')) return new Proxy({}, { get: (_, key) => String(key) });
     if (name.endsWith('.svg')) return 'own-project-icon.svg';
     const path = `${name.replace(/^\.\//, '')}.ts`;
@@ -108,13 +117,18 @@ async function fixture() {
   const event = (key = 'w') => ({ key, ctrlKey: true, metaKey: false, shiftKey: false, target: new HTMLElement(), preventDefault() { this.prevented = true; } });
   const key = (value = 'w') => { render(); const current = event(value); for (const listener of [...listeners.get('keydown') ?? []]) listener(current); return current; };
   const counts = command => calls.filter(call => call.command === command).length;
+  const tabs = () => walk(render(), node => node.props?.role === 'tab');
+  const tab = name => tabs().find(node => label(node) === name);
+  async function activate(name) { const target = tab(name); assert.ok(target, `Expected tab ${name}`); target.props.onClick(); await settle(); }
   await settle();
-  return { render, settle, button, closeButton, component, key, pageCount, counts, calls,
-    get destroyed() { return destroyed; }, get resets() { return resetCount; }, get nativeDocuments() { return nativeDocuments; },
+  return { render, settle, button, closeButton, component, key, pageCount, counts, calls, tabs, tab, activate,
+    get destroyed() { return destroyed; }, get resets() { return resetCount; }, get nativeDocuments() { return nativeDocuments.size; },
     failClose(error) { closeFailure = error; },
+    failRetain(error) { retainFailure = error; },
     deferClose() { let resolve; closeDeferred = { promise: new Promise(done => resolve = done) }; return () => { resolve(); closeDeferred = null; }; },
     nativeClose() { const value = event(); closeListener(value); return value; },
-    async open() { const opening = find(node => node.type === 'button' && node.props.className === 'rail-button rail-open'); await opening.props.onClick(); await settle(); assert.equal(pageCount(), 2); },
+    async open(paths = [document.path]) { pickerPaths = paths; const opening = find(node => node.type === 'button' && node.props.className === 'rail-button rail-open'); await opening.props.onClick(); await settle(); assert.equal(pageCount(), 2); },
+    beforeUnload() { const value = event(); for (const listener of listeners.get('beforeunload') ?? []) listener(value); return value; },
     async edit() { const rotate = find(node => node.type === 'button' && node.props.onClick && node.props.title?.includes('旋转') && node.props.className?.includes('tool-button')); rotate.props.onClick(); await settle(); },
     cleanup() { for (const effect of effects) effect?.cleanup?.(); },
   };
@@ -192,4 +206,46 @@ async function fixture() {
   assert.equal(ui.pageCount(), 0); assert.equal(ui.resets, resets + 1); assert.equal(ui.destroyed, 0);
   ui.cleanup();
 }
-console.log('PASS: production App buttons/keyboard, dirty/clean close, one native release, busy/window guards, save cancellation/failure/success, failed close preservation, reset/registry release, print-modal shortcut blocking, and Ctrl+W never exits the app');
+// Closing one tab only releases documents absent from every remaining history.
+// A failed retain leaves both tabs and the active workspace recoverable.
+{
+  const ui = await fixture(); await ui.open(); await ui.edit();
+  const first = ui.component('PdfViewer').props.pages.map(page => ({ ...page }));
+  await ui.open(['C:\\second.pdf']);
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.nativeDocuments, 2);
+  ui.failRetain(new Error('retain failed')); ui.key(); await ui.settle();
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.nativeDocuments, 2); assert.equal(ui.counts('close_all_documents'), 0);
+  assert.equal(ui.tab('second.pdf').props['aria-selected'], true);
+  ui.failRetain(null); ui.key(); await ui.settle();
+  assert.equal(ui.tabs().length, 1); assert.equal(ui.nativeDocuments, 1); assert.equal(ui.counts('close_all_documents'), 0);
+  assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
+  assert.deepEqual(ui.component('PdfViewer').props.pages.map(page => ({ ...page })), first, 'The remaining dirty tab retains its own edit history');
+  assert.deepEqual([...ui.calls.filter(call => call.command === 'retain_documents').at(-1).args.documentIds], ['native-document']);
+  assert.equal(ui.beforeUnload().prevented, true);
+  ui.key(); await ui.settle(); assert.ok(ui.button('Save copy and close'));
+  ui.button('Close PDF without saving').props.onClick(); await ui.settle();
+  assert.equal(ui.tabs().length, 0); assert.equal(ui.nativeDocuments, 0); assert.equal(ui.counts('close_all_documents'), 1); assert.equal(ui.destroyed, 0);
+  ui.cleanup();
+}
+
+// Native exit checks dirty inactive tabs too. Cancelling any decision keeps all
+// tabs; a later exit must ask again instead of reusing discarded acknowledgments.
+{
+  const ui = await fixture(); await ui.open(); await ui.edit(); await ui.open(['C:\\second.pdf']);
+  assert.equal(ui.nativeClose().prevented, true); await ui.settle();
+  assert.equal(ui.tab('input.pdf').props['aria-selected'], true, 'An inactive dirty tab is selected for the exit decision');
+  ui.button('Keep editing').props.onClick(); await ui.settle(); assert.equal(ui.destroyed, 0); assert.equal(ui.tabs().length, 2);
+  await ui.activate('second.pdf'); await ui.edit();
+  assert.equal(ui.nativeClose().prevented, true); await ui.settle();
+  assert.equal(ui.tab('second.pdf').props['aria-selected'], true);
+  ui.button('Quit without saving').props.onClick(); await ui.settle();
+  assert.equal(ui.destroyed, 0); assert.equal(ui.tab('input.pdf').props['aria-selected'], true); assert.ok(ui.button('Quit without saving'));
+  ui.button('Keep editing').props.onClick(); await ui.settle(); assert.equal(ui.destroyed, 0);
+  assert.equal(ui.nativeClose().prevented, true); await ui.settle();
+  ui.button('Quit without saving').props.onClick(); await ui.settle();
+  assert.equal(ui.destroyed, 0, 'Starting a fresh exit asks again about the previously acknowledged second tab');
+  assert.equal(ui.tab('second.pdf').props['aria-selected'], true);
+  ui.button('Quit without saving').props.onClick(); await ui.settle(); assert.equal(ui.destroyed, 1);
+  ui.cleanup();
+}
+console.log('PASS: production close/export callbacks, clean/dirty and failed close preservation, selective per-tab release, inactive dirty exit decisions, cancel/retry of multi-tab exit, busy and modal guards, and Ctrl+W never exits the app');

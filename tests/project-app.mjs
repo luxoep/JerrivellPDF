@@ -10,6 +10,7 @@ const compile = (path, jsx = false) => ts.transpileModule(readFileSync(new URL(p
 }).outputText;
 const app = compile('../src/App.tsx', true) + '\nexports.TestWorkspace = AppWorkspace;';
 const clone = value => JSON.parse(JSON.stringify(value));
+const pageContents = pages => clone(pages).map(({ id, ...content }) => content);
 function walk(node, predicate, found = []) {
   if (!node || typeof node !== 'object') return found;
   if (Array.isArray(node)) { for (const child of node) walk(child, predicate, found); return found; }
@@ -23,9 +24,9 @@ function label(node) {
 }
 const changed = (before, after) => !before || before.length !== after.length || after.some((value, n) => !Object.is(value, before[n]));
 async function fixture({ prepare } = {}) {
-  const slots = [], effects = [], listeners = new Map(), calls = [], timers = new Map(), dialogs = [], events = [], cachedImages = new Map();
+  const slots = [], effects = [], listeners = new Map(), nativeEvents = new Map(), pendingFiles = [], calls = [], timers = new Map(), dialogs = [], events = [], cachedImages = new Map();
   let cursor = 0, pending = [], needsRender = true, tree, nextId = 0, timerId = 0, resets = 0;
-  let pickerPaths = ['C:\\input.pdf'], savePath = 'C:\\draft.jvp', saveFailure, loadFailure, closeListener;
+  let pickerPaths = ['C:\\input.pdf'], pickerDeferred, retainDeferred, savePath = 'C:\\draft.jvp', saveFailure, loadFailure, closeListener;
   const staged = [];
   const source = { id: 'native-document', path: 'C:\\input.pdf', fileName: 'input.pdf', fileSize: 12000, pageCount: 2, warnings: [],
     pages: [{ index: 0, width: 595, height: 842, rotation: 0 }, { index: 1, width: 595, height: 842, rotation: 0 }] };
@@ -66,9 +67,10 @@ async function fixture({ prepare } = {}) {
     async backend(command, args) {
       calls.push({ command, args }); events.push(command);
       if (command === 'get_backend_status') return { engineReady: true };
-      if (command === 'get_startup_files') return [];
-      if (command === 'open_document') return source;
+      if (command === 'get_startup_files' || command === 'drain_open_requests') return pendingFiles.splice(0);
+      if (command === 'open_document') return args.path === source.path ? source : { ...source, id: 'native-' + args.path, path: args.path, fileName: args.path.split(/[\\/]/).at(-1) };
       if (command === 'close_all_documents') return;
+      if (command === 'retain_documents') { if (retainDeferred) await retainDeferred; return; }
       if (command === 'save_editable_project') { if (saveFailure) throw saveFailure; return { path: args.path, pageCount: args.pages.length }; }
       if (command === 'load_editable_project') { if (loadFailure) throw loadFailure; return clone(project); }
       throw new Error(`Unexpected native command: ${command}`);
@@ -84,10 +86,12 @@ async function fixture({ prepare } = {}) {
     if (name === './i18n') return i18n;
     if (name === './editableOverlays' && prepare) return { prepareEditableOverlays: prepare };
     if (name === '@tauri-apps/plugin-dialog') return {
-      async open(options) { dialogs.push({ kind: 'open', options }); return pickerPaths; },
+      async open(options) { dialogs.push({ kind: 'open', options }); if (pickerDeferred) { const deferred = pickerDeferred; pickerDeferred = null; return deferred; } return pickerPaths; },
       async save(options) { dialogs.push({ kind: 'save', options }); return savePath; },
     };
     if (name === '@tauri-apps/api/webviewWindow') return { getCurrentWebviewWindow: () => nativeWindow };
+    if (name === '@tauri-apps/api/event') return { async listen(name, callback) { nativeEvents.set(name, callback); return () => nativeEvents.delete(name); } };
+    if (name.endsWith('.css')) return {};
     if (name === 'lucide-react' || name.startsWith('./components/')) return new Proxy({}, { get: (_, key) => String(key) });
     if (name.endsWith('.svg')) return 'own-project-icon.svg';
     const path = `${name.replace(/^\.\//, '')}.ts`;
@@ -106,6 +110,9 @@ async function fixture({ prepare } = {}) {
   const pages = () => component('PdfViewer')?.props.pages ?? [];
   const isDirty = () => Boolean(find(node => node.props?.className === 'status-dot modified'));
   const counts = command => calls.filter(call => call.command === command).length;
+  const tabs = () => walk(render(), node => node.props?.role === 'tab');
+  const tab = name => tabs().find(node => label(node) === name);
+  async function activate(name) { const target = tab(name); assert.ok(target, `Expected tab ${name}`); target.props.onClick(); await settle(); }
   function key(value, shift = false) { render(); const event = { key: value, ctrlKey: true, metaKey: false, shiftKey: shift, target: new HTMLElement(), preventDefault() { this.prevented = true; } };
     for (const listener of [...listeners.get('keydown') ?? []]) listener(event); return event;
   }
@@ -121,11 +128,16 @@ async function fixture({ prepare } = {}) {
     return handles;
   }
   await settle();
-  return { render, settle, button, component, pages, isDirty, counts, calls, dialogs, events, cachedImages, staged, key, open, edit, overlayHandles,
+  return { render, settle, button, component, pages, isDirty, counts, calls, dialogs, events, cachedImages, staged, key, open, edit, overlayHandles, tabs, tab, activate,
     get resets() { return resets; }, get project() { return project; },
     saveTo(path) { savePath = path; }, failSave(error) { saveFailure = error; }, failLoad(error) { loadFailure = error; },
+    deferPicker() { let resolve; pickerDeferred = new Promise(done => resolve = done); return paths => resolve(paths); },
+    deferRetain() { let resolve; retainDeferred = new Promise(done => resolve = done); return () => { resolve(); retainDeferred = null; }; },
+    async submitImport() { const form = find(node => node.type === 'form' && node.props.className === 'modal import-modal'); assert.ok(form, 'The selected PDFs await an import decision'); form.props.onSubmit({ preventDefault() {} }); await settle(); },
+    importDialog() { return find(node => node.type === 'form' && node.props.className === 'modal import-modal'); },
     nativeClose() { const event = { preventDefault() { this.prevented = true; } }; closeListener(event); return event; },
     beforeUnload() { const event = { preventDefault() { this.prevented = true; } }; for (const listener of listeners.get('beforeunload') ?? []) listener(event); return event; },
+    async external(paths) { pendingFiles.push(...paths); const callback = nativeEvents.get('jerrivell://open-files'); assert.ok(callback, 'The production listener is attached before an external request'); callback({ payload: null }); await settle(); },
     cleanup() { for (const effect of effects) effect?.cleanup?.(); },
   };
 }
@@ -154,6 +166,8 @@ async function fixture({ prepare } = {}) {
 // Text and its reattached leader are one staged transaction. If either native
 // asset registration fails, remove the complete batch from current and copied
 // pages and every undo/redo snapshot, including the asset that already succeeded.
+// Fail it while another tab's close is awaiting retain_documents: restoring an
+// older pre-await snapshot must not resurrect the failed staged assets.
 {
   const text = { id: 'batch-text', assetId: '', x: .2, y: .2, width: .3, height: .1, opacity: 1,
     textSource: { content: 'Batch text', fontFamily: 'Arial', fontSize: 12, bold: false, color: '#243746', frame: { width: 120, height: 40, autoHeight: false } } };
@@ -169,8 +183,15 @@ async function fixture({ prepare } = {}) {
   assert.ok(ui.pages()[0].overlays.every(item => ids.has(item.assetId)));
   ui.button('Duplicate pages').props.onClick(); await ui.settle();
   assert.equal(ui.pages().length, 3); assert.equal(ui.pages().filter(page => page.overlays?.some(item => ids.has(item.assetId))).length, 2);
+  await ui.open(['C:\\other.pdf']); const unrelated = clone(ui.pages());
+  const releaseRetain = ui.deferRetain(); ui.key('w'); await ui.settle();
+  assert.equal(ui.counts('retain_documents'), 1); assert.equal(ui.tabs().length, 2);
+  assert.equal(ui.tab('other.pdf').props['aria-selected'], true, 'Keep the closing PDF mounted until native retention finishes');
   ui.staged[0].resolve({ id: 'native-success', dataUrl: 'data:image/png;base64,TEXT', width: 1, height: 1 }); await ui.settle();
   ui.staged[1].reject(new Error('Leader registration failed')); await ui.settle();
+  assert.deepEqual(clone(ui.pages()), unrelated, 'Late failure in an inactive tab cannot alter the current PDF');
+  releaseRetain(); await ui.settle();
+  assert.equal(ui.tabs().length, 1); assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
   const noFailedReferences = () => {
     for (const page of ui.pages()) {
       assert.ok(!(page.overlays ?? []).some(item => ids.has(item.assetId)), 'A failed staged batch cannot survive on the original or copied page');
@@ -205,42 +226,128 @@ async function fixture({ prepare } = {}) {
 }
 
 // A rejected project does not close the worker, reset history, or clear images.
-// A successful restore resets exactly once and hydrates the new images after it.
+// A successful restore opens its own history and hydrates its assets without
+// resetting any existing tab or dropping already cached images.
 {
   const ui = await fixture(); await ui.open(); const snapshot = clone(ui.pages()), resets = ui.resets, closes = ui.counts('close_all_documents');
   ui.failLoad(new Error('PROJECT_INVALID: damaged PNG')); await ui.open(['C:\\portable.jvp']);
   assert.equal(ui.counts('load_editable_project'), 1); assert.equal(ui.resets, resets); assert.equal(ui.counts('close_all_documents'), closes);
   assert.deepEqual(clone(ui.pages()), snapshot); assert.equal(ui.isDirty(), false);
+  ui.cachedImages.set('existing-image', { id: 'existing-image', dataUrl: 'existing-data' });
   ui.failLoad(null); await ui.open(['C:\\portable.jvp']);
-  assert.equal(ui.resets, resets + 1); assert.equal(ui.counts('close_all_documents'), closes);
-  assert.deepEqual(clone(ui.pages()), ui.project.workspace); assert.equal(ui.isDirty(), false);
+  assert.equal(ui.resets, resets); assert.equal(ui.counts('close_all_documents'), closes);
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.cachedImages.get('existing-image').dataUrl, 'existing-data');
+  const restored = clone(ui.pages());
+  assert.notEqual(restored[0].id, ui.project.workspace[0].id, 'Opening a project assigns fresh workspace page identities');
+  assert.ok(restored.every(page => !snapshot.some(previous => previous.id === page.id)), 'Page keys cannot collide across open tabs');
+  assert.deepEqual(pageContents(restored), pageContents(ui.project.workspace)); assert.equal(ui.isDirty(), false);
   assert.equal(ui.cachedImages.get('restored-image').dataUrl, ui.project.assets[0].dataUrl);
   const loadIndex = ui.events.lastIndexOf('load_editable_project');
-  assert.deepEqual(ui.events.slice(loadIndex, loadIndex + 3), ['load_editable_project', 'reset', 'hydrate']);
+  assert.deepEqual(ui.events.slice(loadIndex, loadIndex + 2), ['load_editable_project', 'hydrate']);
   const undo = ui.button('撤销'); assert.equal(undo.props.disabled, true, 'Restored project starts with a fresh history');
-  await ui.edit(); assert.ok(ui.isDirty()); ui.key('z'); await ui.settle(); assert.deepEqual(clone(ui.pages()), ui.project.workspace); assert.equal(ui.isDirty(), false);
+  await ui.edit(); assert.ok(ui.isDirty()); ui.key('z'); await ui.settle(); assert.deepEqual(clone(ui.pages()), restored); assert.equal(ui.isDirty(), false);
   ui.saveTo(null); ui.key('s', true); await ui.settle();
   assert.equal(ui.dialogs.filter(dialog => dialog.kind === 'save').at(-1).options.defaultPath, 'C:\\portable.jvp');
   const before = ui.counts('load_editable_project'), count = ui.resets;
   await ui.open(['C:\\portable.jvp', 'C:\\extra.pdf']); assert.equal(ui.counts('load_editable_project'), before); assert.equal(ui.resets, count);
-  assert.deepEqual(clone(ui.pages()), ui.project.workspace);
+  assert.deepEqual(clone(ui.pages()), restored);
+  await ui.activate('input.pdf'); assert.deepEqual(clone(ui.pages()), snapshot); assert.equal(ui.isDirty(), false);
   ui.cleanup();
 }
 
-// Dirty-workspace replacement requires a concrete choice. Cancelling the
-// picker/write leaves the choice pending; successful project save precedes load.
+// Opening another file never replaces a dirty workspace. Both histories and
+// save locations survive switching; duplicate project opens only activate it.
 {
   const ui = await fixture(); await ui.open(); await ui.edit(); const snapshot = clone(ui.pages()), before = ui.resets;
-  await ui.open(['C:\\replacement.jvp']); assert.ok(ui.button('Save project and open')); assert.equal(ui.counts('load_editable_project'), 0);
-  ui.button('返回文档').props.onClick(); await ui.settle(); assert.deepEqual(clone(ui.pages()), snapshot); assert.ok(ui.isDirty());
-  await ui.open(['C:\\replacement.jvp']); ui.saveTo(null);
-  ui.button('Save project and open').props.onClick(); await ui.settle();
-  assert.ok(ui.button('Save project and open')); assert.equal(ui.counts('load_editable_project'), 0); assert.equal(ui.resets, before); assert.ok(ui.isDirty());
-  ui.saveTo('C:\\before-replacement.jvp'); ui.failSave(new Error('Save failed'));
-  ui.button('Save project and open').props.onClick(); await ui.settle(); assert.equal(ui.counts('load_editable_project'), 0); assert.ok(ui.button('Save project and open')); assert.ok(ui.isDirty());
-  ui.failSave(null); ui.button('Save project and open').props.onClick(); await ui.settle();
-  assert.equal(ui.counts('load_editable_project'), 1); assert.deepEqual(clone(ui.pages()), ui.project.workspace); assert.equal(ui.isDirty(), false);
-  assert.ok(ui.events.lastIndexOf('save_editable_project') < ui.events.lastIndexOf('load_editable_project'));
+  await ui.open(['C:\\replacement.jvp']);
+  assert.equal(ui.button('Save project and open'), undefined); assert.equal(ui.counts('load_editable_project'), 1);
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.resets, before); assert.deepEqual(pageContents(ui.pages()), pageContents(ui.project.workspace));
+  await ui.activate('input.pdf'); assert.deepEqual(clone(ui.pages()), snapshot); assert.ok(ui.isDirty());
+  ui.saveTo(null); ui.key('s', true); await ui.settle();
+  assert.equal(ui.counts('save_editable_project'), 0); assert.ok(ui.isDirty());
+  ui.saveTo('C:\\preserved-input.jvp'); ui.failSave(new Error('Save failed')); ui.key('s', true); await ui.settle();
+  assert.equal(ui.counts('save_editable_project'), 1); assert.deepEqual(clone(ui.pages()), snapshot); assert.ok(ui.isDirty());
+  ui.failSave(null); ui.key('s', true); await ui.settle(); assert.equal(ui.isDirty(), false);
+  await ui.activate('Restored project'); await ui.edit(); const projectEdits = clone(ui.pages());
+  await ui.activate('input.pdf'); assert.deepEqual(clone(ui.pages()), snapshot); assert.equal(ui.isDirty(), false);
+  await ui.open(['c:/replacement.JVP']);
+  assert.equal(ui.counts('load_editable_project'), 1); assert.equal(ui.tabs().length, 2);
+  assert.deepEqual(clone(ui.pages()), projectEdits); assert.ok(ui.isDirty());
+  ui.saveTo(null); ui.key('s', true); await ui.settle();
+  assert.equal(ui.dialogs.filter(dialog => dialog.kind === 'save').at(-1).options.defaultPath, 'C:\\replacement.jvp');
   ui.cleanup();
 }
-console.log('Project App workflow: inline-draft close/save guards, staged text/leader batch rollback across copied pages and undo/redo, keyboard/export distinction, save cancellation/failure/location, atomic restore/cache hydration/history, mixed-file refusal and dirty replacement protection passed.');
+
+// External arrivals wait behind a modal. A duplicate-only batch must not stall
+// the later queued file once the modal closes (React may batch busy true/false).
+{
+  const ui = await fixture(); await ui.open(); await ui.edit(); const original = clone(ui.pages());
+  ui.key('p'); await ui.settle(); assert.ok(ui.component('PrintDialog'));
+  await ui.external(['C:\\input.pdf']); await ui.external(['C:\\queued.pdf']);
+  assert.equal(ui.tabs().length, 1); assert.equal(ui.counts('open_document'), 1);
+  ui.component('PrintDialog').props.onClose(); await ui.settle();
+  assert.equal(ui.tabs().length, 2, 'A queued duplicate activation cannot leave later external requests stranded');
+  assert.equal(ui.pages()[0].sourceName, 'queued.pdf');
+  await ui.activate('input.pdf'); assert.deepEqual(clone(ui.pages()), original); assert.ok(ui.isDirty());
+  ui.cleanup();
+}
+
+// A saved project's path becomes another identity for its existing tab. Opening
+// that path must preserve both the saved tab and another dirty tab without a load.
+{
+  const ui = await fixture(); await ui.open(); await ui.edit();
+  ui.saveTo('C:\\Jerry\\current.jvp'); ui.key('s', true); await ui.settle();
+  const saved = clone(ui.pages()); assert.equal(ui.isDirty(), false);
+  await ui.open(['C:\\second.pdf']); await ui.edit(); const other = clone(ui.pages());
+  const loads = ui.counts('load_editable_project');
+  await ui.open(['c:/jerry/CURRENT.JVP']);
+  assert.equal(ui.counts('load_editable_project'), loads, 'A saved project alias must activate its existing tab instead of loading duplicate resources');
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
+  assert.deepEqual(clone(ui.pages()), saved); assert.equal(ui.isDirty(), false);
+  ui.saveTo(null); ui.key('s', true); await ui.settle();
+  assert.equal(ui.dialogs.filter(dialog => dialog.kind === 'save').at(-1).options.defaultPath, 'C:\\Jerry\\current.jvp');
+  await ui.activate('second.pdf'); assert.deepEqual(clone(ui.pages()), other); assert.ok(ui.isDirty());
+  ui.cleanup();
+}
+
+// Add PDF owns its original target through the native picker and import modal.
+// External arrivals are queued, and even a direct tab callback cannot switch
+// the target while the OS picker is pending.
+{
+  const ui = await fixture(); await ui.open(); await ui.edit(); const original = clone(ui.pages());
+  await ui.open(['C:\\existing.pdf']); await ui.activate('input.pdf');
+  const resolvePicker = ui.deferPicker(); ui.key('o', true); await ui.settle();
+  await ui.external(['C:\\external.pdf']);
+  await ui.activate('existing.pdf');
+  assert.equal(ui.tab('input.pdf').props['aria-selected'], true, 'A native Add PDF picker keeps its original tab selected');
+  assert.equal(ui.tabs().length, 2); assert.equal(ui.counts('open_document'), 2);
+  resolvePicker(['C:\\insert.pdf']); await ui.settle();
+  assert.ok(ui.importDialog()); assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
+  assert.equal(ui.tabs().length, 2, 'The external PDF still waits behind the import decision');
+  await ui.submitImport();
+  assert.equal(ui.tabs().length, 3); assert.equal(ui.tab('external.pdf').props['aria-selected'], true);
+  assert.equal(ui.pages().length, 2); assert.ok(ui.pages().every(page => page.sourceName === 'external.pdf'));
+  await ui.activate('input.pdf');
+  assert.equal(ui.pages().length, 4);
+  assert.deepEqual(clone(ui.pages().filter(page => page.sourceName === 'input.pdf')), original, 'Import retains the original PDF pages and edits');
+  assert.equal(ui.pages().filter(page => page.sourceName === 'insert.pdf').length, 2, 'Only the original target receives the selected pages');
+  assert.ok(ui.isDirty());
+  await ui.activate('existing.pdf'); assert.equal(ui.pages().length, 2); assert.ok(ui.pages().every(page => page.sourceName === 'existing.pdf'));
+  assert.deepEqual(ui.calls.filter(call => call.command === 'open_document').map(call => call.args.path), ['C:\\input.pdf', 'C:\\existing.pdf', 'C:\\insert.pdf', 'C:\\external.pdf']);
+  ui.cleanup();
+}
+
+// Cancelling the native picker releases its gate too; it cannot strand a file
+// that arrived while the user was choosing a PDF.
+{
+  const ui = await fixture(); await ui.open(); const original = clone(ui.pages());
+  const resolvePicker = ui.deferPicker(); ui.key('o', true); await ui.settle();
+  await ui.external(['C:\\after-cancel.pdf']);
+  assert.equal(ui.tabs().length, 1); assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
+  resolvePicker(null); await ui.settle();
+  assert.equal(ui.importDialog(), undefined); assert.equal(ui.tabs().length, 2);
+  assert.equal(ui.tab('after-cancel.pdf').props['aria-selected'], true);
+  await ui.activate('input.pdf'); assert.deepEqual(clone(ui.pages()), original); assert.equal(ui.isDirty(), false);
+  ui.cleanup();
+}
+console.log('Project App workflow: inline-draft guards; inactive-tab staged rollback during deferred native retention; copied-page undo/redo; distinct save/export paths; non-destructive project tabs and aliases; per-tab history/save locations; modal/duplicate external queues; native picker target ownership and cancellation passed.');

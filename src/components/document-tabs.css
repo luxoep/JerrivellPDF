@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+.document-tab-bar{display:flex;align-items:stretch;gap:5px;flex:none;min-width:0;padding:7px 18px 0;background:#eee9dc;border-bottom:1px solid #d9d2c0}
+.document-tabs{display:flex;gap:5px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#c5bdac transparent;flex:1}
+.document-tab{position:relative;display:flex;align-items:center;flex:0 1 220px;min-width:125px;max-width:250px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;color:#586c77;background:#e6e1d5;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease}
+.document-tab:hover{background:#f6f2e7}
+.document-tab.active{background:#fffdf6;border-color:#d9d2c0;color:#234b63}
+.document-tab-select{display:flex;align-items:center;gap:8px;min-width:0;flex:1;align-self:stretch;text-align:left;padding:10px 5px 10px 12px;font-size:11px;color:inherit;border-radius:8px 0 0 0}
+.document-tab-select>svg{flex:none}.document-tab-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.document-tab-dirty{width:6px;height:6px;background:#d89035;border-radius:50%;flex:none}
+.document-tab-close{display:flex;align-items:center;justify-content:center;flex:none;width:25px;height:25px;border-radius:5px;margin:0 5px 0 2px;color:#697a80}
+.document-tab-close:hover:not(:disabled){background:#dfd8c8;color:#263f4d}
+.document-tab-select:focus-visible,.document-tab-close:focus-visible,.document-tab-new:focus-visible{outline:2px solid #46718b;outline-offset:-3px}
+.document-tab-new{display:flex;align-items:center;justify-content:center;width:33px;height:33px;flex:none;margin-bottom:3px;border-radius:7px;color:#486b7e}
+.document-tab-new:hover:not(:disabled){background:#ddd5c2}
+@media(prefers-reduced-motion:reduce){.document-tab{transition:none}}

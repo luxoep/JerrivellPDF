@@ -229,11 +229,29 @@ impl<'a> PdfEngine<'a> {
         Ok(info)
     }
 
+    /// Release sources that are no longer referenced by any workspace history.
+    /// Assets remain shared: fragment libraries and staged overlays can refer to
+    /// them independently of a source document. The final workspace close uses
+    /// close_all_documents to clear those resources as well.
+    pub fn retain_documents(&mut self, document_ids: &[String]) -> Result<(), String> {
+        if document_ids.len() > 128 || document_ids.iter().any(|id| !self.sources.contains_key(id))
+        {
+            return Err("文档资源列表已变化，未释放任何来源；请重试关闭选项卡。".into());
+        }
+        let retained: std::collections::HashSet<_> = document_ids.iter().collect();
+        self.sources.retain(|id, _| retained.contains(id));
+        self.prepared_export = None;
+        self.prepared_line = None;
+        Ok(())
+    }
+
     fn source(&self, reference: &PageRef) -> Result<&Source<'a>, String> {
         validate_rotation(reference.rotation)?;
         self.validate_output_overlay_budget(std::slice::from_ref(reference))?;
         let source = self.sources.get(&reference.document_id).ok_or_else(|| {
-            "SESSION_INVALIDATED: 来源文档已关闭或工作进程已重启，请重新打开 PDF。".to_string()
+            // A queued render from a recently closed tab can arrive late. It
+            // invalidates that request, not all other tabs in the worker.
+            "DOCUMENT_CLOSED: 来源文档已关闭，请切换到仍打开的选项卡。".to_string()
         })?;
         if reference.page_index >= source.document.pages().len() as u32 {
             return Err("页面索引超出来源文件范围。".into());
@@ -330,7 +348,7 @@ impl<'a> PdfEngine<'a> {
         let source = self
             .sources
             .get(document_id)
-            .ok_or_else(|| "SESSION_INVALIDATED: 来源文档已关闭，请重新打开。".to_string())?;
+            .ok_or_else(|| "DOCUMENT_CLOSED: 来源文档已关闭，请切换到仍打开的选项卡。".to_string())?;
         let query = query.to_lowercase();
         let mut matches = Vec::new();
         for index in 0..source.document.pages().len() {
@@ -700,6 +718,11 @@ impl<'a> PdfEngine<'a> {
         struct LoadProject {
             path: String,
         }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct RetainDocuments {
+            document_ids: Vec<String>,
+        }
         match request.command.as_str() {
             "save_editable_project" => {
                 let p: SaveProject = parse(&request.args)?;
@@ -842,7 +865,13 @@ impl<'a> PdfEngine<'a> {
             }
             "create_image_fragments" => {
                 let p: ImageFragments = parse(&request.args)?;
-                self.create_image_fragments(&p.asset_id, &p.crops, p.remove_white_background, p.trim_transparent_margins).map(|v| json!(v))
+                self.create_image_fragments(
+                    &p.asset_id,
+                    &p.crops,
+                    p.remove_white_background,
+                    p.trim_transparent_margins,
+                )
+                .map(|v| json!(v))
             }
             "export_image" => {
                 let p: ExportImage = parse(&request.args)?;
@@ -856,6 +885,11 @@ impl<'a> PdfEngine<'a> {
                 self.prepared_export = None;
                 self.prepared_line = None;
                 self.protected_inputs.clear();
+                Ok(Value::Null)
+            }
+            "retain_documents" => {
+                let p: RetainDocuments = parse(&request.args)?;
+                self.retain_documents(&p.document_ids)?;
                 Ok(Value::Null)
             }
             _ => Err("未知 PDF 工作进程命令。".into()),

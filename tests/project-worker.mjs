@@ -83,6 +83,9 @@ try {
   assert.notEqual(result.workspace[1].documentId, first.documentId);
   assert.notEqual(result.workspace[1].overlays[0].assetId, image.id);
   assert.equal(result.assets.length, 1, 'Shared image references are stored once');
+  assert.equal(digest((await api.backend('render_page', { page: api.pageReference(first), targetWidth: 600 })).dataUrl), digest(before.dataUrl),
+    'Opening a project in another tab must preserve the preexisting tab and its native image resources');
+  const oldNativePage = calls.findLast(call => call.command === 'render_page').args.page;
   api.resetBackendQueue();
   if (api.hydrateImageAssets) api.hydrateImageAssets(result.assets);
   else for (const image of result.assets) await api.backend('get_image_asset', { assetId: image.id });
@@ -95,8 +98,17 @@ try {
   const inspection = await api.backend('inspect_page_content', { page: { documentId: reopened.id, pageIndex: 1, rotation: 0 } });
   assert.equal(inspection.objects.filter(object => object.kind === 'image').length, 2, 'Ordinary PDF exports contain the rendered overlays; editable semantics belong to .jvp');
   assert.ok(!JSON.stringify(calls.filter(call => call.command !== 'save_editable_project')).includes('jerrivell-preview-'), 'Native consumers must receive resolved resource IDs');
+  await assert.rejects(invoke('retain_documents', { documentIds: [result.workspace[0].documentId, 'missing-tab-document'] }), /资源列表已变化/);
+  assert.equal(digest((await invoke('render_page', { page: oldNativePage, targetWidth: 600 })).dataUrl), digest(before.dataUrl),
+    'A stale source-retention request must leave every tab intact');
+  await invoke('retain_documents', { documentIds: [...new Set(result.workspace.map(page => page.documentId))] });
+  await assert.rejects(invoke('render_page', { page: oldNativePage, targetWidth: 600 }), /DOCUMENT_CLOSED:/);
+  assert.equal(digest((await invoke('render_page', { page: api.pageReference(result.workspace[1]), targetWidth: 600 })).dataUrl), digest(before.dataUrl),
+    'Closing another tab must retain every source referenced by the surviving project');
+  await invoke('get_image_asset', { assetId: image.id });
   const summary = { status: 'PASS', executable, portableSources: true, generatedPages: true, pageOrderAndRotation: true,
     textAndLeaderSemantics: true, stagedAssetSave: true, restoredLiveImageCache: true, failedLoadPreservesSession: true,
-    sourceIndependentRestore: true, ordinaryPdfExport: true, sourceUnchangedBeforeRemovingTestCopy: true };
+    sourceIndependentRestore: true, ordinaryPdfExport: true, sourceUnchangedBeforeRemovingTestCopy: true,
+    successfulLoadPreservesOtherTabs: true, atomicSourceRetention: true, survivingTabRendersAfterClose: true, reusableImagesRetained: true };
   await writeFile(join(output, 'results.json'), JSON.stringify(summary, null, 2)); console.log(JSON.stringify(summary, null, 2));
 } finally { child.stdin.end(); child.kill(); reader.close(); }

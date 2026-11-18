@@ -1,7 +1,7 @@
 {
   "scope": "All Cargo.lock registry entries and locally installed npm lock packages, including build/dev dependencies. An uncached lock entry is not proof that it ships in the Windows binary.",
-  "cargoLockSha256": "f9b8fc9185a2ab747edafad23deea8f7cb72265d5c63d9779d5905254571ddd5",
-  "npmLockSha256": "b572854b75f46a7aeea18cc203d90270e0d2d9d37dfeaeee87c937992408fb88",
+  "cargoLockSha256": "77f280ee26bc85bc4b24e0170a6d8492f80cf2a44b1a2358412827a85bf3a7d2",
+  "npmLockSha256": "3ebf7cd82f4bb9e2e5d3dd642bb57400d5845450d5956b630a0d0d13a1796327",
   "cargo": [
     {
       "name": "adler2",
@@ -230,6 +230,76 @@
         }
       ],
       "status": "original-notices-copied"
+    },
+    {
+      "name": "async-broadcast",
+      "version": "0.7.2",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-channel",
+      "version": "2.5.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-executor",
+      "version": "1.14.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-io",
+      "version": "2.6.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "456b8a8feb6f42d237746d4b3e9a178494627745c3c56c6ea55d92ba50d026fc",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-lock",
+      "version": "3.5.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "0876700b0d007ad25d5508865a4259c3af9af6d296bf663a0d586d0bc3369f6f",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-process",
+      "version": "2.5.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-recursion",
+      "version": "1.2.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "4f8abc12baad266b1c8cec146854c195b5864b4221d4b2ca7296a7ae82d9e451",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-signal",
+      "version": "0.2.14",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "52b5aaafa020cf5053a01f2a60e8ff5dccf550f0f77ec54a4e47285ac2bab485",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-task",
+      "version": "4.7.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "async-trait",
+      "version": "0.1.92",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667",
+      "status": "not-in-local-source-cache"
     },
     {
       "name": "atk",
@@ -543,6 +613,13 @@
       "version": "0.6.2",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
       "registryArchiveSha256": "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "blocking",
+      "version": "1.7.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "a70e4329df6cb94385eed412ec92375c3cdd8a6e502493d1229b6414e4036dfa",
       "status": "not-in-local-source-cache"
     },
     {
@@ -1094,6 +1171,13 @@
       "version": "4.6.9",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
       "registryArchiveSha256": "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "concurrent-queue",
+      "version": "2.5.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973",
       "status": "not-in-local-source-cache"
     },
     {
@@ -2230,6 +2314,27 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "endi",
+      "version": "1.1.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "enumflags2",
+      "version": "0.7.12",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "enumflags2_derive",
+      "version": "0.7.12",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827",
+      "status": "not-in-local-source-cache"
+    },
+    {
       "name": "equivalent",
       "version": "1.0.3",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -2288,6 +2393,20 @@
       "version": "0.3.14",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
       "registryArchiveSha256": "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "event-listener",
+      "version": "5.4.2",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "event-listener-strategy",
+      "version": "0.5.4",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93",
       "status": "not-in-local-source-cache"
     },
     {
@@ -2535,6 +2654,13 @@
       "version": "0.3.34",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
       "registryArchiveSha256": "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "futures-lite",
+      "version": "2.6.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad",
       "status": "not-in-local-source-cache"
     },
     {
@@ -2872,6 +2998,13 @@
         }
       ],
       "status": "original-notices-copied"
+    },
+    {
+      "name": "hermit-abi",
+      "version": "0.5.3",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284",
+      "status": "not-in-local-source-cache"
     },
     {
       "name": "hex",
@@ -4627,6 +4760,13 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "ordered-stream",
+      "version": "0.2.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50",
+      "status": "not-in-local-source-cache"
+    },
+    {
       "name": "pango",
       "version": "0.18.3",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -4638,6 +4778,13 @@
       "version": "0.18.0",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
       "registryArchiveSha256": "436737e391a843e5933d6d9aa102cb126d501e815b83601365a948a518555dc5",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "parking",
+      "version": "2.2.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba",
       "status": "not-in-local-source-cache"
     },
     {
@@ -4911,6 +5058,13 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "piper",
+      "version": "0.2.5",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1",
+      "status": "not-in-local-source-cache"
+    },
+    {
       "name": "piston-float",
       "version": "1.0.1",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -4991,6 +5145,13 @@
         }
       ],
       "status": "original-notices-copied"
+    },
+    {
+      "name": "polling",
+      "version": "3.11.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "5d0e4f59085d47d8241c88ead0f274e8a0cb551f3625263c05eb8dd897c34218",
+      "status": "not-in-local-source-cache"
     },
     {
       "name": "portable-atomic",
@@ -6313,6 +6474,13 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "signal-hook-registry",
+      "version": "1.4.8",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+      "status": "not-in-local-source-cache"
+    },
+    {
       "name": "simd-adler32",
       "version": "0.3.10",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -7031,6 +7199,38 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "tauri-plugin-single-instance",
+      "version": "2.5.5",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f",
+      "license": "Apache-2.0 OR MIT",
+      "authors": [
+        "Tauri Programme within The Commons Conservancy"
+      ],
+      "repository": "https://github.com/tauri-apps/plugins-workspace",
+      "vcs": {
+        "git": {
+          "sha1": "128190689dbe59b59d344e01bf07b00862aa3791"
+        },
+        "path_in_vcs": "plugins/single-instance"
+      },
+      "files": [
+        {
+          "path": "licenses/rust/tauri-plugin-single-instance-2.5.5/LICENSE.spdx",
+          "sha256": "eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
+        },
+        {
+          "path": "licenses/rust/tauri-plugin-single-instance-2.5.5/LICENSE_APACHE-2.0",
+          "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9"
+        },
+        {
+          "path": "licenses/rust/tauri-plugin-single-instance-2.5.5/LICENSE_MIT",
+          "sha256": "b7f455413bfe5f9d7da501a4468d4c5f866a432c325947e98cc9535e8b26cd6d"
+        }
+      ],
+      "status": "original-notices-copied"
+    },
+    {
       "name": "tauri-runtime",
       "version": "2.12.2",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -7637,6 +7837,32 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "tracing-attributes",
+      "version": "0.1.31",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da",
+      "license": "MIT",
+      "authors": [
+        "Tokio Contributors <team@tokio.rs>",
+        "Eliza Weisman <eliza@buoyant.io>",
+        "David Barsky <dbarsky@amazon.com>"
+      ],
+      "repository": "https://github.com/tokio-rs/tracing",
+      "vcs": {
+        "git": {
+          "sha1": "55086231ec4aaeffcaab9932e696f40278f06bd1"
+        },
+        "path_in_vcs": "tracing-attributes"
+      },
+      "files": [
+        {
+          "path": "licenses/rust/tracing-attributes-0.1.31/LICENSE",
+          "sha256": "898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1"
+        }
+      ],
+      "status": "original-notices-copied"
+    },
+    {
       "name": "tracing-core",
       "version": "0.1.36",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -7758,6 +7984,13 @@
         }
       ],
       "status": "original-notices-copied"
+    },
+    {
+      "name": "uds_windows",
+      "version": "1.2.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e",
+      "status": "not-in-local-source-cache"
     },
     {
       "name": "unicode-bidi",
@@ -9115,6 +9348,34 @@
       "status": "original-notices-copied"
     },
     {
+      "name": "zbus",
+      "version": "5.19.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "zbus_macros",
+      "version": "5.19.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "2990635d09ade6df1868f72f8cac69a876a90981e8bd3c40b1be413f8dc88f40",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "zbus_names",
+      "version": "4.3.5",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "zcheapstr",
+      "version": "1.2.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920",
+      "status": "not-in-local-source-cache"
+    },
+    {
       "name": "zerofrom",
       "version": "0.1.8",
       "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
@@ -9341,6 +9602,27 @@
         }
       ],
       "status": "original-notices-copied"
+    },
+    {
+      "name": "zvariant",
+      "version": "5.15.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "80bf6d6cd6a4b601acb64cfb8284cdc643fcfa75ef26ae3c46ec8aa4e8a1fbb7",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "zvariant_derive",
+      "version": "5.15.1",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "ef2672456ba1cb54b5eaec136e63135b3c7495fb938e53b28a62e633496d486d",
+      "status": "not-in-local-source-cache"
+    },
+    {
+      "name": "zvariant_utils",
+      "version": "4.2.0",
+      "registrySource": "registry+https://github.com/rust-lang/crates.io-index",
+      "registryArchiveSha256": "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3",
+      "status": "not-in-local-source-cache"
     }
   ],
   "npm": [

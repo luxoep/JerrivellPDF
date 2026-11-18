@@ -33,6 +33,9 @@ import type { Tab as ContentTab } from './components/OverlayEditor';
 import { fragmentOverlays } from './pdfFragments';
 import type { FragmentDrop, PdfFragmentItem } from './pdfFragments';
 import { workspaceDocuments } from './workspaceDocuments';
+import { documentSignature, normalizedDocumentPath, retainedDocumentIds, snapshotDirty, workspaceSnapshot } from './documentTabs';
+import type { DocumentTab, DocumentHistory, ReaderViewState, WorkspaceSnapshot } from './documentTabs';
+import './components/document-tabs.css';
 import { OverlayHandles } from './components/OverlayHandles';
 import { PrintDialog } from './components/PrintDialog';
 import { OriginalContentEditor } from './components/OriginalContentEditor';
@@ -42,6 +45,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { listen } from '@tauri-apps/api/event';
 import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, Copy, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, Settings2, ShieldCheck, Trash2, Undo2, Upload, Wrench, X, } from 'lucide-react';
 import { backend, cancelledRequest, errorMessage, hydrateImageAssets, isDesktop, pageReference, previewImageAsset, resetBackendQueue, sessionInvalidatedEvent, stageImageAsset } from './backend';
 import { validateEditableWorkspace, validateLoadedProject } from './editableProject';
@@ -55,16 +59,13 @@ type Toast = {
     message: string;
     tone: 'success' | 'error' | 'info';
 };
-type History = {
-    entries: WorkspacePage[][];
-    cursor: number;
-};
+type History = DocumentHistory;
 type PasswordRequest = {
     path: string;
     resolve: (value: string | null) => void;
 };
 const pdfFilters = () => [{ name: t('PDF 文档'), extensions: ['pdf'] }];
-const signature = (pages: WorkspacePage[]) => JSON.stringify(pages);
+const signature = documentSignature;
 function rangeErrorMessage(error: unknown, pageCount: number): string {
     const code = error instanceof PageRangeError ? error.code : 'FORMAT';
     if (code === 'EMPTY') return t('请输入页码范围，例如 1-3,5。', 'Enter a page range, such as 1-3,5.');
@@ -73,12 +74,7 @@ function rangeErrorMessage(error: unknown, pageCount: number): string {
     if (code === 'TOO_LONG') return t('页码范围过长，请分次操作。', 'The page range is too long. Use smaller groups.');
     return t('页码格式无效，请用逗号分隔页码或范围，例如 1-3,5。', 'Invalid page range. Separate pages and ranges with commas, such as 1-3,5.');
 }
-const normalizePath = (path: string) => {
-    let result = path.replace(/\\/g, '/');
-    if (result.toLowerCase().startsWith('//?/unc/')) result = '//' + result.slice(8);
-    else if (result.startsWith('//?/')) result = result.slice(4);
-    return result.toLowerCase();
-};
+const normalizePath = normalizedDocumentPath;
 const nextId = () => crypto.randomUUID();
 const sizeLabel = (bytes: number) => bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const pdfName = (name: string) => name.replace(/\.pdf$/i, '');
@@ -144,6 +140,8 @@ function AppWorkspace() {
     const [importError, setImportError] = useState('');
     const sourceRegistry = useRef(new Map<string, DocumentInfo>());
     const [busy, setBusy] = useState('');
+    const [fileDialogOpen, setFileDialogOpen] = useState(false);
+    const fileDialogOpenRef = useRef(false);
     const [title, setTitle] = useState('');
     const [savedSignature, setSavedSignature] = useState('');
     const [savedPath, setSavedPath] = useState('');
@@ -175,7 +173,6 @@ function AppWorkspace() {
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const appRoot = useRef<HTMLDivElement>(null), appHeader = useRef<HTMLElement>(null), workspaceBody = useRef<HTMLDivElement>(null);
-    const [replaceRequest, setReplaceRequest] = useState<string[] | null>(null);
     const [closeRequest, setCloseRequest] = useState<'document' | 'application' | null>(null);
     const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
     const searchField = useRef<HTMLInputElement>(null);
@@ -187,6 +184,32 @@ function AppWorkspace() {
     const workspaceSignature = useMemo(() => signature(pages), [pages]);
     const dirty = pages.length > 0 && workspaceSignature !== savedSignature;
     live.current = { pages, sources, dirty };
+    const [tabs, setTabs] = useState<DocumentTab[]>([]);
+    const tabsRef = useRef<DocumentTab[]>([]);
+    const [activeTabId, setActiveTabId] = useState('');
+    const activeTabRef = useRef('');
+    const captureReaderView = useRef<(() => ReaderViewState | null) | null>(null);
+    const [viewRestore, setViewRestore] = useState<{ sequence: number; view: ReaderViewState | null } | null>(null);
+    const restoreSequence = useRef(0);
+    const currentSnapshot = useRef<WorkspaceSnapshot>(workspaceSnapshot([], [], ''));
+    currentSnapshot.current = { history, sources, activeId, selection, title, savedSignature, savedPath, projectPath,
+        zoom, panel, rangeInput, query, searchResults, searchError, searchedQuery, view: currentSnapshot.current.view };
+    const publishTabs = useCallback((next: DocumentTab[]) => { tabsRef.current = next; setTabs(next); }, []);
+    const stashActiveTab = useCallback(() => {
+        if (!activeTabRef.current) return;
+        const snapshot = { ...currentSnapshot.current, view: captureReaderView.current?.() ?? currentSnapshot.current.view };
+        currentSnapshot.current = snapshot;
+        tabsRef.current = tabsRef.current.map(tab => tab.id === activeTabRef.current ? { ...tab, snapshot } : tab);
+    }, []);
+    const dirtyTabsRef = useRef<string[]>([]);
+    dirtyTabsRef.current = tabs.map(tab => tab.id === activeTabId ? { ...tab, snapshot: currentSnapshot.current } : tab).filter(tab => snapshotDirty(tab.snapshot)).map(tab => tab.id);
+    const requestApplicationCloseRef = useRef<(() => void) | null>(null);
+    const acknowledgedExitTabs = useRef(new Set<string>());
+    const pendingFiles = useRef<string[][]>([]);
+    const [pendingFilesVersion, setPendingFilesVersion] = useState(0);
+    const tabModalOpen = fileDialogOpen || printOpen || pageToolsOpen || lineOpen || Boolean(exportRequest || importRequest || passwordRequest || closeRequest || pixelEdit) || settingsOpen || showShortcuts;
+    const tabBlockedRef = useRef(false);
+    tabBlockedRef.current = !!busy || tabModalOpen || inlineEditing;
     const totalBytes = sources.reduce((sum, source) => sum + source.fileSize, 0);
     const hasPages = pages.length > 0;
     useLayoutEffect(() => {
@@ -247,6 +270,34 @@ function AppWorkspace() {
         setToasts((items) => [...items.slice(-2), { id, message, tone }]);
         window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), tone === 'error' ? 9000 : 4500);
     }, []);
+    const restoreTab = useCallback((tab: DocumentTab) => {
+        const value = tab.snapshot;
+        activeTabRef.current = tab.id; setActiveTabId(tab.id); currentSnapshot.current = value;
+        setHistory(value.history); setSources(value.sources); setActiveId(value.activeId); setSelection(value.selection);
+        setTitle(value.title); setSavedSignature(value.savedSignature); setSavedPath(value.savedPath); setProjectPath(value.projectPath);
+        setZoom(value.zoom); setPanel(value.panel); setRangeInput(value.rangeInput); setQuery(value.query);
+        setSearchResults(value.searchResults); setSearchError(value.searchError); setSearchedQuery(value.searchedQuery); setSearching(false);
+        setNavigation(null); setViewRestore({ sequence: ++restoreSequence.current, view: value.view });
+        setPageInput(String(Math.max(0, value.history.entries[value.history.cursor].findIndex(page => page.id === value.activeId)) + 1));
+        setEditorOpen(false); setTextDrawMode(false); setOriginalOpen(false); setMarkOpen(false); setOriginalSelected('');
+        setOriginalInspection(null); originalInspectionRef.current = null; setOriginalError(''); setActiveOverlayId(''); setOriginalEraseMode(false); setShowWarnings(false);
+        live.current = { pages: value.history.entries[value.history.cursor], sources: value.sources, dirty: snapshotDirty(value) };
+    }, []);
+    const activateTab = useCallback((id: string) => {
+        if (id === activeTabRef.current) return;
+        if (busyRef.current || fileDialogOpenRef.current || tabBlockedRef.current) return;
+        stashActiveTab();
+        const tab = tabsRef.current.find(value => value.id === id);
+        if (tab) { restoreTab(tab); publishTabs(tabsRef.current); }
+    }, [stashActiveTab, restoreTab, publishTabs]);
+    const openTab = useCallback((path: string, snapshot: WorkspaceSnapshot) => {
+        stashActiveTab();
+        const tab = { id: nextId(), path, snapshot };
+        publishTabs([...tabsRef.current, tab]); restoreTab(tab);
+    }, [stashActiveTab, publishTabs, restoreTab]);
+    useEffect(() => {
+        appRoot.current?.querySelector<HTMLElement>(`[id="document-tab-${activeTabId}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }, [activeTabId]);
     const checkEngine = useCallback(async () => {
         setCheckingEngine(true);
         if (!isDesktop()) {
@@ -269,15 +320,16 @@ function AppWorkspace() {
     useEffect(() => {
         const invalidateSession = () => {
             resetWorkspace();
-            notify(t("PDF 工作进程已重启\uFF0C当前工作区已清空\u3002未保存的页面调整需要重新操作\uFF1B请重新打开 PDF\u3002"), 'error');
+            publishTabs([]); activeTabRef.current = ''; setActiveTabId('');
+            notify(t('PDF 工作进程已重启，所有选项卡已失效。请重新打开文件；未保存的修改无法恢复。', 'The PDF worker restarted and all tabs were invalidated. Reopen your files; unsaved changes could not be recovered.'), 'error');
             void backend('close_all_documents', undefined, 3).then(checkEngine).catch(() => { });
         };
         window.addEventListener(sessionInvalidatedEvent, invalidateSession);
         return () => window.removeEventListener(sessionInvalidatedEvent, invalidateSession);
-    }, [checkEngine, notify, resetWorkspace]);
+    }, [checkEngine, notify, resetWorkspace, publishTabs]);
     useEffect(() => {
         const beforeUnload = (event: BeforeUnloadEvent) => {
-            if ((live.current.dirty || inlineEditingRef.current) && !closingRef.current) {
+            if ((dirtyTabsRef.current.length || inlineEditingRef.current) && !closingRef.current) {
                 event.preventDefault();
                 event.returnValue = '';
             }
@@ -293,7 +345,7 @@ function AppWorkspace() {
             if (inlineEditingRef.current) {
                 event.preventDefault(); notify(t('请先按 Ctrl+Enter 完成文字编辑，或按 Esc 取消，再关闭窗口。', 'Finish text editing with Ctrl+Enter, or cancel with Esc, before closing the window.')); return;
             }
-            if (busyRef.current) {
+            if (busyRef.current || fileDialogOpenRef.current) {
                 event.preventDefault();
                 notify(t("正在处理文档\uFF0C请等待操作完成后退出\u3002"));
             }
@@ -301,9 +353,9 @@ function AppWorkspace() {
                 event.preventDefault();
                 setPrintOpen(false);
             }
-            else if (live.current.dirty) {
+            else if (dirtyTabsRef.current.length) {
                 event.preventDefault();
-                setCloseRequest('application');
+                requestApplicationCloseRef.current?.();
             }
         }).then((cleanup) => { if (disposed)
             cleanup();
@@ -357,7 +409,7 @@ function AppWorkspace() {
             for (const image of staged) void image.registered.catch(error => {
                 if (errorMessage(error) === cancelledRequest) return;
                 const original = new Map((target.overlays ?? []).map(item => [item.id, item]));
-                setHistory(history => ({ ...history, entries: history.entries.map(entry => entry.map(page => {
+                const rollback = (history: History): History => ({ ...history, entries: history.entries.map(entry => entry.map(page => {
                     if (!page.overlays?.some(item => stagedIds.has(item.assetId))) return page;
                     // A text frame and its reattached leader form one transaction.
                     // Roll back both, including copied pages that share staged IDs.
@@ -370,7 +422,12 @@ function AppWorkspace() {
                     });
                     const parents = new Set(restored.filter(item => item.textSource).map(item => item.id));
                     return { ...page, overlays: restored.filter(item => !item.leaderFor || parents.has(item.leaderFor)) };
-                })) }));
+                })) });
+                // A registration can fail after switching tabs. Repair every
+                // snapshot that shares this staged asset, including undo/redo.
+                currentSnapshot.current = { ...currentSnapshot.current, history: rollback(currentSnapshot.current.history) };
+                publishTabs(tabsRef.current.map(tab => ({ ...tab, snapshot: { ...tab.snapshot, history: rollback(tab.snapshot.history) } })));
+                setHistory(rollback);
                 notify(t(`内容未能保存，已撤回受影响的修改：${errorMessage(error)}`, `Content could not be stored; the affected change was rolled back: ${errorMessage(error)}`), 'error');
             });
             return true;
@@ -381,7 +438,7 @@ function AppWorkspace() {
                 : code.includes('TEXT_PAGE_OVERFLOW') ? t('文字框超出了页面。请缩短内容或调整位置、宽度。', 'The text frame extends beyond the page. Shorten the text or adjust its position or width.') : code, 'error');
             return false;
         }
-    }, [commit, notify]);
+    }, [commit, notify, publishTabs]);
     const updateOverlays = useCallback((overlays: PageOverlay[]) => {
         if (currentPage) return updatePageOverlays(currentPage.id, overlays);
         return false;
@@ -465,6 +522,7 @@ function AppWorkspace() {
             validateEditableWorkspace(snapshot);
             await backend('save_editable_project', { path, pages: snapshot, title: title || 'Jerrivell' }, 3);
             setProjectPath(path); setSavedSignature(signature(snapshot));
+            currentSnapshot.current = { ...currentSnapshot.current, projectPath: path, savedSignature: signature(snapshot) };
             notify(t('已保存可编辑项目，文字、折点与源 PDF 均已保留。', 'Editable project saved with text, path nodes and source PDFs.'), 'success');
             return true;
         } catch (error) { notify(errorMessage(error), 'error'); return false; }
@@ -479,16 +537,19 @@ function AppWorkspace() {
         }
         if (paths.length === 1 && /\.jvp$/i.test(paths[0])) {
             if (append) { notify(t('可编辑项目请单独打开；合并页面请导入 PDF。', 'Open editable projects separately; import a PDF to merge pages.'), 'error'); return; }
+            const existing = tabsRef.current.find(tab => normalizePath(tab.path) === normalizePath(paths[0])
+                || normalizePath((tab.id === activeTabRef.current ? currentSnapshot.current : tab.snapshot).projectPath) === normalizePath(paths[0]));
+            if (existing) { stashActiveTab(); restoreTab(tabsRef.current.find(tab => tab.id === existing.id)!); publishTabs(tabsRef.current); return; }
+            if (tabsRef.current.length >= 32) { notify(t('最多同时打开 32 个选项卡，请先保存并关闭部分文档。', 'Up to 32 tabs can be open. Save and close some documents first.'), 'error'); return; }
             busyRef.current = true; setBusy(t('正在打开可编辑项目…', 'Opening editable project…'));
             try {
-                // The worker validates every document and asset before replacing its session.
+                // Native loading is transactional and appends remapped resources.
                 const loaded = validateLoadedProject(await backend('load_editable_project', { path: paths[0] }, 3));
-                resetWorkspace(); hydrateImageAssets(loaded.assets);
+                hydrateImageAssets(loaded.assets);
                 for (const document of loaded.documents) sourceRegistry.current.set(normalizePath(document.path), document);
-                setSources(loaded.documents); setHistory({ entries: [loaded.workspace], cursor: 0 });
-                setTitle(loaded.title); setProjectPath(paths[0]); setSavedSignature(signature(loaded.workspace));
-                live.current = { pages: loaded.workspace, sources: loaded.documents, dirty: false };
-                if (loaded.workspace[0]) navigateToId(loaded.workspace[0].id);
+                // Portable projects may contain the same page IDs. Runtime view IDs
+                // are unique across tabs so page components cannot share draft state.
+                openTab(paths[0], workspaceSnapshot(loaded.workspace.map(page => ({ ...page, id: nextId() })), loaded.documents, loaded.title, paths[0]));
                 notify(t('项目已恢复。字体使用本机字体；导出 PDF 请使用“保存副本”。', 'Project restored. Text uses local fonts; use Save copy to export a PDF.'), 'success');
             } catch (error) { notify(errorMessage(error), 'error'); }
             finally { busyRef.current = false; setBusy(''); }
@@ -502,16 +563,15 @@ function AppWorkspace() {
         busyRef.current = true;
         setBusy(append ? t("正在添加文档\u2026") : t("正在打开文档\u2026"));
         try {
-            if (!append) {
-                // The user has already confirmed replacement. Release the previous worker
-                // before opening a new workspace so its source quota and snapshots reset.
-                resetWorkspace();
-                await backend('close_all_documents', undefined, 3);
-            }
             const added: DocumentInfo[] = [];
             const newPages: WorkspacePage[] = [];
             for (let i = 0; i < pdfs.length; i++) {
                 setBusy(t(`正在打开文档 ${i + 1} / ${pdfs.length}…`));
+                if (!append) {
+                    const existing = tabsRef.current.find(tab => normalizePath(tab.path) === normalizePath(pdfs[i]));
+                    if (existing) { stashActiveTab(); restoreTab(tabsRef.current.find(tab => tab.id === existing.id)!); publishTabs(tabsRef.current); continue; }
+                    if (tabsRef.current.length >= 32) { notify(t('最多同时打开 32 个选项卡，请先保存并关闭部分文档。', 'Up to 32 tabs can be open. Save and close some documents first.'), 'error'); break; }
+                }
                 let document: DocumentInfo | undefined = sourceRegistry.current.get(normalizePath(pdfs[i]));
                 let password: string | undefined;
                 try {
@@ -550,7 +610,15 @@ function AppWorkspace() {
                 try { indices = parsePageRange(options.range ?? '', document.pageCount, true); }
                 catch (error) { notify(t(`来源 ${document.fileName}：${rangeErrorMessage(error, document.pageCount)}`, `Source ${document.fileName}: ${rangeErrorMessage(error, document.pageCount)}`), 'error'); continue; }
                 added.push(document);
-                newPages.push(...indices.map((index) => { const page = document!.pages[index]; return { id: nextId(), documentId: document!.id, pageIndex: page.index, rotation: 0, overlays: [], width: page.width, height: page.height, sourceName: document!.fileName }; }));
+                const documentPages = indices.map((index) => { const page = document!.pages[index]; return { id: nextId(), documentId: document!.id, pageIndex: page.index, rotation: 0, overlays: [], width: page.width, height: page.height, sourceName: document!.fileName }; });
+                if (!append) {
+                    if (documentPages.length > 5000) { notify(t('单个选项卡最多 5000 页，请改用“添加 PDF”选择部分页码。', 'A tab supports up to 5000 pages. Use Add PDF to import a smaller page range.'), 'error'); continue; }
+                    openTab(document.path, workspaceSnapshot(documentPages, [document], document.fileName));
+                } else newPages.push(...documentPages);
+            }
+            if (!append) {
+                if (added.some(document => document.warnings.length)) notify(t('文档包含处理提示，请查看顶部的文档提示。', 'The document has processing notes. Review them in the toolbar.'));
+                return;
             }
             if (!newPages.length)
                 return;
@@ -563,16 +631,9 @@ function AppWorkspace() {
                 notify(t(`已添加 ${newPages.length} 页，保存副本后合并为一个 PDF。`), 'success');
             }
             else {
-                setHistory({ entries: [newPages], cursor: 0 });
-                setSources(added);
-                setTitle(added[0].fileName);
-                setSavedPath('');
-                setSavedSignature(added.length > 1 ? '' : signature(newPages));
-                navigateToId(newPages[0].id);
-                setZoom('fit');
-                setQuery('');
-                setSearchResults([]);
-                setSearchedQuery('');
+                const snapshot = workspaceSnapshot(newPages, added, added[0].fileName);
+                if (added.length > 1) snapshot.savedSignature = '';
+                openTab(added[0].path, snapshot);
             }
             setSelection(new Set());
             setPanel('pages');
@@ -587,32 +648,58 @@ function AppWorkspace() {
             busyRef.current = false;
             setBusy('');
         }
-    }, [askPassword, commit, notify, resetWorkspace]);
+    }, [askPassword, commit, notify, openTab, stashActiveTab, restoreTab, publishTabs]);
     const chooseFiles = useCallback(async (append = false) => {
-        if (busyRef.current || !status?.engineReady)
+        if (busyRef.current || fileDialogOpenRef.current || !status?.engineReady)
             return;
+        fileDialogOpenRef.current = true; setFileDialogOpen(true);
         try {
             const result = await open({ multiple: true, directory: false, filters: append ? pdfFilters() : [{ name: t('PDF 或可编辑项目', 'PDF or editable project'), extensions: ['pdf', 'jvp'] }, ...pdfFilters(), { name: 'Jerrivell Project', extensions: ['jvp'] }], title: append ? t("添加 PDF 到当前文档") : t('打开 PDF 或可编辑项目', 'Open PDF or editable project') });
             if (!result)
                 return;
             const paths = Array.isArray(result) ? result : [result];
             if (append && live.current.pages.length) setImportRequest({ paths, range: '', position: 'after', targetPage: String(activeIndex + 1) });
-            else if (!append && live.current.dirty) setReplaceRequest(paths);
             else await loadPaths(paths, append);
         }
         catch (error) {
             notify(errorMessage(error), 'error');
         }
+        finally { fileDialogOpenRef.current = false; setFileDialogOpen(false); }
     }, [status?.engineReady, loadPaths, notify, activeIndex]);
     const startupHandled = useRef(false);
     useEffect(() => {
         if (!isDesktop() || !status?.engineReady || startupHandled.current) return;
         startupHandled.current = true;
-        void backend<string[]>('get_startup_files', undefined, 3).then(paths => {
-            // A manual open made while startup IPC was pending takes precedence.
-            if (paths.length && !live.current.pages.length && !busyRef.current) return loadPaths(paths, false);
-        }).catch(error => notify(errorMessage(error), 'error'));
-    }, [status?.engineReady, loadPaths, notify]);
+        let disposed = false, draining = false, again = false;
+        let unlisten: (() => void) | undefined;
+        const drain = async (first = false) => {
+            if (draining) { again = true; return; }
+            draining = true;
+            try {
+                do {
+                    again = false;
+                    const paths = await backend<string[]>(first ? 'get_startup_files' : 'drain_open_requests', undefined, 3);
+                    first = false;
+                    if (paths.length) { pendingFiles.current.push(paths); setPendingFilesVersion(value => value + 1); }
+                } while (again && !disposed);
+            } catch (error) { if (!disposed) notify(errorMessage(error), 'error'); }
+            finally { draining = false; }
+        };
+        // Events only wake the durable native queue. Register before the first drain.
+        void listen('jerrivell://open-files', () => { void drain(); }).then(off => {
+            if (disposed) { off(); return; }
+            unlisten = off; void drain(true);
+        }).catch(() => { if (!disposed) { notify(t('外部文件通知未能启用，请重启应用后重试。', 'External file notifications could not start. Restart the app to retry.'), 'error'); void drain(true); } });
+        return () => { disposed = true; unlisten?.(); startupHandled.current = false; };
+    }, [status?.engineReady, notify]);
+    useEffect(() => {
+        if (!status?.engineReady || busyRef.current || tabBlockedRef.current || !pendingFiles.current.length) return;
+        const paths = pendingFiles.current.shift()!;
+        void loadPaths(paths, false).finally(() => {
+            // Duplicate/invalid batches may finish without a React busy render.
+            if (pendingFiles.current.length) setPendingFilesVersion(value => value + 1);
+        });
+    }, [pendingFilesVersion, busy, tabModalOpen, inlineEditing, status?.engineReady, loadPaths]);
     useEffect(() => {
         if (!isDesktop())
             return;
@@ -626,8 +713,8 @@ function AppWorkspace() {
                 setDraggingFile(false);
             if (payload.type === 'drop') {
                 setDraggingFile(false);
-                if (!busyRef.current && status?.engineReady)
-                    void loadPaths(payload.paths, live.current.pages.length > 0);
+                pendingFiles.current.push(payload.paths);
+                setPendingFilesVersion(value => value + 1);
             }
         }).then((cleanup) => { if (disposed)
             cleanup();
@@ -651,29 +738,65 @@ function AppWorkspace() {
         busyRef.current = true;
         setBusy(t('正在关闭 PDF…', 'Closing PDF…'));
         try {
-            // Release native documents/assets before clearing the workspace. A failed
-            // close leaves the visible plan intact so the user can retry or save it.
-            await backend('close_all_documents', undefined, 3);
-            resetWorkspace();
+            stashActiveTab();
+            const closingId = activeTabRef.current;
+            const oldIndex = tabsRef.current.findIndex(tab => tab.id === closingId);
+            const remaining = tabsRef.current.filter(tab => tab.id !== closingId);
+            if (remaining.length) {
+                const ids = retainedDocumentIds(remaining);
+                await backend('retain_documents', { documentIds: ids }, 3);
+                const retained = new Set(ids);
+                for (const [path, document] of sourceRegistry.current) if (!retained.has(document.id)) sourceRegistry.current.delete(path);
+                // Asset registration may have rolled back another tab while the
+                // native release was pending. Never republish the older snapshot.
+                const latestRemaining = tabsRef.current.filter(tab => tab.id !== closingId);
+                publishTabs(latestRemaining);
+                restoreTab(latestRemaining[Math.min(Math.max(0, oldIndex), latestRemaining.length - 1)]);
+                setCloseRequest(null);
+            } else {
+                // Only the final tab releases the shared worker and all image caches.
+                await backend('close_all_documents', undefined, 3);
+                resetWorkspace(); publishTabs([]); activeTabRef.current = ''; setActiveTabId('');
+            }
         } catch (error) {
             notify(t(`未能关闭 PDF：${errorMessage(error)}`, `Could not close PDF: ${errorMessage(error)}`), 'error');
         } finally { busyRef.current = false; setBusy(''); }
-    }, [resetWorkspace, notify]);
+    }, [resetWorkspace, notify, stashActiveTab, publishTabs, restoreTab]);
     const requestCloseDocument = useCallback(() => {
         if (inlineEditingRef.current) { notify(t('请先完成或取消当前文字编辑。', 'Finish or cancel the current text edit first.')); return; }
-        if (busyRef.current || exportOpenRef.current || !live.current.pages.length) return;
+        if (busyRef.current || fileDialogOpenRef.current || exportOpenRef.current || !live.current.pages.length) return;
         if (live.current.dirty) setCloseRequest('document');
         else void closeCurrentDocument();
     }, [closeCurrentDocument, notify]);
+    const closeTab = (id: string) => {
+        if (busyRef.current || tabBlockedRef.current) return;
+        activateTab(id); requestCloseDocument();
+    };
+    const requestApplicationClose = useCallback(() => {
+        stashActiveTab(); acknowledgedExitTabs.current.clear();
+        const dirtyTab = tabsRef.current.find(tab => tab.id === activeTabRef.current && snapshotDirty(tab.snapshot)) ?? tabsRef.current.find(tab => snapshotDirty(tab.snapshot));
+        if (dirtyTab) { restoreTab(dirtyTab); publishTabs(tabsRef.current); setCloseRequest('application'); }
+        else void closeApplication();
+    }, [stashActiveTab, restoreTab, publishTabs]);
+    requestApplicationCloseRef.current = requestApplicationClose;
+    const continueApplicationClose = async () => {
+        acknowledgedExitTabs.current.add(activeTabRef.current); stashActiveTab();
+        const next = tabsRef.current.find(tab => !acknowledgedExitTabs.current.has(tab.id) && snapshotDirty(tab.snapshot));
+        if (next) { restoreTab(next); publishTabs(tabsRef.current); setCloseRequest('application'); }
+        else await closeApplication();
+    };
+    const finishCloseDecision = async (action: 'document' | 'application') => {
+        if (action === 'document') await closeCurrentDocument(); else await continueApplicationClose();
+    };
     const cancelExport = () => {
         exportRequestRef.current?.resolve(false);
         setExportRequest(null); exportOpenRef.current = false;
-        setCloseRequest(null); setReplaceRequest(null);
+        setCloseRequest(null);
     };
     const finishedExport = (result: ExportResult) => {
         const request = exportRequestRef.current;
         if (!request || result.failed) return;
-        if (request.saveWorkspace) { setSavedSignature(signature(request.parts[0].pages)); setSavedPath(result.results[0].path); }
+        if (request.saveWorkspace) { setSavedSignature(signature(request.parts[0].pages)); setSavedPath(result.results[0].path); currentSnapshot.current = { ...currentSnapshot.current, savedSignature: signature(request.parts[0].pages), savedPath: result.results[0].path }; }
         notify(t(`已导出 ${result.succeeded} 个 PDF，共 ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} 页。`, `Exported ${result.succeeded} PDFs, ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} pages.`), 'success');
         setExportRequest(null); exportOpenRef.current = false; request.resolve(true);
     };
@@ -685,6 +808,11 @@ function AppWorkspace() {
         sourceRegistry.current.set(normalizePath(document.path), document);
         setSources(previous => [...previous.filter(source => source.id !== document.id), document]);
         const fresh: WorkspacePage[] = document.pages.map(page => ({ id: nextId(), documentId: document.id, pageIndex: page.index, rotation: 0, width: page.width, height: page.height, sourceName: document.fileName, overlays, contentEdits: [], decorations: [] }));
+        if (!snapshot.length) {
+            const value = workspaceSnapshot(fresh, [document], document.fileName); value.savedSignature = '';
+            openTab(document.path, value); setPageToolsOpen(false); setLineOpen(false);
+            notify(t('页面方案已更新，请保存副本。', 'Page plan created. Save a copy.'), 'success'); return;
+        }
         if (replaceIds) {
             const indices = new Map(replaceIds.map((id, index) => [id, index]));
             commit(snapshot.map(page => { const index = indices.get(page.id); return index === undefined ? page : { ...fresh[index], id: page.id, sourceName: page.sourceName }; }));
@@ -953,9 +1081,8 @@ function AppWorkspace() {
                 if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f', 'w'].includes(event.key.toLowerCase())) event.preventDefault();
                 return;
             }
-            if (passwordRequest || replaceRequest || importRequest || closeRequest || showShortcuts || showWarnings || settingsOpen) {
+            if (passwordRequest || importRequest || closeRequest || showShortcuts || showWarnings || settingsOpen) {
                 if (event.key === 'Escape' && !passwordRequest) {
-                    setReplaceRequest(null);
                     setImportRequest(null);
                     setCloseRequest(null);
                     setShowShortcuts(false);
@@ -969,7 +1096,14 @@ function AppWorkspace() {
             const fieldOwnsHistory = event.target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable)
                 && !(event.target instanceof HTMLInputElement && event.target.type === 'range' && event.target.closest('.mark-toolbar'));
             const modifier = event.ctrlKey || event.metaKey;
-            if (modifier && event.key.toLowerCase() === 'w') {
+            if (modifier && (event.key === 'Tab' || event.key === 'PageUp' || event.key === 'PageDown')) {
+                event.preventDefault();
+                const index = tabsRef.current.findIndex(tab => tab.id === activeTabRef.current);
+                const direction = event.key === 'PageUp' || event.shiftKey ? -1 : 1;
+                const next = tabsRef.current[(index + direction + tabsRef.current.length) % tabsRef.current.length];
+                if (next) activateTab(next.id);
+            }
+            else if (modifier && event.key.toLowerCase() === 'w') {
                 event.preventDefault();
                 requestCloseDocument();
             }
@@ -1052,7 +1186,7 @@ function AppWorkspace() {
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, settingsOpen, chooseFiles, saveCopy, saveProject, requestCloseDocument, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
+    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, importRequest, closeRequest, showShortcuts, showWarnings, settingsOpen, chooseFiles, saveCopy, saveProject, requestCloseDocument, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom, activateTab]);
     const selectThumbnail = (event: React.MouseEvent, page: WorkspacePage, index: number) => {
         if (busyRef.current) return;
         if (event.shiftKey) {
@@ -1086,6 +1220,25 @@ function AppWorkspace() {
         </nav>
         <div className="header-actions">{pages.length > 0 && <button className="button secondary" disabled={!!busy} onClick={() => void saveProject()} title={t("保存可编辑项目 · Ctrl+Shift+S", "Save editable project · Ctrl+Shift+S")}><Save size={16}/><span>{t("保存项目", "Save project")}</span></button>}<select className="language-select" aria-label={t("界面语言", "Interface language")} value={language} onChange={event => setLanguage(event.target.value as 'zh-CN' | 'en-US')} disabled={!!busy}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>{pages.length > 0 ? <><button className="button secondary" disabled={!!busy} onClick={() => void chooseFiles(true)} title={t("添加 PDF \u00B7 Ctrl+Shift+O")}><FilePlus2 size={16}/><span>{t("添加 PDF")}</span></button><button className="button secondary close-document-button" disabled={!!busy} onClick={requestCloseDocument} title={t("关闭当前 PDF · Ctrl+W", "Close current PDF · Ctrl+W")} aria-label={t("关闭当前 PDF", "Close current PDF")}><X size={16}/><span>{t("关闭 PDF", "Close PDF")}</span></button><button className="button primary save-button" disabled={!!busy} onClick={() => void saveCopy()} title={t("保存副本 \u00B7 Ctrl+S")}><Save size={16}/><span>{t("保存副本")}</span></button></> : <span className="privacy-pill"><span />{t("本地处理 \u00B7 文件不上传")}</span>}</div>
       </header>
+      {tabs.length > 0 && <div className="document-tab-bar">
+        <div className="document-tabs" role="tablist" aria-label={t('PDF 选项卡', 'PDF tabs')}>
+          {tabs.map(tab => {
+            const selected = tab.id === activeTabId, value = selected ? currentSnapshot.current : tab.snapshot;
+            const changed = snapshotDirty(value);
+            return <div key={tab.id} className={`document-tab ${selected ? 'active' : ''} ${changed ? 'dirty' : ''}`}>
+              <button id={`document-tab-${tab.id}`} type="button" role="tab" aria-controls="document-workspace" aria-selected={selected} tabIndex={selected ? 0 : -1} className="document-tab-select" title={`${value.title}
+${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.id)} onKeyDown={event => {
+                if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+                event.preventDefault(); const index = tabs.findIndex(item => item.id === tab.id);
+                const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+                activateTab(next.id); appRoot.current?.querySelector<HTMLButtonElement>(`[id="document-tab-${next.id}"]`)?.focus();
+              }}><FileText size={14}/><span className="document-tab-name">{value.title}</span>{changed && <span className="document-tab-dirty" aria-label={t('未保存的修改', 'Unsaved changes')}/>}</button>
+              <button className="document-tab-close" type="button" disabled={!!busy || tabModalOpen} aria-label={t(`关闭选项卡：${value.title}`, `Close tab: ${value.title}`)} title={t('关闭选项卡 · Ctrl+W', 'Close tab · Ctrl+W')} onClick={() => closeTab(tab.id)}><X size={13}/></button>
+            </div>;
+          })}
+        </div>
+        <button type="button" className="document-tab-new" aria-label={t('在新选项卡打开 PDF', 'Open PDF in new tab')} title={t('在新选项卡打开 · Ctrl+O', 'Open in new tab · Ctrl+O')} disabled={!!busy || tabModalOpen} onClick={() => void chooseFiles()}><Plus size={17}/></button>
+      </div>}
 
       {!status?.engineReady && !checkingEngine && <div className="engine-banner"><CircleAlert size={16}/><span>{t(status?.message || "PDF 引擎暂不可用。")}</span>{isDesktop() && <button onClick={() => void checkEngine()}>{t("重新检测")}</button>}</div>}
 
@@ -1099,7 +1252,7 @@ function AppWorkspace() {
         <footer className="welcome-footer"><span><span className={`status-dot ${status?.engineReady ? '' : 'muted'}`}/>{checkingEngine ? t("正在准备工作台\u2026") : status?.engineReady ? t("工作台已就绪") : t("等待桌面环境")}</span><span>OPEN SOURCE. OPEN POSSIBILITIES.</span></footer>
       </main> : <>
         <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className={`tool-button ${markOpen ? 'active' : ''}`} aria-pressed={markOpen} disabled={!!busy} onClick={() => { setEditorOpen(false); setTextDrawMode(false); setOriginalOpen(false); setMarkOpen(value => !value); }} title={t('直接在页面上框选高亮、色块或绘制图形', 'Draw highlights, color blocks and shapes directly on the page')}><Highlighter size={16}/><span>{t('标记', 'Mark')}</span></button><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setMarkOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、图章和签名', 'Add text, images, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setTextDrawMode(false); setMarkOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={() => { setEditorOpen(false); setTextDrawMode(false); setMarkOpen(false); setOriginalOpen(true); setLineOpen(true); }} title={t('识别文字行，调整字距与对齐并预览', 'Group text runs, adjust spacing and alignment, and compare')}><FileText size={16}/><span>{t('文字行', 'Text lines')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
-        <div ref={workspaceBody} className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <div ref={workspaceBody} id="document-workspace" role="tabpanel" aria-labelledby={`document-tab-${activeTabId}`} className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <aside className="document-panel" id="document-sidebar"><div className="document-panel-heading"><strong>{panel === 'pages' ? t('文档与页面', 'Documents & pages') : t('查找', 'Find')}</strong><span>{t(`${pages.length} 页`, `${pages.length} pages`)}</span><button className="icon-button small" aria-label={t('收起左侧导航', 'Collapse left navigation')} title={t('收起左侧导航', 'Collapse left navigation')} onClick={() => setSidebarCollapsed(true)}><PanelLeftClose size={16}/></button></div>
             <nav className="workspace-documents" aria-label={t('当前工作区 PDF', 'PDFs in this workspace')}><div className="workspace-documents-heading">{t(`文档 ${documents.length}`, `Documents ${documents.length}`)}</div>{documents.map(document => <button key={document.id} className={currentPage?.documentId === document.id ? 'active' : ''} aria-current={currentPage?.documentId === document.id ? 'true' : undefined} title={document.name} disabled={!!busy} onClick={() => { if (currentPage?.documentId !== document.id) navigateToId(document.firstPageId); }}><FileText size={14}/><span>{document.name}</span><small>{document.pages} {t('页', 'p.')}</small></button>)}</nav>
             {panel === 'pages' ? <><div className="page-panel-tools"><button className="text-button" onClick={() => setSelection(selection.size === pages.length ? new Set() : new Set(pages.map((page) => page.id)))} disabled={!!busy}><CheckCheck size={14}/>{selection.size === pages.length ? t("取消全选") : t("选择全部")}</button><div><button className="icon-button small" onClick={() => movePages(-1)} disabled={!!busy} title={t("前移选中页 \u00B7 Alt+\u2191")} aria-label={t("前移选中页")}><ArrowUp size={14}/></button><button className="icon-button small" onClick={() => movePages(1)} disabled={!!busy} title={t("后移选中页 \u00B7 Alt+\u2193")} aria-label={t("后移选中页")}><ArrowDown size={14}/></button></div></div><div className="page-quick-actions"><button disabled={!!busy} onClick={quickDuplicate} title={t('复制所选页面，保留内容与标记','Duplicate selected pages with content and marks')}><Copy size={14}/>{t('复制页','Duplicate pages')}</button><button disabled={!!busy} onClick={() => void quickBlank()} title={t('在当前页后插入 A4 空白页','Insert an A4 blank page after the current page')}><FilePlus2 size={14}/>{t('空白页','Blank page')}</button></div><div className="page-range-controls">
@@ -1115,7 +1268,7 @@ function AppWorkspace() {
           </aside>
           <main className="reader"><div className="reader-top">{sidebarCollapsed && <button className="icon-button small sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')} title={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button>}<span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><button className={`tool-button text-select-toggle ${textSelectionActive ? 'active' : ''}`} aria-label={t('选字','Select text')} aria-pressed={textSelectionActive} disabled={!!busy} title={textSelectionActive ? t('选字已开启：拖选文字后按 Ctrl+C 复制，点击可关闭。','Text selection is on. Drag to select and Ctrl+C to copy. Click to turn off.') : t('选字已关闭：点击开启文字选择。','Text selection is off. Click to turn on.')} onClick={()=>{setEditorOpen(false);setTextDrawMode(false);setOriginalOpen(false);setMarkOpen(false);setSelectText(value=>editorOpen||markOpen||originalOpen?true:!value);}}><Copy size={14}/><span>{t('选字','Select text')}</span><span className="reader-mode-state" aria-hidden="true">{textSelectionActive ? t('已开启','On') : t('已关闭','Off')}</span></button><button className={`tool-button ${textDrawMode?'active':''}`} aria-pressed={textDrawMode} disabled={!!busy} onClick={()=>{setOriginalOpen(false);setMarkOpen(false);setEditorOpen(true);setTextDrawMode(value=>!value);}}><PenLine size={14}/><span>{t('文本框','Text box')}</span></button><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
             {markOpen && <MarkToolbar onStyleChange={styleMark} onEditPixels={() => void openPixelEdit(false)} settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
-            <PdfViewer pinnedPageId={inlineEditing ? activeId : undefined} pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen || inlineEditing} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
+            <PdfViewer captureView={captureReaderView} viewRestore={viewRestore} pinnedPageId={inlineEditing ? activeId : undefined} pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen || inlineEditing} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
                 const dimensions = visiblePageSize(page);
                 return <>
                     {textSelectionActive && ready && <PageTextLayer key={`text-${page.id}`} page={page} disabled={!!busy || loading || printOpen}/>}
@@ -1139,7 +1292,7 @@ function AppWorkspace() {
     </div>
 
     {/* OVERLAY_EDITOR_INTEGRATION: root mounts OverlayEditor with currentPage, pageDimensions and immutable commit here. */}
-    {draggingFile && <div className="file-drop-overlay"><div><div className="drop-overlay-icon"><Upload size={32}/></div><h2>{pages.length ? t("松开\uFF0C添加到当前文档") : t("松开\uFF0C打开你的 PDF")}</h2><p>{pages.length ? t("新页面将添加在文档末尾") : t("支持同时打开多份 PDF\uFF0C按顺序合并")}</p></div></div>}
+    {draggingFile && <div className="file-drop-overlay"><div><div className="drop-overlay-icon"><Upload size={32}/></div><h2>{t('松开，在新选项卡打开 PDF', 'Drop to open PDFs in new tabs')}</h2><p>{t('每份 PDF 独立打开；合并页面请使用“添加 PDF”。', 'Each PDF opens separately. Use Add PDF to merge pages.')}</p></div></div>}
     {busy && <div className="busy-pill" role="status"><LoaderCircle size={16} className="spin"/>{busy}</div>}
     <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone}`}>{toast.tone === 'success' ? <Check size={17}/> : toast.tone === 'error' ? <CircleAlert size={17}/> : <FileText size={17}/>}<span>{t(toast.message)}</span><button aria-label={t("关闭提示")} onClick={() => setToasts((items) => items.filter((item) => item.id !== toast.id))}><X size={14}/></button></div>)}</div>
     {importRequest && <div className="modal-backdrop"><form className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" onSubmit={event => { event.preventDefault(); void submitImport(); }}>
@@ -1158,7 +1311,7 @@ function AppWorkspace() {
         {importError && <p className="form-error" role="alert">{importError}</p>}
         <div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setImportRequest(null); setImportError(''); }}>{t('取消', 'Cancel')}</button><button type="submit" className="button primary">{t('导入页面', 'Import pages')}<ChevronRight size={15}/></button></div>
     </form></div>}
-    {closeRequest && !exportRequest && !busy && !closingRef.current && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{closeRequest === 'document' ? t('关闭 PDF 前保存修改？', 'Save changes before closing this PDF?') : t('退出前保存这次修改？', 'Save changes before quitting?')}</h2><p className="modal-description">{t('保存项目可保留文字、折点和源 PDF，方便继续编辑；保存 PDF 副本会将新增内容输出为图像。', 'Save a project to retain editable text, path nodes and source PDFs. Saving a PDF copy exports added content as images.')}</p><div className="replace-actions"><button className="button primary" disabled={!!busy} onClick={async () => { const action = closeRequest; if (await saveProject()) { if (action === "document") await closeCurrentDocument(); else await closeApplication(); } }}>{t("保存项目后关闭", "Save project and close")}</button><button className="button secondary" onClick={async () => { const action = closeRequest; if (await saveCopy()) { if (action === 'document') await closeCurrentDocument(); else await closeApplication(); } }} disabled={!!busy}>{closeRequest === 'document' ? t('保存副本并关闭', 'Save copy and close') : t('保存副本并退出', 'Save copy and quit')}</button><button className="button secondary" onClick={() => void (closeRequest === 'document' ? closeCurrentDocument() : closeApplication())} disabled={!!busy}>{closeRequest === 'document' ? t('不保存，关闭 PDF', 'Close PDF without saving') : t('不保存，退出', 'Quit without saving')}</button><button className="text-button" onClick={() => setCloseRequest(null)} disabled={!!busy}>{t('继续编辑', 'Keep editing')}</button></div></div></div>}
+    {closeRequest && !exportRequest && !busy && !closingRef.current && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{closeRequest === 'document' ? t('关闭 PDF 前保存修改？', 'Save changes before closing this PDF?') : t('退出前保存这次修改？', 'Save changes before quitting?')}</h2><p className="modal-description">{closeRequest === 'application' && <strong className="exit-tabs-note">{t(`将逐一检查未保存的选项卡，当前：${title}。`, `Unsaved tabs are checked one by one. Current: ${title}.`)}<br/></strong>}{t('保存项目可保留文字、折点和源 PDF，方便继续编辑；保存 PDF 副本会将新增内容输出为图像。', 'Save a project to retain editable text, path nodes and source PDFs. Saving a PDF copy exports added content as images.')}</p><div className="replace-actions"><button className="button primary" disabled={!!busy} onClick={async () => { const action = closeRequest; if (await saveProject()) { await finishCloseDecision(action); } }}>{t("保存项目后关闭", "Save project and close")}</button><button className="button secondary" onClick={async () => { const action = closeRequest; if (await saveCopy()) { await finishCloseDecision(action); } }} disabled={!!busy}>{closeRequest === 'document' ? t('保存副本并关闭', 'Save copy and close') : t('保存副本并退出', 'Save copy and quit')}</button><button className="button secondary" onClick={() => void finishCloseDecision(closeRequest)} disabled={!!busy}>{closeRequest === 'document' ? t('不保存，关闭 PDF', 'Close PDF without saving') : t('不保存，退出', 'Quit without saving')}</button><button className="text-button" onClick={() => setCloseRequest(null)} disabled={!!busy}>{t('继续编辑', 'Keep editing')}</button></div></div></div>}
     {editorOpen && currentPage && <OverlayEditor fragments={fragments} onFragmentsChange={setFragments} onPlaceFragments={placeFragments} initialTab={contentTab} onTabChange={setContentTab} drawingText={textDrawMode} onDrawText={()=>setTextDrawMode(value=>!value)} onTextStyleChange={setTextToolStyle} key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); setTextDrawMode(false); }} onBusyChange={editorBusyChanged}/>}
     {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} onRasterEdit={() => void openPixelEdit(true)} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
     {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={pixelEdit.overlayId?t('选中标记或图章','Selected mark or stamp'):t('当前页像素编辑','Current page pixels')} notice={pixelEdit.overlayId?undefined:t('应用后仅将当前页转换为图像。该页文字不再可搜索，链接、可编辑对象及批注结构不保留；其他页不变，可撤销恢复。','Applying converts only this page to an image. Its searchable text, links, editable objects and annotation structure are not retained. Other pages stay unchanged; undo restores the page.')} applyLabel={pixelEdit.overlayId?undefined:t('转换本页并应用','Convert this page and apply')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>} 
@@ -1168,12 +1321,8 @@ function AppWorkspace() {
     {printOpen && pages.length > 0 && <DeferredDialog onCancel={() => setPrintOpen(false)}><PrintDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => { if (!busyRef.current) setPrintOpen(false); }} onBusyChange={printingBusyChanged} onNotify={notify}/></DeferredDialog>}
     {settingsOpen && <WindowsSettingsDialog onClose={() => setSettingsOpen(false)} onShortcuts={() => { setSettingsOpen(false); setShowShortcuts(true); }}/>} 
     {passwordRequest && <PasswordDialog request={passwordRequest} onAnswer={answerPassword}/>}
-    {replaceRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-symbol"><FileText size={26}/></div><h2 id="replace-title">{t("先保留这次修改\uFF1F")}</h2><p className="modal-description">{t("当前文档有未保存的页面调整\u3002打开新的文档前\uFF0C可以先将它保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" disabled={!!busy} onClick={async () => { const paths = replaceRequest; if (await saveProject()) { setReplaceRequest(null); void loadPaths(paths, false); } }}>{t("保存项目并打开", "Save project and open")}</button><button className="button secondary" onClick={async () => { const paths = replaceRequest; if (await saveCopy()) {
-        setReplaceRequest(null);
-        void loadPaths(paths, false);
-    } }} disabled={!!busy}>{t("保存副本并打开")}</button><button className="button secondary" onClick={() => { const paths = replaceRequest; setReplaceRequest(null); void loadPaths(paths, false); }} disabled={!!busy}>{t("不保存\uFF0C继续打开")}</button><button className="text-button" onClick={() => setReplaceRequest(null)}>{t("返回文档")}</button></div></div></div>}
     {showShortcuts && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
-        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list"><div><kbd>Ctrl + W</kbd><span>{t("关闭当前 PDF", "Close current PDF")}</span></div>{[[t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("保存可编辑项目", "Save editable project"), 'Ctrl + Shift + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0'], [t('适合整页', 'Fit whole page'), 'Ctrl + 1'], [t('鼠标位置缩放', 'Zoom at pointer'), t('Ctrl + 滚轮', 'Ctrl + wheel')], [t('连续阅读', 'Continuous reading'), t('滚轮 / 空格', 'Wheel / Space')]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
+        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list"><div><kbd>Ctrl + W</kbd><span>{t("关闭当前 PDF", "Close current PDF")}</span></div>{[[t("下一个 / 上一个选项卡", "Next / previous tab"), 'Ctrl + Tab / Ctrl + Shift + Tab'], [t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("保存可编辑项目", "Save editable project"), 'Ctrl + Shift + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0'], [t('适合整页', 'Fit whole page'), 'Ctrl + 1'], [t('鼠标位置缩放', 'Zoom at pointer'), t('Ctrl + 滚轮', 'Ctrl + wheel')], [t('连续阅读', 'Continuous reading'), t('滚轮 / 空格', 'Wheel / Space')]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
     {showWarnings && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
         setShowWarnings(false); }}><div className="modal warnings-modal" role="dialog" aria-modal="true" aria-labelledby="warnings-title"><button className="icon-button modal-close" aria-label={t("关闭文档提示")} onClick={() => setShowWarnings(false)}><X size={18}/></button><div className="modal-symbol amber"><CircleAlert size={26}/></div><h2 id="warnings-title">{t("文档处理提示")}</h2><p className="modal-description">{t("保存副本前\uFF0C请确认这些提示符合你的使用需求\u3002")}</p><div className="warnings-list">{warnings.map((warning, index) => <div key={index}><strong>{warning.source}</strong><p>{t(warning.message)}</p></div>)}</div><button className="button primary" onClick={() => setShowWarnings(false)}>{t("我知道了")}</button></div></div>}
   </div>;

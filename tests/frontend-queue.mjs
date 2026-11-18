@@ -68,6 +68,17 @@ next().resolve(image); await fresh; await flush();
 // A native worker failure invalidates the session once and discards stale pending work.
 let invalidations = 0;
 edge.addEventListener(sessionInvalidatedEvent, () => invalidations++);
+// Late work for one closed tab must not cancel another tab's work or cache.
+const closedTab = backend('closed-tab-render');
+const liveTab = backend('surviving-tab-render');
+const closedRejected = assert.rejects(closedTab, /DOCUMENT_CLOSED:/);
+next().reject('DOCUMENT_CLOSED: source was released');
+await closedRejected; await flush();
+assert.equal(invalidations, 0);
+const liveTabCall = next(); assert.equal(liveTabCall.command, 'surviving-tab-render');
+liveTabCall.resolve('still-open'); assert.equal(await liveTab, 'still-open'); await flush();
+assert.equal(await renderPage(page, 700), image, 'An unrelated tab keeps its rendered cache');
+assert.equal(calls.length, 0);
 const failure = backend('crashing');
 const stale = backend('old-session');
 const failed = assert.rejects(failure, /SESSION_INVALIDATED:/);

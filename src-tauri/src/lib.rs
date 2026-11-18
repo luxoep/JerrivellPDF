@@ -18,13 +18,18 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 struct Backend(Arc<Mutex<worker::WorkerClient>>);
 
 #[tauri::command]
-fn get_startup_files() -> Vec<String> {
-    startup::pdf_paths(std::env::args_os())
+fn get_startup_files(state: State<'_, startup::OpenRequests>) -> Vec<String> {
+    state.drain()
+}
+
+#[tauri::command]
+fn drain_open_requests(state: State<'_, startup::OpenRequests>) -> Vec<String> {
+    state.drain()
 }
 
 #[tauri::command]
@@ -374,8 +379,11 @@ async fn import_pdf_stamp(
 
 #[tauri::command]
 async fn create_image_fragments(
-    state: State<'_, Backend>, asset_id: String, crops: Vec<PdfStampCrop>,
-    remove_white_background: bool, trim_transparent_margins: bool,
+    state: State<'_, Backend>,
+    asset_id: String,
+    crops: Vec<PdfStampCrop>,
+    remove_white_background: bool,
+    trim_transparent_margins: bool,
 ) -> Result<Vec<ImageAssetInfo>, String> {
     call(state, "create_image_fragments", json!({"assetId":asset_id,"crops":crops,"removeWhiteBackground":remove_white_background,"trimTransparentMargins":trim_transparent_margins})).await
 }
@@ -407,6 +415,19 @@ async fn close_all_documents(state: State<'_, Backend>) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn retain_documents(
+    state: State<'_, Backend>,
+    document_ids: Vec<String>,
+) -> Result<(), String> {
+    call(
+        state,
+        "retain_documents",
+        json!({"documentIds":document_ids}),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -453,6 +474,23 @@ pub fn worker_entry(args: &[std::ffi::OsString]) -> Option<i32> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .manage(startup::OpenRequests::new(startup::pdf_paths(
+            std::env::args_os(),
+        )))
+        // Register first. The PDF/print worker modes already returned in main,
+        // and a second GUI launch must exit before creating another WebView.
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let files =
+                startup::pdf_paths_from(args.into_iter().map(Into::into), &PathBuf::from(cwd));
+            if app.state::<startup::OpenRequests>().append(files) {
+                let _ = app.emit(startup::OPEN_FILES_EVENT, ());
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(windows)]
@@ -480,6 +518,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_startup_files,
+            drain_open_requests,
             register_pdf_integration,
             open_default_pdf_settings,
             preview_image_edit,
@@ -516,7 +555,8 @@ pub fn run() {
             import_pdf_stamp,
             create_image_fragments,
             export_image,
-            close_all_documents
+            close_all_documents,
+            retain_documents
         ])
         .build(tauri::generate_context!())
         .expect("无法启动 Jerrivell PDF 桌面应用");

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Portable editing projects. PDF exports remain ordinary flattened PDFs.
-//! Loading builds a separate engine and commits only after every resource and
-//! reference has been checked. A malformed project never replaces the session.
+//! Loading builds a separate engine and appends only after every resource and
+//! reference has been checked. Existing document tabs survive successful loads;
+//! a malformed project never changes the shared session.
 use super::*;
 use std::collections::{BTreeSet, HashSet};
 
@@ -827,10 +828,54 @@ impl<'a> PdfEngine<'a> {
         }
         let refs = references(&project.workspace)?;
         validate_plan(&candidate, &project.workspace, &refs)?;
+        // A project is a new workspace in the shared worker, not a replacement
+        // session. Enforce the same global budgets before committing any source
+        // or asset, including resources retained by other tabs and their undo.
+        if self.sources.len().saturating_add(candidate.sources.len()) > 128
+            || self
+                .sources
+                .values()
+                .map(|source| source.size)
+                .sum::<u64>()
+                .saturating_add(
+                    candidate
+                        .sources
+                        .values()
+                        .map(|source| source.size)
+                        .sum::<u64>(),
+                )
+                > MAX_SESSION_BYTES
+        {
+            return Err(invalid(
+                "已打开文档达到共享资源上限，请先关闭不需要的选项卡。",
+            ));
+        }
+        let asset_count = self.assets.len().saturating_add(candidate.assets.len());
+        let asset_memory = self
+            .assets
+            .values()
+            .map(|asset| asset.png.len())
+            .sum::<usize>()
+            .saturating_add(
+                candidate
+                    .assets
+                    .values()
+                    .map(|asset| asset.png.len())
+                    .sum::<usize>(),
+            );
+        if asset_count > 64 || asset_memory > 64 * 1024 * 1024 {
+            return Err(invalid(
+                "图片共享资源达到上限，请先保存并关闭全部选项卡后重试。",
+            ));
+        }
         // Construct the entire success response before the only mutation of the
-        // active engine. No fallible operation is allowed after this assignment.
+        // active engine. IDs were allocated from its monotonic counters, so no
+        // preexisting document, asset or prepared job is replaced on success.
         let result = json!({"title":project.title,"workspace":project.workspace,"documents":documents,"assets":images});
-        *self = candidate;
+        self.next_id = candidate.next_id;
+        self.next_asset_id = candidate.next_asset_id;
+        self.sources.extend(candidate.sources);
+        self.assets.extend(candidate.assets);
         Ok(result)
     }
 }
