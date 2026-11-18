@@ -10,14 +10,16 @@ import type { ViewAnchor, ViewerZoom, ViewportSize } from '../viewerGeometry';
 import type { PageOverlay, WorkspacePage } from '../types';
 import './reader-experience.css';
 
-function PageRaster({ page, width, index, total, controls, onActivate }: {
+function PageRaster({ page, width, index, total, controls, onActivate, visible, pixelRatio }: {
   page: WorkspacePage; width: number; index: number; total: number;
   controls: PageControls; onActivate: (id: string) => void;
+  visible: boolean;
+  pixelRatio: number;
 }) {
   const { t } = useI18n();
   // Nearby wheel ticks share one raster resolution; CSS geometry remains exact.
-  const targetWidth = rasterTargetWidth(width, window.devicePixelRatio);
-  const { layers, error, loading, refreshing } = usePageLayers(page, targetWidth, true);
+  const targetWidth = rasterTargetWidth(visible ? width : Math.min(width, 384), visible ? pixelRatio : 1, page);
+  const { layers, error, loading, refreshing } = usePageLayers(page, targetWidth, true, false, !visible);
   const [placement, setPlacement] = useState<PageOverlay | null>(null);
   return <><div className="pdf-sheet" aria-busy={loading || refreshing} onPointerDownCapture={() => onActivate(page.id)}>
     {layers ? <LivePageImage page={page} layers={layers} placement={placement} label={t(`文档第 ${index + 1} 页`, `Document page ${index + 1}`)}/> : error ? <div className="page-placeholder error"><CircleAlert size={28}/><h3>{t('这一页未能加载', 'This page could not be loaded')}</h3><p>{t(error)}</p></div> : <div className="page-placeholder"><LoaderCircle size={27} className="spin"/><p>{t(`正在呈现第 ${index + 1} 页`, `Rendering page ${index + 1}`)}</p></div>}
@@ -42,6 +44,19 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
   const viewport = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<ViewportSize>({ width: 800, height: 600 });
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const [pixelRatio, setPixelRatio] = useState(window.devicePixelRatio || 1);
+  useEffect(() => {
+    let media: MediaQueryList | undefined;
+    const refresh = () => {
+      const ratio = window.devicePixelRatio || 1;
+      setPixelRatio(previous => previous === ratio ? previous : ratio);
+      media?.removeEventListener('change', refresh);
+      media = typeof window.matchMedia === 'function' ? window.matchMedia(`(resolution: ${ratio}dppx)`) : undefined;
+      media?.addEventListener('change', refresh);
+    };
+    refresh(); window.addEventListener('resize', refresh);
+    return () => { window.removeEventListener('resize', refresh); media?.removeEventListener('change', refresh); };
+  }, []);
   const geometryKey = useMemo(() => JSON.stringify(pages.map(page => [page.id, page.width, page.height, page.rotation])), [pages]);
   const geometryPages = useMemo(() => pages, [geometryKey]);
   const layout = useMemo(() => buildDocumentLayout(geometryPages, size, zoom), [geometryPages, size, zoom]);
@@ -136,7 +151,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     onScroll={() => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(reportScroll); }}>
     <div className="continuous-stage" style={{ width: layout.width, height: layout.height }}>
       {mountedRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} data-workspace-page-id={row.id} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
-        <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onActiveChange}/>
+        <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onActiveChange} pixelRatio={pixelRatio} visible={row.top + row.height > scroll.top && row.top < scroll.top + size.height}/>
       </div>)}
     </div>
   </div>;

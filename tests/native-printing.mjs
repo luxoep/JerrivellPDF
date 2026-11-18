@@ -123,7 +123,7 @@ try {
 
 const base = { pdfPath: source, options: { scale: 'fit', orientation: 'auto', copies: 1 }, owner: 0, jobName: '页澜 PDF 打印验收 · Original color targets' };
 const checks = [];
-for (const [name, options] of [['copies-zero', { copies: 0 }], ['copies-over-limit', { copies: 100 }], ['bad-scale', { scale: 'invalid' }], ['bad-orientation', { orientation: 'invalid' }], ['bad-paper', { paperSize:'invalid' }], ['bad-color', {color:'invalid'}]]) {
+for (const [name, options] of [['copies-zero', { copies: 0 }], ['copies-over-limit', { copies: 100 }], ['bad-scale', { scale: 'invalid' }], ['bad-orientation', { orientation: 'invalid' }], ['bad-paper', { paperSize:'invalid' }], ['bad-color', {color:'invalid'}], ['bad-dpi', {dpi:1200}], ['zero-dpi',{dpi:0}]]) {
   const reply = await runPrint({ ...base, options: { ...base.options, ...options }, testOutputPath: path.join(directory, `${name}.pdf`) });
   assert.equal(reply.result, null); assert.ok(reply.error, name); checks.push(`${name} rejected before any spool job`);
 }
@@ -149,9 +149,27 @@ if (rasterOnly) {
     assert.equal(manifest.pages.length, 3);
     outputs.push({ name, input, directory: rasters, result: reply.result, pages: manifest.pages });
   }
+  // A4 at 600 DPI exceeds the legacy automatic 16 MP budget. Exercise the
+  // production PDFium bitmap path at every explicit choice, without a printer.
+  const a4 = path.join(directory,'a4-dpi-target.pdf');
+  const widthPt=210/25.4*72,heightPt=297/25.4*72;
+  await writeFile(a4,pdf([{width:widthPt,height:heightPt,content:'1 1 1 rg 0 0 595.276 841.89 re f\n0.15 0.35 0.7 RG .2 w 20 20 m 570 820 l S\n0 0 0 rg 30 30 10 10 re f'}]));
+  const dpiOutputs=[];
+  for(const dpi of [150,300,600]){
+    const rasters=path.join(directory,`rasters-dpi-${dpi}`);await mkdir(rasters);
+    const reply=await runPrint({...base,pdfPath:a4,options:{...base.options,scale:'actual',dpi},testRasterDirectory:rasters});
+    assert.equal(reply.error,null,reply.error);assert.equal(reply.result.status,'rendered');
+    const manifest=JSON.parse(await readFile(path.join(rasters,'rasters.json'),'utf8'));assert.equal(manifest.createdSpoolJob,false);assert.equal(manifest.dpi,dpi);
+    const page=manifest.pages[0];assert.equal(page.samplingDpi,dpi);assert.equal(page.reducedByBudget,false);
+    // PDFium stores page dimensions in f32; a single output pixel accommodates
+    // its native point-coordinate rounding at the half-pixel threshold.
+    assert.ok(Math.abs(page.width-widthPt/72*dpi)<=1);assert.ok(Math.abs(page.height-heightPt/72*dpi)<=1);
+    dpiOutputs.push({dpi,directory:rasters,page});
+  }
+  assert.ok(dpiOutputs[2].page.width*dpiOutputs[2].page.height>16*1024*1024,'A4 600 DPI remains explicit high resolution');
   assert.equal(hash(await readFile(source)), sourceHash);
   const result = { status: 'PASS', mode: 'headless-raster', createdSpoolJob: false,
-    executable, library, outputDirectory: directory, source, multiplied, checks, outputs,
+    executable, library, outputDirectory: directory, source, multiplied, checks, outputs, dpiOutputs,
     scope: 'Same production PDFium print configuration and BGRA buffer; this does not validate native printer dialogs, GDI submission or physical output.' };
   await writeFile(path.join(directory, 'native-raster.json'), `${JSON.stringify(result, null, 2)}\n`);
   await writeFile(path.join(releaseResults, 'native-raster.json'), `${JSON.stringify(result, null, 2)}\n`);

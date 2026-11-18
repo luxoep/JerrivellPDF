@@ -120,6 +120,8 @@ react.useLayoutEffect = (effect, deps) => {
   if (!old || deps.some((value, position) => value !== old.deps[position])) { old?.cleanup?.(); host.slots[index] = { deps }; host.layoutEffects.push(() => { host.slots[index].cleanup = effect(); }); }
 };
 const viewportListeners = new Map(), viewportOptions = new Map(), zooms = [], activePages = [];
+const windowListeners = new Map();
+const viewerWindow = { devicePixelRatio: 1, addEventListener(name, handler) { windowListeners.set(name, handler); }, removeEventListener(name) { windowListeners.delete(name); } };
 let resizeCallback, rafCallback;
 const viewport = { clientWidth: 900, clientHeight: 700, scrollTop: 0, scrollLeft: 0, getBoundingClientRect: () => ({ left: 100, top: 50, width: 900, height: 700 }), addEventListener(name, handler, options) { viewportListeners.set(name, handler); viewportOptions.set(name, options); }, removeEventListener(name) { viewportListeners.delete(name); } };
 const viewerModule = load('../src/components/PdfViewer.tsx', {
@@ -134,7 +136,7 @@ const viewerModule = load('../src/components/PdfViewer.tsx', {
     if (name.endsWith('.css')) return {};
     throw new Error(name);
   },
-  window: { devicePixelRatio: 1 },
+  window: viewerWindow,
   ResizeObserver: class { constructor(handler) { resizeCallback = handler; } observe() {} disconnect() {} },
   requestAnimationFrame: handler => { rafCallback = handler; return 1; }, cancelAnimationFrame() {},
 });
@@ -147,6 +149,9 @@ function renderViewer() {
 }
 let viewerTree = renderViewer(); resizeCallback(); viewerTree = renderViewer(); viewerTree = renderViewer();
 assert.equal(viewport.scrollTop, 0, 'The first real viewport measurement must not crop the top of the opening page');
+viewerWindow.devicePixelRatio=2;windowListeners.get('resize')();viewerTree=renderViewer();
+assert.equal(viewerTree.props.children.props.children[0].props.children.props.pixelRatio,2,'Moving to a denser monitor upgrades raster density without changing CSS geometry');
+assert.equal(viewport.scrollTop,0);viewerWindow.devicePixelRatio=1;windowListeners.get('resize')();viewerTree=renderViewer();
 viewport.scrollTop = 123.25; viewport.scrollLeft = 17.5;
 viewerProps.pages = viewerProps.pages.map((item,index) => index === 0 ? { ...item, overlays: [{ id: 'instant-mark', assetId: 'local', x: .1, y: .2, width: .2, height: .1, opacity: .5 }] } : item);
 renderViewer();

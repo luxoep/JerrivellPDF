@@ -239,7 +239,7 @@ fn native_round_trip_merge_rotation_and_failure_protection() {
     };
     assert!(engine.render_page(&bad_rotation, 100).is_err());
     assert!(engine.render_page(&plan[0], 0).is_err());
-    assert!(engine.render_page(&plan[0], 4097).is_err());
+    assert!(engine.render_page(&plan[0], 8193).is_err());
 
     // The engine reads an immutable snapshot, even if another program changes the source.
     fs::write(&first, b"changed externally").unwrap();
@@ -261,6 +261,15 @@ fn rejects_render_bombs_and_invalid_geometry_before_allocation() {
     assert!(render_dimensions(1.0, 200_000.0, 4096, false).is_err());
     assert!(render_dimensions(f32::NAN, 100.0, 100, false).is_err());
     assert!(render_dimensions(100.0, 0.0, 100, false).is_err());
+    assert!(render_dimensions(100.0, 100.0, 0, false).is_err());
+    assert!(render_dimensions(100.0, 100.0, 8193, false).is_err());
+    assert!(render_dimensions(8192.0, 4097.0, 8192, false).is_err());
+    assert!(render_dimensions(8192.0, 8192.0, 8192, false).is_err());
+    assert!(render_dimensions(100.0, 200.0, 5000, false).is_err());
+    assert!(render_dimensions(100.0, 300.0, 3000, false).is_err());
+    assert_eq!(render_dimensions(8192.0, 4096.0, 8192, false).unwrap(), (8192, 4096));
+    assert_eq!(render_dimensions(400.0, 600.0, 3600, false).unwrap(), (3600, 5400));
+    assert_eq!(render_dimensions(600.0, 400.0, 4800, false).unwrap(), (4800, 3200));
     assert_eq!(
         render_dimensions(240.0, 360.0, 360, true).unwrap(),
         (240, 360)

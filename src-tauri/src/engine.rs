@@ -26,7 +26,9 @@ const MAX_OUTPUT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SOURCES: usize = 32;
 const MAX_PAGES: usize = 5000;
 const MAX_RENDER_SIDE: u32 = 8192;
-const MAX_RENDER_PIXELS: u64 = 16 * 1024 * 1024;
+// Display rasters can exceed 4K on high-DPI screens. Bound both dimensions and
+// the full RGBA allocation instead of silently scaling a 2400px bitmap forever.
+const MAX_RENDER_PIXELS: u64 = 32 * 1024 * 1024;
 const MAX_PNG_BYTES: usize = 72 * 1024 * 1024;
 const MAX_SEARCH_CHARS: usize = 2_000_000;
 
@@ -93,8 +95,8 @@ fn render_dimensions(
     quarter_turn: bool,
 ) -> Result<(u32, u32), String> {
     valid_page_size(width, height)?;
-    if requested == 0 || requested > 4096 {
-        return Err("预览或导出的宽度必须在 1～4096 像素之间。".into());
+    if requested == 0 || requested > MAX_RENDER_SIDE {
+        return Err("预览或导出的宽度必须在 1～8192 像素之间。".into());
     }
     let scale = requested as f64
         / if quarter_turn {

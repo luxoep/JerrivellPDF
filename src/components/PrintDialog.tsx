@@ -4,9 +4,10 @@ import { ChevronLeft, ChevronRight, CircleAlert, LoaderCircle, Printer, X } from
 import { backend, errorMessage, pageReference, renderPage } from '../backend';
 import { useI18n } from '../i18n';
 import { PreviewZoom } from './PreviewZoom';
-import { PRINT_PAPERS, selectPrintIndices, validPrintCopies } from '../printing';
-import type { PrintOptions, PrintResult, PrintScope, PrintSubset } from '../printing';
+import { PRINT_DPI_OPTIONS, PRINT_PAPERS, selectPrintIndices, validPrintCopies } from '../printing';
+import type { PrintDpi, PrintOptions, PrintResult, PrintScope, PrintSubset } from '../printing';
 import type { RenderedPage, WorkspacePage } from '../types';
+import { rasterTargetWidth } from '../viewerGeometry';
 import './print-dialog.css';
 
 export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, onBusyChange, onNotify }: {
@@ -23,6 +24,7 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
   const [orientation, setOrientation] = useState<PrintOptions['orientation']>('auto');
   const [paperSize, setPaperSize] = useState<NonNullable<PrintOptions['paperSize']>>('printer');
   const [color, setColor] = useState<NonNullable<PrintOptions['color']>>('printer');
+  const [dpi, setDpi] = useState<PrintDpi | null>(null);
   const [copies, setCopies] = useState('1');
   const [previewAt, setPreviewAt] = useState(0);
   const [image, setImage] = useState<RenderedPage | null>(null);
@@ -54,7 +56,7 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
   useEffect(() => {
     let cancelled = false;
     setImage(null); setPreviewError('');
-    if (page) void renderPage(page, 700).then(value => { if (!cancelled) setImage(value); })
+    if (page) void renderPage(page, rasterTargetWidth(700, window.devicePixelRatio, page)).then(value => { if (!cancelled) setImage(value); })
       .catch(reason => { if (!cancelled) setPreviewError(errorMessage(reason)); });
     return () => { cancelled = true; };
   }, [page]);
@@ -66,7 +68,7 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
     try {
       const result = await backend<PrintResult>('print_document', {
         pages: selection.indices.map(index => pageReference(pages[index])),
-        options: { scale, orientation, copies: copyCount, paperSize, color }, jobName: title || 'Jerrivell PDF',
+        options: { scale, orientation, copies: copyCount, paperSize, color, dpi }, jobName: title || 'Jerrivell PDF',
       }, 3);
       if (!alive.current) return;
       if (result.status === 'printed') {
@@ -111,6 +113,8 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
           {scale === 'actual' && <p className="print-hint">{t('页面超过纸张可打印区域时，边缘内容可能被裁切。', 'Page edges may be clipped if the page exceeds the printable area.')}</p>}
           <label>{t('纸张大小', 'Paper size')}<select aria-label={t('纸张大小', 'Paper size')} value={paperSize} onChange={event => setPaperSize(event.target.value as typeof paperSize)}><option value="printer">{t('跟随打印机设置', 'Printer setting')}</option>{PRINT_PAPERS.map(paper => <option key={paper.id} value={paper.id}>{paper.name} · {paper.width} × {paper.height} mm</option>)}</select></label>
           <label>{t('打印颜色', 'Print color')}<select aria-label={t('打印颜色', 'Print color')} value={color} onChange={event => setColor(event.target.value as typeof color)}><option value="printer">{t('跟随打印机设置', 'Printer setting')}</option><option value="color">{t('彩色', 'Color')}</option><option value="grayscale">{t('黑白（灰度）', 'Black and white (grayscale)')}</option></select></label>
+          <label>{t('打印清晰度（DPI）', 'Print resolution (DPI)')}<select aria-label={t('打印清晰度（DPI）', 'Print resolution (DPI)')} value={dpi === null ? 'auto' : String(dpi)} onChange={event => setDpi(event.target.value === 'auto' ? null : Number(event.target.value) as PrintDpi)}><option value="auto">{t('自动（最高 300 DPI，超大页自适应）', 'Auto (up to 300 DPI; adapts large pages)')}</option>{PRINT_DPI_OPTIONS.map(value => <option key={value} value={value}>{value} DPI</option>)}</select></label>
+          <p className="print-hint print-dpi-hint">{t('DPI 控制页面送入打印机前的图像采样，纸张实际尺寸不变。600 DPI 更清晰但更耗内存；扫描件的原始细节无法凭空增加。超大页请降低 DPI。', 'DPI controls page image sampling before it reaches the printer; physical size stays the same. 600 DPI uses more memory. It cannot recover missing detail in scans. Lower DPI for very large pages.')}</p>
           <label>{t('纸张方向', 'Orientation')}<select value={orientation} onChange={event => setOrientation(event.target.value as PrintOptions['orientation'])}><option value="auto">{t('跟随每页方向', 'Match each page')}</option><option value="portrait">{t('纵向', 'Portrait')}</option><option value="landscape">{t('横向', 'Landscape')}</option></select></label>
           <label>{t('打印份数', 'Copies')}<input type="number" min="1" max="99" step="1" value={copies} onChange={event => setCopies(event.target.value)} aria-invalid={copyCount === null}/></label>
           {(copyCount === null || (copyCount !== null && count * copyCount > 10000)) && <p className="print-error">{t('份数须为 1～99，单次最多输出 10000 张。', 'Use 1–99 copies and at most 10,000 output pages per job.')}</p>}
@@ -119,7 +123,7 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
         <section className="print-preview" aria-label={t('页面内容预览', 'Page content preview')}>
           <div className="print-preview-stage">{page ? image ? <PreviewZoom width={image.width} height={image.height} resetKey={page.id} label={t('打印页面可缩放预览', 'Zoomable print page preview')}><img src={image.dataUrl} style={{ filter: color === 'grayscale' ? 'grayscale(1)' : undefined }} alt={t(`打印预览：工作区第 ${pageIndex + 1} 页`, `Print preview: workspace page ${pageIndex + 1}`)}/></PreviewZoom> : previewError ? <div className="print-preview-empty"><CircleAlert/><p>{previewError}</p></div> : <LoaderCircle className="spin"/> : <p>{t('没有符合条件的页面。', 'No pages match these settings.')}</p>}</div>
           <div className="print-preview-navigation"><button className="icon-button" disabled={working || position === 0} onClick={() => setPreviewAt(position - 1)} aria-label={t('预览上一张', 'Preview previous sheet')}><ChevronLeft size={17}/></button><span>{count ? `${position + 1} / ${count}` : '0 / 0'}{page && ` · ${t(`第 ${pageIndex + 1} 页`, `Page ${pageIndex + 1}`)}`}</span><button className="icon-button" disabled={working || position >= count - 1} onClick={() => setPreviewAt(position + 1)} aria-label={t('预览下一张', 'Preview next sheet')}><ChevronRight size={17}/></button></div>
-          <p className="print-hint">{t('此处预览页面内容与黑白效果。所选纸张、方向和颜色会应用到打印任务；打印机须支持该纸张。双面、纸盒在系统属性中选择，实际边距以打印机为准。', 'This previews page content and grayscale. Selected paper, orientation and color apply to the job; the printer must support the paper. Choose duplex and tray in system properties; margins depend on the printer.')}</p>
+          <p className="print-hint">{t('此处预览页面内容与黑白效果，不按打印 DPI 反复生成大图。纸张、方向、颜色和 DPI 会应用到打印任务；打印机须支持所选纸张。双面、纸盒与驱动硬件分辨率在系统属性中选择。', 'This previews content and grayscale without repeatedly generating full print-DPI images. Paper, orientation, color and DPI apply to the job; the printer must support the paper. Choose duplex, tray and hardware resolution in system properties.')}</p>
         </section>
       </div>
       <footer className="print-footer"><div>{error ? <p className="print-error" role="alert">{error}</p> : working ? <p role="status"><LoaderCircle size={14} className="spin"/>{t('请在系统打印窗口中继续或取消…', 'Continue or cancel in the system print window…')}</p> : <p>{t(`已选 ${count} 页`, `${count} pages selected`)}</p>}</div><button className="button secondary" disabled={working} onClick={onClose}>{t('取消', 'Cancel')}</button><button className="button primary" disabled={!canPrint} onClick={() => void submit()}><Printer size={16}/>{t('选择打印机并打印', 'Choose printer and print')}</button></footer>

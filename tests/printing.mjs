@@ -15,6 +15,7 @@ async function load(relative, context = {}) {
   return exports;
 }
 const ranges = await load('../src/pageRanges.ts');
+const viewer = await load('../src/viewerGeometry.ts');
 const printing = await load('../src/printing.ts', {
   require(name) { if (name === './pageRanges') return ranges; throw new Error(name); },
 });
@@ -79,13 +80,14 @@ const react = {
 const renders = [], calls = [];
 let printReply = () => Promise.resolve({ status: 'cancelled', pageCount: 0, copies: 1 });
 const { PrintDialog } = await load('../src/components/PrintDialog.tsx', {
-  document: { activeElement: null }, HTMLElement: class HTMLElement {},
+  document: { activeElement: null }, HTMLElement: class HTMLElement {}, window: { devicePixelRatio: 2.5 },
   require(name) {
     if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props, key) => ({ type, props, key }), jsxs: (type, props, key) => ({ type, props, key }), Fragment: 'fragment' };
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
     if (name === '../printing') return printing;
+    if (name === '../viewerGeometry') return viewer;
     if (name.endsWith('.css')) return {};
     if (name === '../backend') return {
       errorMessage: error => error.message ?? String(error),
@@ -135,6 +137,7 @@ const oldPreview = renders.at(-1);
 select(host, 'all', 'current');
 const currentPreview = renders.at(-1);
 assert.equal(currentPreview.page.id, 'workspace-4');
+assert.ok(currentPreview.width >= 1750, 'Print preview honors high-DPI screens instead of fixed 700 pixels');
 oldPreview.resolve({ dataUrl: 'old-page', width: 700, height: 990 }); await settle(); host.render();
 assert.equal(walk(host.tree, node => node.type === 'img').length, 0);
 currentPreview.resolve({ dataUrl: 'current-page', width: 700, height: 990 }); await settle(); host.render();
@@ -142,6 +145,9 @@ assert.equal(walk(host.tree, node => node.type === 'img')[0].props.src, 'current
 
 // Explicit paper/color are independent settings and change the preview without a native render.
 const renderCount = renders.length;
+const dpiSetting = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Print resolution (DPI)')[0];
+assert.equal(dpiSetting.props.value, 'auto', 'Existing jobs default to automatic sampling');
+dpiSetting.props.onChange({target:{value:'600'}});host.render();
 const paperSetting = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Paper size')[0];
 paperSetting.props.onChange({target:{value:'a3'}});host.render();
 const colorSetting = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Print color')[0];
@@ -160,6 +166,7 @@ assert.deepEqual(host.busy, [true]);
 assert.deepEqual(plain(calls.at(-1).args.pages), [{ documentId: 'first-pdf', pageIndex: 0, rotation: 0, overlays: pages[4].overlays }]);
 assert.equal(calls.at(-1).args.options.copies, 1);
 assert.equal(calls.at(-1).args.options.paperSize, 'a3');assert.equal(calls.at(-1).args.options.color, 'grayscale');
+assert.equal(calls.at(-1).args.options.dpi,600,'An explicit DPI reaches the native job, not just the preview');
 assert.equal(calls.at(-1).args.jobName, 'Unicode 中文.pdf');
 let escapePrevented = 0, escapeStopped = 0;
 walk(host.tree, node => node.props?.role === 'dialog')[0].props.onKeyDown({ key: 'Escape', preventDefault: () => escapePrevented++, stopPropagation: () => escapeStopped++ });

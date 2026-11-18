@@ -268,15 +268,25 @@ export function getPageText(page: PageRef): Promise<PageText> {
   textPages.set(key, record);
   return record.promise;
 }
-export function cachedPageLayers(page: PageRef, targetWidth: number): RenderedPageLayers | undefined {
-  const key = `${JSON.stringify(rasterReference(page))}:${Math.max(80,Math.round(targetWidth))}`;
-  const cached = layerCache.get(key); if (cached) touchCache('layers', key); return cached;
+export function cachedPageLayers(page: PageRef, targetWidth: number, allowLower = false): RenderedPageLayers | undefined {
+  const prefix = `${JSON.stringify(rasterReference(page))}:`, width = Math.max(1, Math.round(targetWidth));
+  const key = `${prefix}${width}`, exact = layerCache.get(key);
+  if (exact) { touchCache('layers', key); return exact; }
+  let best: { key: string; width: number; layers: RenderedPageLayers } | undefined;
+  for (const [candidate, layers] of layerCache) {
+    if (!candidate.startsWith(prefix)) continue;
+    const pixels = Number(candidate.slice(prefix.length));
+    if (pixels < width && !allowLower) continue;
+    if (!best || (pixels >= width ? best.width < width || pixels < best.width : best.width < width && pixels > best.width)) best = { key: candidate, width: pixels, layers };
+  }
+  if (best) touchCache('layers', best.key);
+  return best?.layers;
 }
 export function renderPageLayers(page: PageRef, targetWidth: number, thumbnail = false, lease?: RenderLease): Promise<RenderedPageLayers> {
-  const reference = rasterReference(page), width = Math.max(80, Math.round(targetWidth));
+  const reference = rasterReference(page), width = Math.max(1, Math.round(targetWidth));
   const key = `${JSON.stringify(reference)}:${width}`;
-  const cached = layerCache.get(key);
-  if (cached) { touchCache('layers', key); return Promise.resolve(cached); }
+  const cached = cachedPageLayers(page, width);
+  if (cached) return Promise.resolve(cached);
   const pending = pendingLayers.get(key); if (pending && !pending.work.aborted) { subscribe(pending.work, thumbnail, lease); return pending.promise; }
   const generation = cacheGeneration;
   const work = renderWork(thumbnail, lease);

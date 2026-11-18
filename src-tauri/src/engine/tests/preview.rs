@@ -246,3 +246,53 @@ fn original_highlight_does_not_hide_black_text_in_reader_layers() {
         "Existing highlight must retain text: {retained}/{black}"
     );
 }
+
+#[test]
+fn native_high_dpi_rasters_preserve_requested_pixels_for_tall_wide_and_rotated_pages() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let mut engine = PdfEngine::new(native_pdfium());
+    // Portrait rendering crosses the former 16M-pixel limit; landscape and the
+    // intrinsic rotation cross the former 4096px request-width limit.
+    for (width, height, rotation, target, expected) in [
+        (400, 600, 0, 3600, (3600, 5400)),
+        (600, 400, 0, 4800, (4800, 3200)),
+        (400, 600, 90, 4800, (4800, 3200)),
+    ] {
+        let source = engine.add_generated_source(fixture("NATIVE HIGH DPI", width, height, rotation), "high-dpi.pdf").unwrap();
+        let plan = PageRef { document_id: source.id, page_index: 0, rotation: 0,
+            overlays: vec![], content_edits: vec![], decorations: vec![] };
+        let layers = engine.render_page_layers(&plan, target).unwrap();
+        assert_eq!((layers.background.width, layers.background.height), expected);
+        let pixels = rendered(&layers.background);
+        assert_eq!(pixels.dimensions(), expected);
+        assert!(pixels.pixels().any(|pixel| pixel.0[..3].iter().all(|channel| *channel < 100)),
+            "High-DPI output must contain the original vector text, not an empty placeholder");
+    }
+}
+
+#[test]
+fn higher_native_resolution_rasterizes_vector_detail_instead_of_upscaling_old_preview() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let mut document = lopdf::Document::load_mem(&fixture("NATIVE 012345", 300, 150, 0)).unwrap();
+    let mut content = String::from("BT /F1 18 Tf 24 48 Td (NATIVE 012345) Tj ET\nq 0 g\n");
+    for index in 0..80 {
+        let x = 40.0 + index as f64 * 0.25;
+        content.push_str(&format!("{x:.3} 90 0.125 30 re f\n"));
+    }
+    content.push_str("Q\n");
+    document.objects.insert((5, 0), lopdf::Object::Stream(lopdf::Stream::new(lopdf::dictionary!{}, content.into_bytes())));
+    let mut bytes = Vec::new(); document.save_to(&mut bytes).unwrap();
+    let mut engine = PdfEngine::new(native_pdfium());
+    let source = engine.add_generated_source(bytes, "vector-detail.pdf").unwrap();
+    let plan = PageRef { document_id: source.id, page_index: 0, rotation: 0,
+        overlays: vec![], content_edits: vec![], decorations: vec![] };
+    let lower = rendered(&engine.render_page_layers(&plan, 2400).unwrap().background);
+    let higher = rendered(&engine.render_page_layers(&plan, 4800).unwrap().background);
+    assert_eq!(higher.dimensions(), (4800, 2400));
+    assert!(higher.pixels().any(|pixel| pixel.0[..3].iter().all(|channel| *channel < 100)));
+    let upscaled = image::imageops::resize(&lower, higher.width(), higher.height(), image::imageops::FilterType::Triangle);
+    let resolved = higher.pixels().zip(upscaled.pixels()).filter(|(a,b)| {
+        (0..3).any(|channel| (i16::from(a.0[channel])-i16::from(b.0[channel])).unsigned_abs() >= 16)
+    }).count();
+    assert!(resolved > 250, "New vector pixels must differ visibly from stretching the old 2400px bitmap: {resolved} pixels");
+}

@@ -18,6 +18,11 @@ const MAX_WORKER_MESSAGE: u64 = 64 * 1024;
 const MAX_PRINTED_SHEETS: usize = 10_000;
 const MAX_BITMAP_PIXELS: f64 = 16.0 * 1024.0 * 1024.0;
 const MAX_BITMAP_SIDE: f64 = 8192.0;
+// Explicit high-resolution jobs are sequential in their own process. A4 at
+// 600 DPI is ~35 MP. Bound the one-page BGRA bitmap; never silently lower an
+// explicitly selected density to satisfy this budget.
+const MAX_EXPLICIT_BITMAP_PIXELS: f64 = 64.0 * 1024.0 * 1024.0;
+const MAX_EXPLICIT_BITMAP_SIDE: f64 = 16384.0;
 
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -104,10 +109,16 @@ pub struct PrintOptions {
     pub paper_size: PrintPaper,
     #[serde(default)]
     pub color: PrintColor,
+    /// Raster sampling DPI, not a request to change printer-driver device DPI.
+    #[serde(default)]
+    pub dpi: Option<u16>,
 }
 
 impl PrintOptions {
     fn validate(&self, page_count: usize) -> Result<(), String> {
+        if self.dpi.is_some_and(|dpi| !matches!(dpi, 150 | 300 | 600)) {
+            return Err("PRINT_ERROR: 打印 DPI 只支持自动、150、300 或 600。".into());
+        }
         if !(1..=99).contains(&self.copies) {
             return Err("PRINT_ERROR: 打印份数必须在 1～99 之间。".into());
         }
@@ -395,7 +406,12 @@ fn page_layout(
     })
 }
 
-fn bitmap_size(width: f64, height: f64, print_scale: f64) -> Result<(i32, i32, bool), String> {
+fn bitmap_size(
+    width: f64,
+    height: f64,
+    print_scale: f64,
+    dpi: Option<u16>,
+) -> Result<(i32, i32, bool), String> {
     if !width.is_finite()
         || !height.is_finite()
         || !print_scale.is_finite()
@@ -405,10 +421,27 @@ fn bitmap_size(width: f64, height: f64, print_scale: f64) -> Result<(i32, i32, b
     {
         return Err("PRINT_ERROR: 打印渲染尺寸无效。".into());
     }
-    let wanted_width = width / 72.0 * 300.0 * print_scale;
-    let wanted_height = height / 72.0 * 300.0 * print_scale;
+    if dpi.is_some_and(|value| !matches!(value, 150 | 300 | 600)) {
+        return Err("PRINT_ERROR: 打印 DPI 只支持自动、150、300 或 600。".into());
+    }
+    let density = f64::from(dpi.unwrap_or(300));
+    let wanted_width = width / 72.0 * density * print_scale;
+    let wanted_height = height / 72.0 * density * print_scale;
     if !wanted_width.is_finite() || !wanted_height.is_finite() {
         return Err("PRINT_ERROR: 打印渲染尺寸无效。".into());
+    }
+    if let Some(dpi) = dpi {
+        if wanted_width.ceil() > MAX_EXPLICIT_BITMAP_SIDE
+            || wanted_height.ceil() > MAX_EXPLICIT_BITMAP_SIDE
+            || wanted_width.ceil() * wanted_height.ceil() > MAX_EXPLICIT_BITMAP_PIXELS
+        {
+            return Err(format!("PRINT_ERROR: 此页面按 {dpi} DPI 打印超过单页约 6700 万像素或 16384 像素边长预算。请改为 300/150 DPI、自动，或选择适合可打印区域；明确选择的 DPI 不会被自动降低。"));
+        }
+        return Ok((
+            wanted_width.round().max(1.0) as i32,
+            wanted_height.round().max(1.0) as i32,
+            false,
+        ));
     }
     let reduction = 1.0_f64
         .min(MAX_BITMAP_SIDE / wanted_width)
@@ -963,7 +996,7 @@ mod native {
                 dpi_y: 600,
             };
             page_layout(width_pt, height_pt, synthetic, PrintScale::Actual)?;
-            let (width, height, reduced) = bitmap_size(width_pt, height_pt, 1.0)?;
+            let (width, height, reduced) = bitmap_size(width_pt, height_pt, 1.0, options.dpi)?;
             let mut pixels = render_bgra(&page, width, height)?;
             apply_print_color(&mut pixels, options.color);
             // Convert the exact GDI buffer to a PNG for independent inspection.
@@ -990,11 +1023,11 @@ mod native {
                 .map_err(|e| e.to_string())?;
             records.push(json!({"page": index + 1, "file": name, "width": width,
                 "height": height, "pageWidthPoints": width_pt, "pageHeightPoints": height_pt,
-                "samplingDpi": 300, "reducedByBudget": reduced}));
+                "samplingDpi": options.dpi.unwrap_or(300), "reducedByBudget": reduced}));
         }
         let manifest = json!({"status": "rendered", "createdSpoolJob": false,
-            "configuration": "Production PDFium print config; opaque BGRA; print quality; 300dpi bounded sampling",
-            "paperSize": options.paper_size, "color": options.color, "pages": records});
+            "configuration": "Production PDFium print config; opaque BGRA; print quality; selected DPI with bounded per-page allocation",
+            "paperSize": options.paper_size, "color": options.color, "dpi": options.dpi, "pages": records});
         OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1080,6 +1113,48 @@ mod native {
             job.options.paper_size,
             first_orientation,
         )?;
+        // Validate every explicitly sampled page before StartDoc. A later large
+        // sheet must not produce a partially printed job before a budget error.
+        if job.options.dpi.is_some() {
+            let mut previous_orientation = first_orientation;
+            for index in 0..count {
+                let page = document
+                    .pages()
+                    .get(index as i32)
+                    .map_err(|e| e.to_string())?;
+                let width = page.width().value as f64;
+                let height = page.height().value as f64;
+                let orientation = desired_orientation(&job.options, width, height);
+                if orientation != previous_orientation {
+                    with_mode(device.devmode, |mode| {
+                        configure_mode(mode, orientation, &job.options);
+                        let dc = unsafe { ResetDCW(device.dc, mode) };
+                        if dc.is_null() {
+                            return Err(failure("无法检查打印纸张方向"));
+                        }
+                        device.dc = dc;
+                        Ok(())
+                    })?;
+                    previous_orientation = orientation;
+                }
+                let page_metrics = metrics(device.dc);
+                validate_paper_metrics(page_metrics, job.options.paper_size, orientation)?;
+                let layout = page_layout(width, height, page_metrics, job.options.scale)?;
+                bitmap_size(width, height, layout.scale, job.options.dpi)
+                    .map_err(|error| format!("{error}（打印第 {} 页）", index + 1))?;
+            }
+            if previous_orientation != first_orientation {
+                with_mode(device.devmode, |mode| {
+                    configure_mode(mode, first_orientation, &job.options);
+                    let dc = unsafe { ResetDCW(device.dc, mode) };
+                    if dc.is_null() {
+                        return Err(failure("无法恢复首张纸张方向"));
+                    }
+                    device.dc = dc;
+                    Ok(())
+                })?;
+            }
+        }
         let name = wide(&clean_job_name(&job.job_name));
         let output = job
             .test_output_path
@@ -1145,7 +1220,8 @@ mod native {
             )?;
             validate_paper_metrics(metrics(device.dc), job.options.paper_size, orientation)?;
             clipped |= layout.clipped;
-            let (width, height, did_reduce) = bitmap_size(page_width, page_height, layout.scale)?;
+            let (width, height, did_reduce) =
+                bitmap_size(page_width, page_height, layout.scale, job.options.dpi)?;
             reduced |= did_reduce;
             let mut pixels = render_bgra(&page, width, height)?;
             apply_print_color(&mut pixels, job.options.color);
@@ -1239,6 +1315,7 @@ mod native {
             copies: 2,
             paper_size: PrintPaper::A3,
             color: PrintColor::Grayscale,
+            dpi: None,
         };
         configure_mode(&mut mode, 2, &options);
         assert_eq!(mode.paper_size, 8);
@@ -1279,6 +1356,7 @@ mod tests {
             serde_json::from_str(r#"{"scale":"fit","orientation":"auto","copies":1}"#).unwrap();
         assert_eq!(options.paper_size, PrintPaper::Printer);
         assert_eq!(options.color, PrintColor::Printer);
+        assert_eq!(options.dpi, None);
         assert!(validate_paper_metrics(printer(), PrintPaper::Letter, 1).is_ok());
         assert!(validate_paper_metrics(printer(), PrintPaper::A4, 1).is_err());
         assert!(validate_paper_metrics(printer(), PrintPaper::Letter, 2).is_err());
@@ -1325,19 +1403,23 @@ mod tests {
         let mut invalid = printer();
         invalid.dpi_x = 0;
         assert!(page_layout(72.0, 72.0, invalid, PrintScale::Fit).is_err());
-        let (width, height, reduced) = bitmap_size(200_000.0, 100_000.0, 1.0).unwrap();
+        let (width, height, reduced) = bitmap_size(200_000.0, 100_000.0, 1.0, None).unwrap();
         assert!(reduced);
         assert!(width <= 8192 && height <= 8192);
         assert!((width as u64) * height as u64 <= 16 * 1024 * 1024);
         assert!((width as f64 / height as f64 - 2.0).abs() < 0.002);
-        assert!(bitmap_size(72.0, 72.0, f64::INFINITY).is_err());
-        assert_eq!(bitmap_size(72.0, 144.0, 1.0).unwrap(), (300, 600, false));
+        assert!(bitmap_size(72.0, 72.0, f64::INFINITY, None).is_err());
+        assert_eq!(
+            bitmap_size(72.0, 144.0, 1.0, None).unwrap(),
+            (300, 600, false)
+        );
         assert!(PrintOptions {
             scale: PrintScale::Fit,
             orientation: PrintOrientation::Auto,
             copies: 0,
             paper_size: PrintPaper::Printer,
-            color: PrintColor::Printer
+            color: PrintColor::Printer,
+            dpi: None,
         }
         .validate(1)
         .is_err());
@@ -1346,7 +1428,8 @@ mod tests {
             orientation: PrintOrientation::Auto,
             copies: 99,
             paper_size: PrintPaper::Printer,
-            color: PrintColor::Printer
+            color: PrintColor::Printer,
+            dpi: None,
         }
         .validate(5000)
         .is_err());
@@ -1355,9 +1438,55 @@ mod tests {
             orientation: PrintOrientation::Auto,
             copies: 1,
             paper_size: PrintPaper::Printer,
-            color: PrintColor::Printer
+            color: PrintColor::Printer,
+            dpi: None,
         }
         .validate(0)
         .is_err());
+    }
+
+    #[test]
+    fn explicit_dpi_preserves_density_and_supports_a4_at_600() {
+        for dpi in [150_u16, 300, 600] {
+            assert_eq!(
+                bitmap_size(72.0, 144.0, 1.0, Some(dpi)).unwrap(),
+                (dpi as i32, dpi as i32 * 2, false)
+            );
+            assert_eq!(
+                bitmap_size(72.0, 144.0, 0.5, Some(dpi)).unwrap(),
+                ((dpi as f64 / 2.0).round() as i32, dpi as i32, false)
+            );
+        }
+        let (width, height, reduced) =
+            bitmap_size(210.0 / 25.4 * 72.0, 297.0 / 25.4 * 72.0, 1.0, Some(600)).unwrap();
+        assert_eq!((width, height), (4961, 7016));
+        assert!(!reduced);
+        assert!(width as u64 * height as u64 > 16 * 1024 * 1024);
+        // Device DPI changes the GDI destination rectangle, never this source raster.
+        let normal = page_layout(72.0, 144.0, printer(), PrintScale::Actual).unwrap();
+        let mut asymmetric = printer();
+        asymmetric.dpi_y = 300;
+        let other = page_layout(72.0, 144.0, asymmetric, PrintScale::Actual).unwrap();
+        assert_eq!((normal.width, normal.height), (600, 1200));
+        assert_eq!((other.width, other.height), (600, 600));
+        assert_eq!(
+            bitmap_size(72.0, 144.0, normal.scale, Some(600)).unwrap(),
+            bitmap_size(72.0, 144.0, other.scale, Some(600)).unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_dpi_rejects_bad_or_oversized_requests_without_downsampling() {
+        for dpi in [0_u16, 72, 1200] {
+            let options: PrintOptions = serde_json::from_value(
+                json!({"scale":"fit","orientation":"auto","copies":1,"dpi":dpi}),
+            )
+            .unwrap();
+            assert!(options.validate(1).is_err());
+            assert!(bitmap_size(72.0, 72.0, 1.0, Some(dpi)).is_err());
+        }
+        let error = bitmap_size(200_000.0, 100_000.0, 1.0, Some(600)).unwrap_err();
+        assert!(error.contains("600 DPI") && error.contains("不会被自动降低"));
+        assert!(bitmap_size(1000.0, 1000.0, 1.0, Some(600)).is_err());
     }
 }

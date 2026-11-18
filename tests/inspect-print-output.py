@@ -84,8 +84,29 @@ if data.get('mode') == 'headless-raster':
             else:
                 pages.append({'page': index + 1, 'sizeAt300dpi': list(rendered.size), **compare_colors(expected_image, rendered)})
         cases.append({'name': output['name'], 'pages': pages})
+    dpi_cases = []
+    for output in data.get('dpiOutputs', []):
+        dpi = output['dpi']
+        assert dpi in [150, 300, 600]
+        entry = output['page']
+        assert not entry['reducedByBudget'] and entry['samplingDpi'] == dpi
+        with Image.open(Path(output['directory']) / entry['file']) as image:
+            assert abs(image.width - 210 / 25.4 * dpi) <= 1
+            assert abs(image.height - 297 / 25.4 * dpi) <= 1
+            # The original source has a 10-point black square at (30,30).
+            # Sampling its center independently checks physical placement at
+            # every density, rather than trusting the worker's metadata alone.
+            center = (round(35 / 72 * dpi), image.height - round(35 / 72 * dpi))
+            assert image.getpixel(center)[:3] == (0, 0, 0)
+            corner = (round(5 / 72 * dpi), image.height - round(5 / 72 * dpi))
+            assert image.getpixel(corner)[:3] == (255, 255, 255)
+            dpi_cases.append({'dpi': dpi, 'size': list(image.size), 'physicalSquarePosition': True})
+    if data.get('dpiOutputs'):
+        assert [entry['dpi'] for entry in dpi_cases] == [150, 300, 600]
+        assert dpi_cases[-1]['size'][0] * dpi_cases[-1]['size'][1] > 16 * 1024 * 1024
     result = {'status': 'PASS', 'mode': 'headless-raster', 'createdSpoolJob': False,
               'independentEngine': 'pypdf + Pillow + Poppler', 'cases': cases,
+              'explicitDpiCases': dpi_cases,
               'checks': ['production BGRA printing buffer and RGB channel order', '300dpi source dimensions',
                          'original page order and intrinsic rotation', 'Multiply fragment color appearance'],
               'scope': 'No printer dialog, GDI submission or physical output was validated by this headless check.'}

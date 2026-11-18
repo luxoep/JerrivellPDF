@@ -15,7 +15,9 @@ export function DeferredDialog({ children, onCancel }: { children: ReactNode; on
     const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => setReady(true)); });
     return () => { cancelAnimationFrame(first); if (second) cancelAnimationFrame(second); };
   }, []);
-  if (ready) return children;
+  // Do not restart the backdrop fade when the lightweight shell is replaced.
+  // display:contents preserves the real dialog's original layout and focus tree.
+  if (ready) return <div className="deferred-dialog-ready">{children}</div>;
   return <div className="modal-backdrop deferred-dialog-backdrop" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); onCancel(); } else if (event.ctrlKey || event.metaKey) event.preventDefault(); }}>
     <section ref={shell} className="modal deferred-dialog-shell" tabIndex={-1} role="dialog" aria-modal="true" aria-label={t('正在准备预览', 'Preparing preview')}>
       <LoaderCircle className="spin" size={22}/><p role="status">{t('正在准备预览…', 'Preparing preview…')}</p>

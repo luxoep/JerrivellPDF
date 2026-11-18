@@ -240,7 +240,77 @@
   animation: jerrivell-dialog-enter 170ms cubic-bezier(.2, .75, .25, 1);
   opacity: 1;
   transform: none;
-  box-shadow: 0 20px 64px #192d3b24;
+  box-shadow: 0 14px 36px #192d3b24;
+}
+
+/* Reveal a stationary opaque surface using a separate, non-interactive veil.
+   The PDF/canvas ancestor itself never fades, scales, blurs or moves. This avoids
+   the old page showing through a composited PDF during dialog entry. The veil
+   expires after one short animation; no JS frame loop or permanent will-change. */
+.modal-backdrop > .modal,
+.modal-backdrop > .print-dialog,
+.dt-backdrop > .dt-modal,
+.image-workbench-backdrop > .image-workbench {
+  position: relative;
+}
+
+.oe-panel::after,
+.original-editor::after,
+.modal-backdrop > .modal:not(.deferred-dialog-shell)::after,
+.modal-backdrop > .print-dialog::after,
+.dt-backdrop > .dt-modal::after,
+.image-workbench-backdrop > .image-workbench::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  border-radius: inherit;
+  background: #fffdf6;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  animation: jerrivell-surface-reveal 180ms cubic-bezier(.16, .8, .25, 1);
+}
+
+/* Only preview-free chrome moves. Preview and reader bounds stay fixed, so
+   these entrances cannot trigger viewport fitting or native PDF re-renders. */
+.oe-header,
+.oe-tabs,
+.oc-header,
+.dt-header,
+.dt-tabs,
+.print-heading,
+.mark-toolbar,
+.modal-symbol,
+.modal h2,
+.modal-description,
+.oe-scroll > .oe-section > h3,
+.oe-scroll > .oe-section > .oe-field,
+.oe-scroll > .oe-section > .oe-fields,
+.oe-scroll > .oe-section > .oe-button-row,
+.oc-section > h3,
+.oc-section > .oc-field,
+.oc-section > .oc-fields,
+.image-workbench-options > .oe-field,
+.image-workbench-options > .dt-field,
+.image-workbench-options > .image-mode-buttons,
+.page-tools-fields > .dt-field,
+.line-fields > .dt-field,
+.print-settings > fieldset {
+  animation: jerrivell-controls-enter 170ms cubic-bezier(.16, .8, .25, 1);
+}
+
+/* A full preview replaces this shell after two paint opportunities. Suppress a
+   second backdrop fade, and show the small loader only for a genuinely slow
+   preparation instead of flashing it during every fast open. */
+.deferred-dialog-ready { display: contents; }
+.deferred-dialog-ready > .modal-backdrop,
+.deferred-dialog-ready > .dt-backdrop,
+.deferred-dialog-ready > .image-workbench-backdrop {
+  animation: none;
+}
+.modal-backdrop > .deferred-dialog-shell {
+  animation: jerrivell-deferred-status 100ms ease-out 90ms backwards;
 }
 
 .print-dialog {
@@ -380,8 +450,23 @@
 /* Opaque, stationary surfaces prevent the page behind from showing through
    at 100%, including during the very first animation frame. */
 @keyframes jerrivell-dialog-enter {
-  from { box-shadow: 0 4px 12px #192d3b0d; }
-  to { box-shadow: 0 20px 64px #192d3b24; }
+  from { border-color: #d4d0c4; }
+  to { border-color: #dbd3c0; }
+}
+
+@keyframes jerrivell-surface-reveal {
+  from { opacity: 1; visibility: visible; }
+  to { opacity: 0; visibility: visible; }
+}
+
+@keyframes jerrivell-controls-enter {
+  from { opacity: .25; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes jerrivell-deferred-status {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .windows-settings-modal { width: 520px; padding: 28px; }
 .windows-settings-modal .modal-symbol { margin-bottom: 15px; }
@@ -450,5 +535,33 @@
   .floating-navigation .rail-button,
   .panel-tabs > button {
     transition: none;
+  }
+
+  /* No hidden waiting period or ornamental entrance in reduced-motion mode. */
+  .oe-panel::after,
+  .original-editor::after,
+  .modal-backdrop > .modal:not(.deferred-dialog-shell)::after,
+  .modal-backdrop > .print-dialog::after,
+  .dt-backdrop > .dt-modal::after,
+  .image-workbench-backdrop > .image-workbench::after {
+    animation: none;
+    content: none;
+  }
+
+  .oe-header, .oe-tabs, .oc-header, .dt-header, .dt-tabs, .print-heading,
+  .mark-toolbar, .modal-symbol, .modal h2, .modal-description,
+  .oe-scroll > .oe-section > h3,
+  .oe-scroll > .oe-section > .oe-field,
+  .oe-scroll > .oe-section > .oe-fields,
+  .oe-scroll > .oe-section > .oe-button-row,
+  .oc-section > h3, .oc-section > .oc-field, .oc-section > .oc-fields,
+  .image-workbench-options > .oe-field,
+  .image-workbench-options > .dt-field,
+  .image-workbench-options > .image-mode-buttons,
+  .page-tools-fields > .dt-field,
+  .line-fields > .dt-field,
+  .print-settings > fieldset,
+  .modal-backdrop > .deferred-dialog-shell {
+    animation: none;
   }
 }

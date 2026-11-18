@@ -96,7 +96,13 @@ for (const width of widths) {
   await promise; await flush();
 }
 assert.equal(quantized.size, 2); assert.equal(zoomNativeCalls, 2);
-assert.equal(view.rasterTargetWidth(9999, 2), 2400);
+for (const paper of [{width:595,height:842,rotation:0},{width:842,height:595,rotation:0},{width:595,height:842,rotation:90},{width:100,height:4000,rotation:0}]) {
+  const size=view.visiblePageSize(paper),target=view.rasterTargetWidth(9999,4,paper),height=Math.round(target*size.height/size.width);
+  assert.ok(target<=8192 && height<=8192 && target*height<=view.READER_PIXEL_BUDGET,'High-DPI targets obey both native side and decoded pixel budgets');
+}
+assert.ok(view.rasterTargetWidth(1600,2,{width:595,height:842,rotation:0})>=3200,'Zoom must obtain native detail beyond the previous 2400px ceiling');
+assert.ok(view.rasterTargetWidth(1200,3,{width:595,height:842,rotation:0})>=3600,'A 3x display is not reduced to 1.5x');
+assert.ok(view.rasterTargetWidth(1000,1)>=2000,'Initial reading supersamples small vector text');
 backend.clearRenderCache(); assert.equal(backend.renderDiagnostics().estimatedCacheBytes, 0);
 
 const objectLayers = { lower: image, moving: image, upper: image, foreground: [] };

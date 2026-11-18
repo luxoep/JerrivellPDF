@@ -115,7 +115,10 @@ assert.equal(walk(tree, node => node.props?.role === 'dialog')[0].props.ref.curr
 assert.equal(frames.size, 1);
 runFrame(); tree = deferred.render(); assert.notEqual(tree, heavy, 'One frame is not enough to mount the expensive children');
 assert.equal(frames.size, 1);
-runFrame(); assert.equal(deferred.render(), heavy); assert.equal(frames.size, 0);
+runFrame(); tree = deferred.render();
+assert.equal(tree.props.className, 'deferred-dialog-ready');
+assert.equal(tree.props.children, heavy, 'Ready content keeps its identity inside a layout-free host');
+assert.equal(frames.size, 0);
 deferred.unmount(); assert.equal(deferred.owner.lateUpdates, 0);
 
 // Cancellation can happen before either scheduled frame; neither may commit late.

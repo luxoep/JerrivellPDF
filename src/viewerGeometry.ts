@@ -9,7 +9,17 @@ export interface ViewAnchor { id: string; x: number; y: number; viewportX: numbe
 export const VIEW_MARGIN = 24;
 export const PAGE_GAP = 44;
 export const clampZoom = (value: number) => Math.max(25, Math.min(400, Number.isFinite(value) ? value : 100));
-export const rasterTargetWidth = (width: number, pixelRatio = 1) => Math.min(2400, Math.ceil(width * Math.min(pixelRatio || 1, 1.5) / 64) * 64);
+export const READER_PIXEL_BUDGET = 32 * 1024 * 1024;
+/** Supersample small text, honor high-DPI monitors and stay within native bounds.
+ * Round resolution up in buckets; exact CSS geometry never depends on this. */
+export function rasterTargetWidth(width: number, pixelRatio = 1, page?: Pick<WorkspacePage, 'width' | 'height' | 'rotation'>): number {
+  const size = page ? visiblePageSize(page) : { width: 1, height: 1 };
+  const aspect = size.height / size.width;
+  const density = Math.max(2, Math.min(4, Number.isFinite(pixelRatio) ? pixelRatio : 1));
+  let maximum = Math.max(1, Math.floor(Math.min(8192, 8192 / aspect, Math.sqrt(READER_PIXEL_BUDGET / aspect))) - 1);
+  while (maximum > 1 && maximum * Math.max(1, Math.round(maximum * aspect)) > READER_PIXEL_BUDGET) maximum--;
+  return Math.min(maximum, Math.max(1, Math.ceil(Math.max(1, width) * density / 128) * 128));
+}
 
 export function visiblePageSize(page: Pick<WorkspacePage, 'width' | 'height' | 'rotation'>) {
   return page.rotation % 180 === 90 ? { width: page.height, height: page.width } : { width: page.width, height: page.height };
