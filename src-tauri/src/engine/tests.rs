@@ -282,3 +282,4 @@ fn bounded_writer_refuses_output_before_exceeding_limit() {
 mod assets;
 mod operations;
 mod pdf_stamp;
+mod preview;

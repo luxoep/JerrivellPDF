@@ -27,7 +27,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, Wrench, X, } from 'lucide-react';
-import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, resetBackendQueue, sessionInvalidatedEvent } from './backend';
+import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, resetBackendQueue, sessionInvalidatedEvent, stageImageAsset } from './backend';
 import type { BackendStatus, DocumentInfo, PageOverlay, SearchMatch, WorkspaceMatch, WorkspacePage } from './types';
 type Panel = 'pages' | 'search';
 type ExportRequest = { parts: ExportPart[]; saveWorkspace: boolean; resolve: (value: boolean) => void };
@@ -152,7 +152,8 @@ function AppWorkspace() {
     const editorBusyRef = useRef(false);
     const closingRef = useRef(false);
     const live = useRef({ pages, sources, dirty: false });
-    const dirty = pages.length > 0 && signature(pages) !== savedSignature;
+    const workspaceSignature = useMemo(() => signature(pages), [pages]);
+    const dirty = pages.length > 0 && workspaceSignature !== savedSignature;
     live.current = { pages, sources, dirty };
     const totalBytes = sources.reduce((sum, source) => sum + source.fileSize, 0);
     const warnings = sources.flatMap((source) => source.warnings.map((message) => ({ source: source.fileName, message })));
@@ -272,11 +273,15 @@ function AppWorkspace() {
     };
     useEffect(() => { setPageInput(String(activeIndex + 1)); }, [activeIndex]);
     useEffect(() => { setOriginalSelected(''); }, [activeId]);
+    const pageOrderKey = useMemo(() => JSON.stringify(pages.map(page => page.id)), [pages]);
     useEffect(() => {
         if (!pages.some((page) => page.id === activeId) && pages.length)
             navigateToId(pages[Math.min(activeIndex, pages.length - 1)].id);
-        setSelection((existing) => new Set([...existing].filter((id) => pages.some((page) => page.id === id))));
-    }, [pages]);
+        setSelection((existing) => {
+            const ids = new Set(pages.map(page => page.id));
+            return [...existing].every(id => ids.has(id)) ? existing : new Set([...existing].filter(id => ids.has(id)));
+        });
+    }, [pageOrderKey]);
     const commit = useCallback((next: WorkspacePage[]) => {
         setHistory((previous) => {
             const entries = [...previous.entries.slice(0, previous.cursor + 1), next].slice(-60);
@@ -626,22 +631,31 @@ function AppWorkspace() {
     const displayedWidth = currentPage ? fittedPageWidth(currentPage, viewerSize, zoom) : 595;
     const zoomPercent = Math.round(displayedWidth / pageDimensions.width * 100);
     const changeZoom = useCallback((delta: number) => setZoom(clampZoom(Math.round((zoomPercent + delta) / 10) * 10)), [zoomPercent]);
-    const addDrawnMark = async (pageId: string, mark: MarkGeometry, settings: MarkSettings) => {
+    const addDrawnMark = (pageId: string, mark: MarkGeometry, settings: MarkSettings) => {
         if (busyRef.current) return;
         const page = live.current.pages.find(item => item.id === pageId);
         if (!page) return;
         if ((page.overlays?.length ?? 0) >= 30) { notify(t('当前页面最多添加 30 个内容对象。', 'A page can contain up to 30 added objects.'), 'error'); return; }
-        busyRef.current = true;
-        setBusy(t('正在添加标记…', 'Adding mark…'));
         try {
-            const asset = await backend<{ id: string }>('register_image', { dataUrl: createMarkPng(mark, settings.color) }, 3);
-            const target = live.current.pages.find(item => item.id === pageId);
-            if (!target) return;
+            const asset = stageImageAsset(createMarkPng(mark, settings.color));
             const overlay: PageOverlay = { id: nextId(), assetId: asset.id, ...mark.bounds, opacity: settings.opacity, rotation: 0, blendMode: settings.tool === 'highlight' ? 'multiply' : 'normal' };
-            updatePageOverlays(pageId, [...(target.overlays ?? []), overlay]);
+            updatePageOverlays(pageId, [...(page.overlays ?? []), overlay]);
             setActiveOverlayId(overlay.id);
+            void asset.registered.catch(error => {
+                if (errorMessage(error) === cancelledRequest) return;
+                // Registration failure rolls back every undo/redo reference to
+                // the failed image; it must never produce an unsavable document.
+                setHistory(previous => {
+                    let changed = false;
+                    const entries = previous.entries.map(snapshot => snapshot.map(item => {
+                        if (!item.overlays?.some(value => value.assetId === asset.id)) return item;
+                        changed = true; return { ...item, overlays: item.overlays.filter(value => value.assetId !== asset.id) };
+                    }));
+                    return changed ? { ...previous, entries } : previous;
+                });
+                notify(t(`标记未能保存，已撤回本次标记：${errorMessage(error)}`, `The mark could not be stored and was rolled back: ${errorMessage(error)}`), 'error');
+            });
         } catch (error) { notify(errorMessage(error), 'error'); }
-        finally { busyRef.current = false; setBusy(''); }
     };
     const duplicateMark = () => {
         if (busyRef.current || !currentPage) return;
@@ -723,6 +737,7 @@ function AppWorkspace() {
                 return;
             }
             const editing = event.target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable || Boolean(event.target.closest('.overlay-editor, .original-editor')));
+            const fieldOwnsHistory = editing && !(event.target instanceof HTMLInputElement && event.target.type === 'range' && event.target.closest('.mark-toolbar'));
             const modifier = event.ctrlKey || event.metaKey;
             if (modifier && event.key.toLowerCase() === 'o') {
                 event.preventDefault();
@@ -741,11 +756,11 @@ function AppWorkspace() {
                 setPanel('search'); setSidebarCollapsed(false);
                 window.setTimeout(() => searchField.current?.focus(), 30);
             }
-            else if (!editing && modifier && event.key.toLowerCase() === 'z') {
+            else if (!fieldOwnsHistory && modifier && event.key.toLowerCase() === 'z') {
                 event.preventDefault();
                 event.shiftKey ? redo() : undo();
             }
-            else if (!editing && modifier && event.key.toLowerCase() === 'y') {
+            else if (!fieldOwnsHistory && modifier && event.key.toLowerCase() === 'y') {
                 event.preventDefault();
                 redo();
             }
@@ -828,7 +843,7 @@ function AppWorkspace() {
       <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
       <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
       <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={21}/><span>{t('工具', 'Tools')}</span></button>
-      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.6.0</div></div>
+      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.6.1</div></div>
     </aside>
 
     <div className="app-main">
@@ -864,10 +879,10 @@ function AppWorkspace() {
           </aside>
           <main className="reader"><div className="reader-top"><button className="icon-button small sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')} title={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button><span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
             {markOpen && <MarkToolbar settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
-            <PdfViewer pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading) => {
+            <PdfViewer pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
                 const dimensions = visiblePageSize(page);
                 return <>
-                    {(editorOpen || markOpen && markSettings.tool === 'select') && <OverlayHandles key={`overlay-${page.id}`} overlays={page.overlays ?? []} freeResize={markOpen} selectedId={page.id === activeId ? activeOverlayId : ''} onSelect={id => { setActiveId(page.id); setActiveOverlayId(id); }} pageWidth={dimensions.width} pageHeight={dimensions.height} onChange={next => updatePageOverlays(page.id, next)} disabled={!!busy || !ready || loading}/>}
+                    {(editorOpen || markOpen && markSettings.tool === 'select') && <OverlayHandles key={`overlay-${page.id}`} overlays={page.overlays ?? []} freeResize={markOpen} selectedId={page.id === activeId ? activeOverlayId : ''} onSelect={id => { setActiveId(page.id); setActiveOverlayId(id); }} pageWidth={dimensions.width} pageHeight={dimensions.height} onChange={next => updatePageOverlays(page.id, next)} onPreview={onPreview} disabled={!!busy || !ready || loading}/>}
                     {markOpen && markSettings.tool !== 'select' && <MarkLayer key={`mark-${page.id}`} settings={markSettings} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={!!busy || !ready || loading} onBegin={() => { setActiveId(page.id); setActiveOverlayId(''); }} onComplete={(mark, settings) => void addDrawnMark(page.id, mark, settings)}/>}
                     {originalOpen && page.id === currentPage.id && <OriginalContentHandles key={currentPage.id} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={dimensions.width} pageHeight={dimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !ready || loading || originalLoading || !visibleOriginal}/>}
                 </>;

@@ -14,6 +14,7 @@ mod assets;
 mod content;
 mod export;
 mod operations;
+mod preview;
 use assets::ImageAsset;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -692,6 +693,11 @@ impl<'a> PdfEngine<'a> {
             "render_page" => {
                 let p: Render = parse(&request.args)?;
                 self.render_page(&p.page, p.target_width).map(|v| json!(v))
+            }
+            "render_page_layers" => {
+                let p: Render = parse(&request.args)?;
+                self.render_page_layers(&p.page, p.target_width)
+                    .map(|v| json!(v))
             }
             "search_document" => {
                 let p: Search = parse(&request.args)?;

@@ -6,6 +6,9 @@
 .continuous-page>.pdf-sheet{width:100%;height:100%;user-select:none}
 .continuous-page>.under-page-label{height:24px;line-height:24px;margin:6px 0 0;text-align:center;font-size:10px;pointer-events:none}
 .pdf-page-image{pointer-events:none}
+.live-page-image{display:block;width:100%;height:100%;pointer-events:none;isolation:isolate}
+.page-refresh-status{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center;max-width:80%;padding:6px 9px;background:#fffffff0;color:#82768f;border:1px solid #e5dfea;border-radius:5px;font-size:10px;z-index:5;pointer-events:none}
+.page-refresh-status.error{color:#a34848;background:#fff1f0f5}
 .mark-toolbar{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:7px 14px;padding:9px 39px 7px 14px;background:#fff;border-bottom:1px solid #e3e4ed;flex:none;color:#696378;font-size:11px}
 .mark-tool-buttons,.mark-style-controls{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .mark-tool{height:29px;min-width:29px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid transparent;border-radius:5px;color:#7d748d;font-size:10px;white-space:nowrap}

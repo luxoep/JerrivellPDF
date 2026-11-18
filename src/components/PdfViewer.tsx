@@ -2,48 +2,55 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { CircleAlert, LoaderCircle } from 'lucide-react';
-import { usePageImage } from '../usePageImage';
+import { usePageLayers } from '../usePageLayers';
+import { LivePageImage } from './LivePageImage';
 import { useI18n } from '../i18n';
 import { buildDocumentLayout, captureViewAnchor, pageAtPosition, restoreViewAnchor, visiblePageSize, wheelZoom } from '../viewerGeometry';
 import type { ViewAnchor, ViewerZoom, ViewportSize } from '../viewerGeometry';
-import type { WorkspacePage } from '../types';
+import type { PageOverlay, WorkspacePage } from '../types';
 import './reader-experience.css';
 
 function PageRaster({ page, width, index, total, controls, onActivate }: {
   page: WorkspacePage; width: number; index: number; total: number;
-  controls: (page: WorkspacePage, ready: boolean, loading: boolean) => ReactNode; onActivate: (id: string) => void;
+  controls: PageControls; onActivate: (id: string) => void;
 }) {
   const { t } = useI18n();
   const targetWidth = Math.min(2400, Math.round(width * Math.min(window.devicePixelRatio || 1, 1.5)));
-  const { image, error, loading } = usePageImage(page, targetWidth, true);
-  return <><div className={`pdf-sheet ${loading ? 'is-loading' : ''}`} onPointerDownCapture={() => onActivate(page.id)}>
-    {image ? <img className="pdf-page-image" src={image.dataUrl} alt={t(`文档第 ${index + 1} 页`, `Document page ${index + 1}`)} draggable={false}/> : error ? <div className="page-placeholder error"><CircleAlert size={28}/><h3>{t('这一页未能加载', 'This page could not be loaded')}</h3><p>{t(error)}</p></div> : <div className="page-placeholder"><LoaderCircle size={27} className="spin"/><p>{t(`正在呈现第 ${index + 1} 页`, `Rendering page ${index + 1}`)}</p></div>}
-    {controls(page, Boolean(image) && !error, loading)}
+  const { layers, error, loading, refreshing } = usePageLayers(page, targetWidth, true);
+  const [placement, setPlacement] = useState<PageOverlay | null>(null);
+  return <><div className="pdf-sheet" aria-busy={loading || refreshing} onPointerDownCapture={() => onActivate(page.id)}>
+    {layers ? <LivePageImage page={page} layers={layers} placement={placement} label={t(`文档第 ${index + 1} 页`, `Document page ${index + 1}`)}/> : error ? <div className="page-placeholder error"><CircleAlert size={28}/><h3>{t('这一页未能加载', 'This page could not be loaded')}</h3><p>{t(error)}</p></div> : <div className="page-placeholder"><LoaderCircle size={27} className="spin"/><p>{t(`正在呈现第 ${index + 1} 页`, `Rendering page ${index + 1}`)}</p></div>}
+    {layers && error && <div className="page-refresh-status error" role="alert"><CircleAlert size={13}/>{t(error)}</div>}
+    {layers && loading && !error && <div className="page-refresh-status" role="status"><LoaderCircle size={13} className="spin"/>{t('正在更新页面内容…', 'Updating page content…')}</div>}
+    {controls(page, Boolean(layers) && !error, loading, setPlacement)}
   </div><div className="under-page-label">{String(index + 1).padStart(2, '0')} <span>/</span> {String(total).padStart(2, '0')}</div></>;
 }
 
 export interface PageNavigation { id: string; sequence: number }
+type PageControls = (page: WorkspacePage, ready: boolean, loading: boolean, onPreview: (placement: PageOverlay | null) => void) => ReactNode;
 
 /** Exact-size virtual pages preserve native wheel scrolling without rendering the entire PDF. */
 export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false }: {
   pages: WorkspacePage[]; zoom: ViewerZoom; navigation: PageNavigation | null;
   onZoom: (zoom: ViewerZoom) => void; onSize: (size: ViewportSize) => void;
-  onActiveChange: (id: string) => void; controls: (page: WorkspacePage, ready: boolean, loading: boolean) => ReactNode;
+  onActiveChange: (id: string) => void; controls: PageControls;
   interactionBlocked?: boolean;
 }) {
   const { t } = useI18n();
   const viewport = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<ViewportSize>({ width: 800, height: 600 });
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
-  const layout = useMemo(() => buildDocumentLayout(pages, size, zoom), [pages, size, zoom]);
+  const geometryKey = useMemo(() => JSON.stringify(pages.map(page => [page.id, page.width, page.height, page.rotation])), [pages]);
+  const geometryPages = useMemo(() => pages, [geometryKey]);
+  const layout = useMemo(() => buildDocumentLayout(geometryPages, size, zoom), [geometryPages, size, zoom]);
   const previous = useRef({ layout, size });
   const zoomAnchor = useRef<ViewAnchor | null>(null);
   const navigationSequence = useRef(-1);
   const navigationPosition = useRef<{ id: string; top: number } | null>(null);
   const frame = useRef(0);
   const reportedId = useRef('');
-  const latest = useRef({ layout, zoom, onZoom, onActiveChange, interactionBlocked });
-  latest.current = { layout, zoom, onZoom, onActiveChange, interactionBlocked };
+  const latest = useRef({ pages, layout, zoom, onZoom, onActiveChange, interactionBlocked });
+  latest.current = { pages, layout, zoom, onZoom, onActiveChange, interactionBlocked };
   const reportScroll = () => {
     const surface = viewport.current;
     if (!surface) return;
@@ -106,7 +113,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
       const anchor = captureViewAnchor(latest.current.layout, { left: surface.scrollLeft, top: surface.scrollTop }, point);
       if (!anchor) return;
       const row = latest.current.layout.pages.find(page => page.id === anchor.id)!;
-      const source = pages.find(page => page.id === anchor.id);
+      const source = latest.current.pages.find(page => page.id === anchor.id);
       if (!source) return;
       const current = typeof latest.current.zoom === 'number' ? latest.current.zoom : row.width / visiblePageSize(source).width * 100;
       const next = wheelZoom(current, event.deltaY, event.deltaMode);
@@ -114,7 +121,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     };
     surface.addEventListener('wheel', handleWheel, { passive: false });
     return () => surface.removeEventListener('wheel', handleWheel);
-  }, [pages]);
+  }, []);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
   const visibleRows = layout.pages.filter(row => row.top + row.height >= scroll.top - 650 && row.top <= scroll.top + size.height + 650);
   return <div ref={viewport} className="page-viewport continuous-viewport" role="region" aria-label={t('PDF 连续阅读视口，Ctrl 加滚轮缩放', 'Continuous PDF reader; Ctrl plus wheel zooms')} tabIndex={0}

@@ -104,6 +104,20 @@ async fn render_page(
 }
 
 #[tauri::command]
+async fn render_page_layers(
+    state: State<'_, Backend>,
+    page: PageRef,
+    target_width: u32,
+) -> Result<RenderedPageLayers, String> {
+    call(
+        state,
+        "render_page_layers",
+        json!({"page": page, "targetWidth": target_width}),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn search_document(
     state: State<'_, Backend>,
     document_id: String,
@@ -339,6 +353,7 @@ pub fn run() {
             print_document,
             open_document,
             render_page,
+            render_page_layers,
             search_document,
             search_pages,
             inspect_page_content,

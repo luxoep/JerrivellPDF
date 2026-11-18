@@ -20,9 +20,10 @@ type Gesture = { id: string; kind: 'move' | 'resize'; startX: number; startY: nu
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /** Placement gestures commit once on release so one drag is one undo action. */
-export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth, pageHeight, selectedId, onSelect, freeResize = false }: {
+export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth, pageHeight, selectedId, onSelect, freeResize = false, onPreview }: {
   overlays: Placement[];
   onChange: (next: Placement[]) => void;
+  onPreview?: (placement: Placement | null) => void;
   disabled?: boolean;
   pageWidth?: number;
   pageHeight?: number;
@@ -50,6 +51,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
     gesture.current = { id: item.id, kind, original: item, preview: item, startX: event.clientX, startY: event.clientY, bounds, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     setPreview(item);
+    onPreview?.(item);
   };
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const current = gesture.current;
@@ -74,6 +76,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
     }
     current.preview = next;
     setPreview(next);
+    onPreview?.(next);
   };
   const finish = (event: PointerEvent<HTMLDivElement>, cancel = false) => {
     const current = gesture.current;
@@ -81,6 +84,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
     event.stopPropagation();
     gesture.current = null;
     setPreview(null);
+    onPreview?.(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (!cancel && !disabled && overlays.some(item => item.id === current.id && !item.locked)) {
       const next = current.preview;
@@ -115,7 +119,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
           }
         }}>
         <span className="overlay-item-number">{index + 1}</span>
-        {!disabled && !item.locked && <div className="overlay-resize-handle" title={freeResize ? t('拖动调整宽高，Shift 保持比例', 'Drag to resize; Shift keeps proportions') : t('拖动等比调整大小', 'Drag to resize proportionally')}
+        {!disabled && !item.locked && <div className="overlay-resize-handle" tabIndex={0} title={freeResize ? t('拖动调整宽高，Shift 保持比例', 'Drag to resize; Shift keeps proportions') : t('拖动等比调整大小', 'Drag to resize proportionally')}
           onPointerDown={event => begin(event, item, 'resize')} onPointerMove={move}
           onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} />}
       </div>;

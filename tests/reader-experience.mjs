@@ -126,7 +126,8 @@ const viewerModule = load('../src/components/PdfViewer.tsx', {
     if (name === 'react/jsx-runtime') return jsx;
     if (name === 'lucide-react') return { CircleAlert: 'CircleAlert', LoaderCircle: 'LoaderCircle' };
     if (name === '../viewerGeometry') return view;
-    if (name === '../usePageImage') return { usePageImage() { throw new Error('Offscreen viewer test must not request real rasters'); } };
+    if (name === '../usePageLayers') return { usePageLayers() { throw new Error('Offscreen viewer test must not request real rasters'); } };
+    if (name === './LivePageImage') return {};
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
     if (name.endsWith('.css')) return {};
     throw new Error(name);
@@ -144,6 +145,12 @@ function renderViewer() {
 }
 let viewerTree = renderViewer(); resizeCallback(); viewerTree = renderViewer(); viewerTree = renderViewer();
 assert.equal(viewport.scrollTop, 0, 'The first real viewport measurement must not crop the top of the opening page');
+viewport.scrollTop = 123.25; viewport.scrollLeft = 17.5;
+viewerProps.pages = viewerProps.pages.map((item,index) => index === 0 ? { ...item, overlays: [{ id: 'instant-mark', assetId: 'local', x: .1, y: .2, width: .2, height: .1, opacity: .5 }] } : item);
+renderViewer();
+near(viewport.scrollTop,123.25,'A mark edit must not write or round the reader scroll position');
+near(viewport.scrollLeft,17.5,'A mark edit must not move the horizontal scroll');
+viewport.scrollTop=0;viewport.scrollLeft=0;
 assert.equal(viewportOptions.get('wheel').passive, false, 'Ctrl+wheel must be cancellable');
 let prevented = false;
 const wheel = { ctrlKey: false, metaKey: false, deltaY: 120, deltaMode: 0, clientX: 400, clientY: 250, buttons: 0, preventDefault() { prevented = true; } };
@@ -169,7 +176,7 @@ const thumbnailModule = load('../src/components/PageThumbnails.tsx', {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return jsx;
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
-    if (name === '../usePageImage') return {};
+    if (name === '../usePageLayers' || name === './LivePageImage') return {};
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
     throw new Error(name);
   },

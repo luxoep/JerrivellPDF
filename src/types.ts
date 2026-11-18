@@ -67,6 +67,11 @@ export interface RenderedPage {
   height: number;
 }
 
+export interface RenderedPageLayers {
+  background: RenderedPage;
+  foreground: { image: RenderedPage; blendMode: 'normal' | 'multiply' }[];
+}
+
 export interface BackendStatus {
   engineReady: boolean;
   engineVersion?: string;

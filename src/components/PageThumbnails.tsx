@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent, PointerEvent } from 'react';
 import { Check, CircleAlert, FileText, GripVertical, LoaderCircle, Plus } from 'lucide-react';
-import { usePageImage } from '../usePageImage';
+import { usePageLayers } from '../usePageLayers';
+import { LivePageImage } from './LivePageImage';
 import { useI18n } from '../i18n';
 import type { WorkspacePage } from '../types';
 
@@ -19,13 +20,13 @@ function Thumbnail({ page, index, active, checked, busy, dragged, onSelect, onTo
     if (root.current) observer.observe(root.current);
     return () => observer.disconnect();
   }, []);
-  const { image, loading, error } = usePageImage(page, 154, visible, true);
+  const { layers, loading, error } = usePageLayers(page, 154, visible, true);
   const landscape = page.rotation % 180 === 90 ? page.height > page.width : page.width > page.height;
   const pointerProps = { onPointerDown: (event: PointerEvent<HTMLButtonElement>) => gesture.begin(event, page.id), onPointerMove: gesture.move, onPointerUp: (event: PointerEvent<HTMLButtonElement>) => gesture.finish(event), onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => gesture.finish(event, true), onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => gesture.finish(event, true) };
   return <div ref={root} data-thumbnail-id={page.id} className={`thumbnail-item ${active ? 'is-active' : ''} ${checked ? 'is-selected' : ''} ${dragged ? 'is-being-dragged' : ''}`}>
     <button className={`thumbnail-check ${checked ? 'checked' : ''}`} title={checked ? t(`取消选择第 ${index + 1} 页`, `Deselect page ${index + 1}`) : t(`选择第 ${index + 1} 页`, `Select page ${index + 1}`)} aria-label={checked ? t(`取消选择第 ${index + 1} 页`, `Deselect page ${index + 1}`) : t(`选择第 ${index + 1} 页`, `Select page ${index + 1}`)} aria-pressed={checked} onClick={onToggle} disabled={busy}>{checked && <Check size={11} strokeWidth={3}/>}</button>
     <button className="thumbnail-button" {...pointerProps} onClick={event => { if (!gesture.suppressClick()) onSelect(event); }} aria-label={t(`转到第 ${index + 1} 页`, `Go to page ${index + 1}`)} aria-current={active ? 'page' : undefined} disabled={busy}>
-      <div className={`thumbnail-sheet ${landscape ? 'landscape' : ''}`}>{image ? <img src={image.dataUrl} alt={t(`第 ${index + 1} 页缩略图`, `Page ${index + 1} thumbnail`)} draggable={false}/> : error ? <CircleAlert size={18}/> : loading ? <LoaderCircle className="spin" size={18}/> : <FileText size={22} strokeWidth={1}/>}</div>
+      <div className={`thumbnail-sheet ${landscape ? 'landscape' : ''}`}>{layers ? <LivePageImage page={page} layers={layers} label={t(`第 ${index + 1} 页缩略图`, `Page ${index + 1} thumbnail`)}/> : error ? <CircleAlert size={18}/> : loading ? <LoaderCircle className="spin" size={18}/> : <FileText size={22} strokeWidth={1}/>}</div>
       <span className="thumbnail-number">{String(index + 1).padStart(2, '0')}<span className="thumbnail-current-dot"/></span>
     </button>
     <button className="thumbnail-grip" {...pointerProps} aria-label={t(`拖动第 ${index + 1} 页调整顺序`, `Drag page ${index + 1} to reorder`)} title={t('拖动排序；多选后可一起移动，也可使用 Alt + 方向键', 'Drag to reorder; selected pages move together. Alt + arrows also reorders.')} disabled={busy} onClick={() => gesture.suppressClick()}><GripVertical size={14}/></button>

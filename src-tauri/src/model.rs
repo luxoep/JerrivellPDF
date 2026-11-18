@@ -233,6 +233,20 @@ pub struct RenderedPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RenderedPageLayers {
+    pub background: RenderedPage,
+    pub foreground: Vec<RenderedPreviewLayer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedPreviewLayer {
+    pub image: RenderedPage,
+    pub blend_mode: OverlayBlendMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub page_index: u32,
     pub match_count: usize,
