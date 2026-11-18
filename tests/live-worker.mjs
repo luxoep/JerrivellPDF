@@ -45,6 +45,13 @@ try{
   const page={documentId:doc.id,pageIndex:0,rotation:0};
   const base=await api.renderPageLayers(page,800),thumb=await api.renderPageLayers(page,154,true);
   assert.ok(base.foreground.length);const initialRasterCalls=calls.filter(call=>call.command==='render_page_layers').length;
+  // An asset is usable only when both the native worker AND the live reader
+  // know it. Saving alone cannot detect a fragment that vanishes in the UI.
+  const fragment=await api.backend('import_pdf_stamp',{path:join(root,'fixtures/second.pdf'),pageIndex:0,crop:{x:.1,y:.1,width:.7,height:.4},removeWhiteBackground:false,trimTransparentMargins:true});
+  assert.equal('image' in fragment,false,'PdfStampInfo has a flat serialized image contract');
+  assert.equal(fragment.pageCount,2);
+  assert.ok(api.previewImageAsset(fragment.id),'PDF fragments must enter the same live preview cache as imported and generated images');
+  assert.equal(hash(api.previewImageAsset(fragment.id).dataUrl),hash(fragment.dataUrl));
   const yellow=api.stageImageAsset(solid(255,220,0)),green=api.stageImageAsset(solid(20,180,80));
   const plan={...page,overlays:[{id:'highlight',assetId:yellow.id,x:.15,y:.155,width:.45,height:.035,opacity:.35,rotation:0,blendMode:'multiply'},{id:'block',assetId:green.id,x:.55,y:.4,width:.12,height:.08,opacity:1,rotation:90,blendMode:'normal'}]};
   const exportPromise=api.backend('prepare_export',{parts:[{name:'immediate.pdf',pages:[api.pageReference(plan)]}]},3);

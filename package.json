@@ -1,7 +1,7 @@
 {
   "name": "jerrivell-pdf",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "license": "GPL-3.0-or-later",
   "scripts": {
@@ -12,7 +12,9 @@
     "setup:pdfium": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-pdfium.ps1",
     "check": "tsc -b",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "build:desktop": "tauri build --bundles nsis"
+    "test:frontend": "node scripts/test-frontend.mjs",
+    "test:integration": "node scripts/test-integrations.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",

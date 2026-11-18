@@ -843,7 +843,7 @@ function AppWorkspace() {
       <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
       <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
       <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={21}/><span>{t('工具', 'Tools')}</span></button>
-      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.6.1</div></div>
+      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.6.2</div></div>
     </aside>
 
     <div className="app-main">

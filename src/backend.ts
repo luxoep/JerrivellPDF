@@ -35,8 +35,7 @@ function enqueue<T>(command: string, args: Record<string, unknown> | undefined, 
         try {
           const value = await invoke<T>(command, args);
           if (generation === requestGeneration) {
-            if (['register_image', 'import_image'].includes(command)) rememberImage(value);
-            if (command === 'import_pdf_stamp') rememberImage((value as { image?: ImageAsset })?.image);
+            rememberImage(value, command);
             if (command === 'close_all_documents') clearImageAssets();
           }
           resolve(value);
@@ -61,9 +60,20 @@ const stagedImages = new Map<string, { promise: Promise<ImageAsset>; nativeId?: 
 const stagedData = new Map<string, string>();
 let imageSequence = 0;
 const LOCAL_IMAGE = 'jerrivell-preview-';
-function rememberImage(value: unknown) {
-  const asset = value as ImageAsset | undefined;
-  if (asset && typeof asset.id === 'string' && asset.dataUrl?.startsWith('data:image/png;base64,') && asset.width > 0 && asset.height > 0) imageAssets.set(asset.id, asset);
+function rememberImage(value: unknown, command: string) {
+  const required = ['register_image', 'import_image', 'import_pdf_stamp'].includes(command);
+  const object = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  // Image-returning commands share a flat contract. Recognize any future asset
+  // producer by its shape as well, so adding a producer cannot silently omit it
+  // from the live reader. Known producers must fail visibly on invalid data.
+  if (!required && !(object && 'id' in object && 'dataUrl' in object)) return;
+  const asset = object as unknown as ImageAsset | null;
+  if (!asset || typeof asset.id !== 'string' || !asset.id.trim() || typeof asset.dataUrl !== 'string' || !asset.dataUrl.startsWith('data:image/png;base64,')
+    || !Number.isSafeInteger(asset.width) || asset.width < 1 || !Number.isSafeInteger(asset.height) || asset.height < 1
+    || (command === 'import_pdf_stamp' && (!Number.isSafeInteger(object?.pageCount) || Number(object?.pageCount) < 1))) {
+    throw new Error(`BACKEND_RESPONSE_INVALID: ${command} 未返回有效的图像资源，请重试或更新应用。`);
+  }
+  imageAssets.set(asset.id, { id: asset.id, dataUrl: asset.dataUrl, width: asset.width, height: asset.height });
 }
 function clearImageAssets() { imageAssets.clear(); stagedImages.clear(); stagedData.clear(); }
 export const previewImageAsset = (id: string) => imageAssets.get(id);

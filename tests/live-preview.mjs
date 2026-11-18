@@ -44,6 +44,18 @@ const decorated = backend.renderPageLayers({ ...page, decorations: [{ id: 'numbe
 next('render_page_layers').resolve(layers); await decorated; await flush();
 const imported = backend.backend('import_image', { path: 'sample.png' }); next('import_image').resolve({ ...asset, id: 'imported' }); await imported;
 assert.equal(backend.previewImageAsset('imported').width, 30);
+for (const command of ['register_image','import_image','import_pdf_stamp']) {
+  const id=`contract-${command}`;
+  const response=backend.backend(command,{});
+  next(command).resolve({...asset,id,...(command==='import_pdf_stamp'?{pageCount:3}:{})});
+  const actual=await response;assert.equal(actual.id,id);assert.ok(backend.previewImageAsset(id),`${command} must populate live display`);
+  if(command==='import_pdf_stamp')assert.equal(actual.pageCount,3);
+  const invalid=assert.rejects(backend.backend(command,{}),/BACKEND_RESPONSE_INVALID/);
+  next(command).resolve({image:{...asset,id:`wrong-${id}`},pageCount:3});await invalid;
+  assert.equal(backend.previewImageAsset(`wrong-${id}`),undefined,'An invalid nested response must fail visibly, not create an invisible placement');
+}
+const future=backend.backend('future_asset_producer');next('future_asset_producer').resolve({...asset,id:'future'});await future;
+assert.ok(backend.previewImageAsset('future'),'Valid asset-shaped responses are recognized without a command-specific cache branch');
 const failedStage = backend.stageImageAsset('data:image/png;base64,will-fail');
 const failed = assert.rejects(failedStage.registered, /image budget/);
 const blocked = assert.rejects(backend.backend('save_document', { pages: [{ ...page, overlays: [{ ...page.overlays[0], assetId: failedStage.id }] }] }), /image budget/);

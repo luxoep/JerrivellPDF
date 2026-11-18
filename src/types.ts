@@ -23,6 +23,11 @@ export interface ImageAsset {
   height: number;
 }
 
+/** Matches Rust PdfStampInfo's serde(flatten) JSON response. */
+export interface PdfStampImage extends ImageAsset {
+  pageCount: number;
+}
+
 export interface PageRef {
   documentId: string;
   pageIndex: number;

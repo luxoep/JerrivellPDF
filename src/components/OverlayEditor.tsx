@@ -5,7 +5,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { Check, ChevronDown, ChevronUp, Copy, Download, FileText, Highlighter, ImagePlus, LoaderCircle, LockKeyhole, PenLine, Plus, RotateCw, Stamp, Trash2, Type, Upload, X } from 'lucide-react';
 import { backend, errorMessage, isDesktop } from '../backend';
 import { useI18n } from '../i18n';
-import type { PageOverlay } from '../types';
+import type { ImageAsset, PageOverlay, PdfStampImage } from '../types';
 import { cleanLibraryName, LibraryError, loadStampLibrary, MAX_LIBRARY_ITEMS, pngFileName, saveStampLibrary } from '../stampLibrary';
 import type { LibraryItem, LibraryKind } from '../stampLibrary';
 import { createShapePng, createStampPng, createTextPng, DEFAULT_FONT_FAMILY, ensureFontReady, trimmedSignature } from './overlayCanvas';
@@ -18,7 +18,7 @@ import '../overlayEditor.css';
 
 export type Overlay = PageOverlay;
 export type { PageOverlay };
-export interface RegisteredImage { id: string; dataUrl: string; width: number; height: number }
+export type RegisteredImage = ImageAsset;
 export interface OverlayEditorProps {
   pageWidth: number;
   pageHeight: number;
@@ -36,7 +36,6 @@ export interface OverlayEditorProps {
 type Tab = 'text' | 'image' | 'mark' | 'stamp' | 'signature' | 'library';
 type BlendMode = 'normal' | 'multiply';
 export interface PdfStampCrop { x: number; y: number; width: number; height: number }
-interface PdfStampImage extends RegisteredImage { pageCount: number }
 interface PdfStampSource extends PdfStampImage { sourceKey: string }
 interface PdfStampFragment extends PdfStampImage { previewKey: string }
 

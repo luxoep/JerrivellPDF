@@ -17,6 +17,8 @@ $taskInstaller = Join-Path $taskRoot "src-tauri\target\release\bundle\nsis\Jerri
 if (-not (Test-Path -LiteralPath $taskExe) -or -not (Test-Path -LiteralPath $taskInstaller)) {
     throw 'Build the release first: npm run build:desktop'
 }
+& node (Join-Path $PSScriptRoot 'check-release-gate.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'Release verification gate did not pass; no release artifacts were copied.' }
 New-Item -ItemType Directory -Force -Path $taskRelease | Out-Null
 Copy-Item -LiteralPath $taskInstaller -Destination $taskRelease -Force
 
