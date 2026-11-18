@@ -60,7 +60,7 @@ export function visibleRows<T extends { top: number; height: number }>(rows: T[]
 export function buildThumbnailLayout(pages: WorkspacePage[]) {
   let top = 0;
   const rows = pages.map((page, index) => {
-    const size = visiblePageSize(page), height = size.width > size.height ? 146 : 202;
+    const size = visiblePageSize(page), height = size.width > size.height ? 180 : 236;
     const row = { id: page.id, index, top, height };
     top += height + 10; return row;
   });

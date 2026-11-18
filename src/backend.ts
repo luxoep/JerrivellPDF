@@ -73,7 +73,13 @@ const stagedImages = new Map<string, { promise: Promise<ImageAsset>; nativeId?: 
 const stagedData = new Map<string, string>();
 let imageSequence = 0;
 const LOCAL_IMAGE = 'jerrivell-preview-';
-function rememberImage(value: unknown, command: string) {
+function rememberImage(value: unknown, command: string, cacheIt = true) {
+  if (command === 'create_image_fragments') {
+    if (!Array.isArray(value) || !value.length || value.length > 16) throw new Error('BACKEND_RESPONSE_INVALID: 无效的片段批次。');
+    for (const item of value) rememberImage(item, 'get_image_asset', false);
+    for (const item of value) rememberImage(item, 'get_image_asset');
+    return;
+  }
   if (command === 'preview_image_edit') {
     const preview = value as { dataUrl?: string; width?: number; height?: number } | null;
     if (!preview || typeof preview.dataUrl !== 'string' || !preview.dataUrl.startsWith('data:image/png;base64,')
@@ -102,7 +108,7 @@ function rememberImage(value: unknown, command: string) {
     || (command === 'import_pdf_stamp' && (!Number.isSafeInteger(object?.pageCount) || Number(object?.pageCount) < 1))) {
     throw new Error(`BACKEND_RESPONSE_INVALID: ${command} 未返回有效的图像资源，请重试或更新应用。`);
   }
-  imageAssets.set(asset.id, { id: asset.id, dataUrl: asset.dataUrl, width: asset.width, height: asset.height });
+  if (cacheIt) imageAssets.set(asset.id, { id: asset.id, dataUrl: asset.dataUrl, width: asset.width, height: asset.height });
 }
 function clearImageAssets() { imageAssets.clear(); stagedImages.clear(); stagedData.clear(); textPages.clear(); textBytes = 0; }
 export const previewImageAsset = (id: string) => imageAssets.get(id);

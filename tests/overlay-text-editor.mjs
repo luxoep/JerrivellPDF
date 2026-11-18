@@ -65,6 +65,7 @@ async function fixture(overlays = []) {
   };
   class LibraryError extends Error {}
   const numbers = load('../src/useNumberDraft.ts', () => react);
+  const fragments = load('../src/pdfFragments.ts', name => name === './imageGeometry' ? imageGeometry : geometry, {crypto:{randomUUID:()=>`fragment-${++ids}`}});
   const editor = load('../src/components/OverlayEditor.tsx', name => {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
@@ -72,6 +73,7 @@ async function fixture(overlays = []) {
     if (name === '../overlayGeometry') return geometry;
     if (name === '../textFrame') return textFrame;
     if (name === '../useNumberDraft') return numbers;
+    if(name==='./FragmentTray')return{FragmentTray:'FragmentTray'}; if(name==='../pdfFragments')return fragments;
     if (name === '../imageGeometry') return imageGeometry;
     if (name === '../useFragmentPreview') return { useFragmentPreview: () => ({ image: null, error: '' }) };
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };

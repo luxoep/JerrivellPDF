@@ -44,6 +44,12 @@ const decorated = backend.renderPageLayers({ ...page, decorations: [{ id: 'numbe
 next('render_page_layers').resolve(layers); await decorated; await flush();
 const imported = backend.backend('import_image', { path: 'sample.png' }); next('import_image').resolve({ ...asset, id: 'imported' }); await imported;
 assert.equal(backend.previewImageAsset('imported').width, 30);
+const fragments = backend.backend('create_image_fragments', {});
+next('create_image_fragments').resolve([{...asset,id:'fragment-a'},{...asset,id:'fragment-b'}]);
+assert.equal((await fragments).length,2);assert.ok(backend.previewImageAsset('fragment-a'));assert.ok(backend.previewImageAsset('fragment-b'));
+const invalidBatch=assert.rejects(backend.backend('create_image_fragments', {}),/BACKEND_RESPONSE_INVALID/);
+next('create_image_fragments').resolve([{...asset,id:'must-not-cache'},{id:'invalid'}]);await invalidBatch;
+assert.equal(backend.previewImageAsset('must-not-cache'),undefined,'Invalid batch responses are rejected before any partial cache update');
 for (const command of ['register_image','import_image','import_pdf_stamp','edit_image_asset','extract_content_image','get_image_asset','rasterize_page_asset']) {
   const id=`contract-${command}`;
   const response=backend.backend(command,{});

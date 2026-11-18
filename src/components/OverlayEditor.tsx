@@ -4,6 +4,9 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { RegionSelection } from './RegionSelection';
 import { PreviewZoom } from './PreviewZoom';
 import { useFragmentPreview } from '../useFragmentPreview';
+import { FragmentTray } from './FragmentTray';
+import { fragmentOverlays, fragmentSelections, mergeFragments } from '../pdfFragments';
+import type { FragmentDrop, PdfFragmentItem } from '../pdfFragments';
 import { ImageEditDialog } from './ImageEditDialog';
 import type { ImageSelection, SelectionShape } from '../imageGeometry';
 import { transformSelection } from '../imageGeometry';
@@ -29,6 +32,11 @@ export type Overlay = PageOverlay;
 export type { PageOverlay };
 export type RegisteredImage = ImageAsset;
 export interface OverlayEditorProps {
+  fragments?: PdfFragmentItem[];
+  onFragmentsChange?: (items: PdfFragmentItem[]) => void;
+  onPlaceFragments?: (items: PdfFragmentItem[], drop?: FragmentDrop) => Promise<void>;
+  initialTab?: Tab;
+  onTabChange?: (tab: Tab) => void;
   onDrawText?: () => void;
   drawingText?: boolean;
   onTextStyleChange?: (style: TextOverlaySource) => void;
@@ -44,11 +52,10 @@ export interface OverlayEditorProps {
   onSelect?: (id: string) => void;
 }
 
-type Tab = 'text' | 'image' | 'stamp' | 'signature' | 'library';
+export type Tab = 'text' | 'image' | 'stamp' | 'signature' | 'library';
 type BlendMode = 'normal' | 'multiply';
 export type PdfStampCrop = ImageSelection;
 interface PdfStampSource extends PdfStampImage { sourceKey: string }
-interface PdfStampFragment extends PdfStampImage { previewKey: string }
 
 export function pdfStampSourceKey(path: string, page: string): string {
   return JSON.stringify([path, Number(page)]);
@@ -66,6 +73,12 @@ export function pdfStampCropFromPoints(start: { x: number; y: number }, end: { x
 
 function PdfStampSelection(props: { image: RegisteredImage; crop: PdfStampCrop | null; shape: SelectionShape; onChange: (crop: PdfStampCrop | null) => void; onPreview: (crop: PdfStampCrop | null) => void; disabled: boolean }) {
   return <div className="pdf-fragment-fit"><RegionSelection {...props} allowMultiple zoomable/></div>;
+}
+
+function PdfFragmentPreview({ source, crop, removeWhite, trim, index }: { source: ImageAsset; crop: ImageSelection; removeWhite: boolean; trim: boolean; index: number }) {
+  const { t } = useI18n();
+  const { image, error } = useFragmentPreview(source, crop, removeWhite, trim);
+  return <div className="pdf-fragment-result-card"><span>{t(`片段 ${index + 1}`, `Fragment ${index + 1}`)}</span><div className="oe-checker pdf-fragment-result">{image && <PreviewZoom width={image.width} height={image.height} resetKey={`${source.id}-${index}`} label={t('PDF 片段可缩放结果预览', 'Zoomable PDF fragment result')}><img src={image.dataUrl} alt={t(`片段 ${index + 1} 预览`, `Fragment ${index + 1} preview`)}/></PreviewZoom>}</div>{error && <p role="alert">{error}</p>}</div>;
 }
 
 
@@ -135,7 +148,11 @@ function MeasureField({ label, value, maximum, minimum = 0, extent, unit, onChan
 
 export function OverlayEditor(props: OverlayEditorProps) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<Tab>('text');
+  const [tab, setLocalTab] = useState<Tab>(props.initialTab ?? 'text');
+  const setTab = (value: Tab) => { setLocalTab(value); props.onTabChange?.(value); };
+  const [localFragments, setLocalFragments] = useState<PdfFragmentItem[]>([]);
+  const fragments = props.fragments ?? localFragments;
+  const setFragments = (items: PdfFragmentItem[]) => { if (props.onFragmentsChange) props.onFragmentsChange(items); else setLocalFragments(items); };
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState('');
   const [localSelectedOverlay, setLocalSelectedOverlay] = useState(props.overlays.at(-1)?.id ?? '');
@@ -204,12 +221,12 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const [stampFont, setStampFont] = useState(DEFAULT_FONT_FAMILY);
   const [stampFontRevision, setStampFontRevision] = useState(0);
   const [stampName, setStampName] = useState('');
-  const [stampMode, setStampMode] = useState<'create' | 'pdf'>('create');
+  const [stampMode, setStampMode] = useState<'create' | 'pdf'>(props.fragments?.length ? 'pdf' : 'create');
   const [pdfStampPath, setPdfStampPath] = useState('');
   const [pdfStampPage, setPdfStampPage] = useState('1');
   const [pdfStampPageCount, setPdfStampPageCount] = useState(0);
   const [pdfStampFullPage, setPdfStampFullPage] = useState<PdfStampSource | null>(null);
-  const [pdfStampFragment, setPdfStampFragment] = useState<PdfStampFragment | null>(null);
+  const [pdfStampCombined, setPdfStampCombined] = useState(false);
   const [pdfStampCrop, setPdfStampCrop] = useState<PdfStampCrop | null>(null);
   const pdfDialog=useRef<HTMLElement>(null);
   const [pdfStampOpen, setPdfStampOpen] = useState(false), [pdfStampShape, setPdfStampShape] = useState<SelectionShape>('rectangle');
@@ -246,6 +263,13 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const locked = Boolean(props.disabled || working);
 
   const libraryError = (error: unknown): string => {
+    const fragmentErrors: Record<string, [string, string]> = {
+      FRAGMENT_COUNT_LIMIT: ['片段列表最多保留 48 项，请删除不需要的片段。', 'The fragment list holds 48 items. Remove unused fragments.'],
+      FRAGMENT_MEMORY_LIMIT: ['片段列表已达到 24 MiB，请先导出或保存，再移除不需要的片段。', 'The fragment list has reached 24 MiB. Export or save items before removing them.'],
+      FRAGMENT_PAGE_LIMIT: ['插入后会超过每页 30 个内容对象，请分批放到其他页面。', 'This insertion would exceed 30 added objects per page. Place some on another page.'],
+      FRAGMENT_PIXEL_LIMIT: ['片段解码量超过 64 MiB，请减少本次插入数量。', 'The fragments exceed 64 MiB decoded. Insert fewer at a time.'],
+    };
+    if (error instanceof Error && fragmentErrors[error.message]) return t(...fragmentErrors[error.message]);
     if (error instanceof Error && ['TEXT_LAYOUT_LIMIT', 'TEXT_BOX_TOO_NARROW', 'TEXT_PAGE_OVERFLOW', 'TEXT_FRAME_OVERFLOW'].includes(error.message)) return t('文字超出文本框或页面范围。请增大文本框、启用自动高度或调整字号；内容不会被自动截断。', 'Text exceeds the text box or page. Enlarge the frame, enable automatic height or adjust the font size. Text is never silently truncated.');
     if (error instanceof Error && error.message === 'FONT_LOAD_TIMEOUT') return t('所选字体载入超时，请刷新字体列表后重试。', 'The selected font took too long to load. Refresh the font list and try again.');
     if (!(error instanceof LibraryError)) return errorMessage(error);
@@ -393,9 +417,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
 
   const pdfStampValidPage = Number.isSafeInteger(Number(pdfStampPage)) && Number(pdfStampPage) >= 1 && (!pdfStampPageCount || Number(pdfStampPage) <= pdfStampPageCount);
   const pdfStampSource = pdfStampSourceKey(pdfStampPath, pdfStampPage);
-  const pdfStampRequest = pdfStampPreviewKey(pdfStampPath, pdfStampPage, pdfStampCrop, pdfStampRemoveWhite, pdfStampTrim);
   const pdfStampFullFresh = Boolean(pdfStampPath && pdfStampValidPage && pdfStampFullPage?.sourceKey === pdfStampSource);
-  const pdfStampFresh = Boolean(pdfStampFullFresh && pdfStampFragment?.previewKey === pdfStampRequest);
   const pdfStampDefaultName = `${pdfStampPath.split(/[\\/]/).pop()?.replace(/\.pdf$/i, '') ?? 'PDF'} · ${t(`第 ${pdfStampPage} 页`, `Page ${pdfStampPage}`)}`;
   const readPdfStamp = async (path: string, page: string, crop: PdfStampCrop | null, removeWhite: boolean, trim: boolean) => {
     try {
@@ -413,41 +435,58 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (!alive.current) return;
     cache.current.set(asset.dataUrl, asset);
     setPdfStampPageCount(asset.pageCount); setPdfStampFullPage({ ...asset, sourceKey: pdfStampSourceKey(path, page) });
-    setPdfStampCrop(null); setPdfStampFragment(null);
-    setMessage(t('页面已载入。在整页预览上拖动框选区域，然后更新片段预览。', 'Page loaded. Drag to select a region, then update the fragment preview.'));
+    setPdfStampCrop(null); setPdfStampGhost(null);
+    setMessage(t('页面已载入。拖动选择区域，预览会自动更新。', 'Page loaded. Drag to select regions; previews update automatically.'));
   };
   const choosePdfStamp = () => execute(async () => {
     const selected = await open({ multiple: false, title: t('选择内容片段来源 PDF', 'Choose a PDF fragment source'), filters: [{ name: t('PDF 文档', 'PDF documents'), extensions: ['pdf'] }] });
     if (!alive.current || !selected || Array.isArray(selected)) return;
     setPdfStampPath(selected); setPdfStampPage('1'); setPdfStampPageCount(0); setPdfStampName('');
-    setPdfStampFullPage(null); setPdfStampFragment(null); setPdfStampCrop(null);
+    setPdfStampFullPage(null); setPdfStampCrop(null); setPdfStampGhost(null);
     // A newly chosen file must not be checked against the previous file's page count.
     const asset = await readPdfStamp(selected, '1', null, false, false);
     if (!alive.current) return;
     cache.current.set(asset.dataUrl, asset);
     setPdfStampPageCount(asset.pageCount); setPdfStampFullPage({ ...asset, sourceKey: pdfStampSourceKey(selected, '1') });
-    setMessage(t('页面已载入。在整页预览上拖动框选区域，然后更新片段预览。', 'Page loaded. Drag to select a region, then update the fragment preview.'));
+    setMessage(t('页面已载入。拖动选择区域，预览会自动更新。', 'Page loaded. Drag to select regions; previews update automatically.'));
   });
-  const updatePdfStampPreview = () => execute(async () => {
-    if (!pdfStampFullFresh) throw new Error(t('请先载入选定的 PDF 页面。', 'Load the selected PDF page first.'));
-    const key = pdfStampRequest;
-    const asset = await readPdfStamp(pdfStampPath, pdfStampPage, pdfStampCrop, pdfStampRemoveWhite, pdfStampTrim);
+  const placeFragmentItems = async (items: PdfFragmentItem[], drop?: FragmentDrop) => {
+    if (latest.current.onPlaceFragments) { await latest.current.onPlaceFragments(items, drop); return; }
+    const current = latest.current;
+    const added = fragmentOverlays(items, current.pageWidth, current.pageHeight, current.overlays, drop);
+    current.onChange([...current.overlays, ...added]); setSelectedOverlay(added.at(-1)!.id);
+  };
+  const saveFragmentItems = (items: PdfFragmentItem[]) => {
+    const next = [...library];
+    for (const item of items) {
+      const existing = next.find(value => value.kind === 'stamp' && value.dataUrl === item.image.dataUrl && (value.blendMode ?? 'normal') === item.blendMode);
+      if (existing) continue;
+      next.push({ id: crypto.randomUUID(), name: cleanLibraryName(item.name) || 'PDF', kind: 'stamp', dataUrl: item.image.dataUrl,
+        width: item.image.width, height: item.image.height, blendMode: item.blendMode, createdAt: new Date().toISOString() });
+    }
+    persist(next);
+  };
+  const usePdfStamp = (mode: 'tray' | 'insert' | 'library') => execute(async () => {
+    if (!pdfStampFullFresh || !pdfStampFullPage) throw new Error(t('请先载入选定的 PDF 页面。', 'Load the selected PDF page first.'));
+    const crops = fragmentSelections(pdfStampCrop, pdfStampCombined);
+    if (mode === 'insert' && latest.current.overlays.length + crops.length > 30) throw new Error('FRAGMENT_PAGE_LIMIT');
+    const assets = await backend<ImageAsset[]>('create_image_fragments', { assetId: pdfStampFullPage.id, crops, removeWhiteBackground: pdfStampRemoveWhite, trimTransparentMargins: pdfStampTrim });
     if (!alive.current) return;
-    cache.current.set(asset.dataUrl, asset);
-    setPdfStampFragment({ ...asset, previewKey: key });
-    setMessage(t('片段预览已更新，可叠加到当前页或保存到本机库。', 'Fragment preview updated. Place it on this page or save it to the library.'));
-  });
-  const usePdfStamp = (addToPage: boolean) => execute(async () => {
-    if (!pdfStampFullFresh) throw new Error(t('请先载入选定的 PDF 页面。', 'Load the selected PDF page first.'));
-    const asset = pdfStampFresh && pdfStampFragment ? pdfStampFragment : await readPdfStamp(pdfStampPath,pdfStampPage,pdfStampCrop,pdfStampRemoveWhite,pdfStampTrim);
+    if (assets.length !== crops.length) throw new Error('BACKEND_RESPONSE_INVALID: 片段数量与选区不一致。');
+    const generated = assets.map((image, index): PdfFragmentItem => ({ id: crypto.randomUUID(),
+      key: JSON.stringify([pdfStampPath, Number(pdfStampPage), pdfStampFullPage.id, crops[index], pdfStampRemoveWhite, pdfStampTrim, pdfStampBlend]),
+      name: (pdfStampName.trim() || pdfStampDefaultName).slice(0, 72) + (crops.length > 1 ? ` · ${index + 1}` : ''), image, blendMode: pdfStampBlend }));
+    const next = mergeFragments(latest.current.fragments ?? localFragments, generated);
+    const items = generated.map(item => next.find(value => value.key === item.key)!);
+    if (mode === 'insert') await placeFragmentItems(items);
     if (!alive.current) return;
-    setPdfStampFragment({...asset,previewKey:pdfStampRequest});
-    const name = pdfStampName.trim() || pdfStampDefaultName;
-    if (addToPage) { place(asset,name,.3,pdfStampBlend); setPdfStampOpen(false); } else remember(asset,'stamp',name,pdfStampBlend);
+    if (mode === 'library') saveFragmentItems(items);
+    setFragments(next);
+    if (mode !== 'library') setPdfStampOpen(false);
+    setMessage(t(`已生成 ${items.length} 个独立片段，可在片段列表中拖放和管理。`, `${items.length} separate fragments ready. Drag and manage them in the list.`));
   });
   const selectedPdfCrop = pdfStampCrop ?? { x: 0, y: 0, width: 1, height: 1 };
-  const liveFragment = useFragmentPreview(pdfStampFullFresh ? pdfStampFullPage : null, pdfStampGhost ?? pdfStampCrop, pdfStampRemoveWhite, pdfStampTrim);
-  const fragmentImage = pdfStampFresh ? pdfStampFragment : liveFragment.image;
+  const previewCrops = fragmentSelections(pdfStampGhost ?? pdfStampCrop, pdfStampCombined);
 
   const updatePdfCrop = (patch: Partial<PdfStampCrop>) => { if (!locked && pdfStampFullFresh) setPdfStampCrop(transformSelection(selectedPdfCrop, { ...selectedPdfCrop, ...patch })); };
 
@@ -565,7 +604,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
         <p className="oe-note">{t('拖动文字框改变排版，字号不变；双击文字可直接编辑。保存 .jvp 项目可保留文字和折点；导出 PDF 中的新增文字仍为图像。可搜索原文请使用“原文编辑 / 文字行编辑”。', 'Drag a text frame to reflow without changing font size; double-click to edit. Save a .jvp project to retain text and path nodes. Added text in exported PDFs is an image; use original text or text line editing for searchable text.')}</p>
       </section>}
       {tab === 'image' && <section className="oe-section"><h3>{t('添加图片', 'Add an image')}</h3><div className="oe-empty-symbol"><ImagePlus size={34} /></div><p className="oe-description">{t('选择本机 PNG 或 JPEG 图片，放到当前页面上。PNG 透明背景会保留。', 'Choose a local PNG or JPEG image and place it on this page. PNG transparency is preserved.')}</p><button className="oe-action primary" disabled={locked} onClick={() => void execute(() => importAsset())}><Upload size={15} />{t('选择图片', 'Choose image')}</button><p className="oe-note">{t('导入图像会进行尺寸与格式检查，最长边不超过 2400 像素。', 'Imported images are validated and limited to a 2400-pixel longest edge.')}</p></section>}
-      {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}</section>}
+      {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}{stampMode === 'pdf' && <FragmentTray items={fragments} disabled={locked} onChange={setFragments} onPlace={(items, drop) => void execute(() => placeFragmentItems(items, drop))} onSave={item => void execute(async () => { saveFragmentItems([item]); setMessage(t('已保存到本机库。', 'Saved to the local library.')); })} onExport={item => void exportLibraryItem({ id: item.id, name: item.name, kind: 'stamp', dataUrl: item.image.dataUrl, width: item.image.width, height: item.image.height, blendMode: item.blendMode, createdAt: '' })}/>}</section>}
       {tab === 'signature' && <section className="oe-section"><h3>{t('手写签名', 'Handwritten signature')}</h3><p className="oe-description">{t('用鼠标、触控或触控笔在下方书写。', 'Write below using a mouse, touch or pen.')}</p><SignaturePad color={signatureColor} disabled={locked} resetKey={signatureReset} onChange={value => { signatureCanvas.current = value; setSignatureReady(Boolean(value)); }} /><div className="oe-signature-options"><label className="oe-color-label"><span>{t('笔迹颜色', 'Ink')}</span><input type="color" value={signatureColor} disabled={locked} onChange={event => setSignatureColor(event.target.value)} /></label><button className="oe-small-button" disabled={locked} onClick={() => setSignatureReset(previous => previous + 1)}>{t('清空画布', 'Clear canvas')}</button></div><label className="oe-field"><span>{t('签名名称', 'Signature name')}</span><input maxLength={80} value={signatureName} disabled={locked} onChange={event => setSignatureName(event.target.value)} placeholder={t('我的签名', 'My signature')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !signatureReady} onClick={() => void createSignature(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !signatureReady} onClick={() => void createSignature(false)}><PenLine size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名图片', 'Import signature image')}</button><p className="oe-note">{t('图章和签名是可视图片，不是证书数字签名，也不提供签署者身份或文件完整性验证。', 'Stamps and signatures are visual images, not certificate-based digital signatures. They do not verify signer identity or file integrity.')}</p></section>}
       {tab === 'library' && <section className="oe-section"><div className="oe-section-heading"><h3>{t('本机内容库', 'Local content library')}</h3><span>{library.length}/{MAX_LIBRARY_ITEMS}</span></div><label className="oe-field"><span>{t('显示', 'Show')}</span><select value={libraryFilter} onChange={event => setLibraryFilter(event.target.value as typeof libraryFilter)}><option value="all">{t('全部', 'All')}</option><option value="stamp">{t('图章与片段', 'Stamps and fragments')}</option><option value="signature">{t('签名', 'Signatures')}</option></select></label><div className="oe-button-row"><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入图章', 'Import stamp')}</button><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名', 'Import signature')}</button></div><p className="oe-note">{t('库保存在本机应用存储，不会上传。重要图章和签名请导出 PNG 备份；清除应用数据会移除库。', 'Stored only in this application on this device. Export important items as PNG backups. Clearing application data removes the library.')}</p><div className="oe-library-list">{library.filter(item => libraryFilter === 'all' || item.kind === libraryFilter).map(item => <article className="oe-library-item" key={item.id}><div className="oe-checker oe-library-preview"><img src={item.dataUrl} alt={item.name} /></div><label className="oe-field"><span>{item.kind === 'stamp' ? t('图章或片段名称', 'Stamp or fragment name') : t('签名名称', 'Signature name')}</span><input aria-label={t('重命名：', 'Rename: ') + item.name} value={renameDrafts[item.id] ?? item.name} maxLength={80} disabled={locked} onChange={event => setRenameDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => rename(item)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><div className="oe-library-actions"><button disabled={locked} onClick={() => void execute(async () => place(await register(item.dataUrl), item.name, item.kind === 'stamp' ? 0.22 : 0.25, item.blendMode ?? 'normal'))}><Plus size={13} />{t('加到页面', 'Place')}</button><button disabled={locked} onClick={() => void exportLibraryItem(item)}><Download size={13} />PNG</button><button className="oe-danger" disabled={locked} aria-label={t('从本机库移除：', 'Remove from local library: ') + item.name} onClick={() => { try { persist(library.filter(value => value.id !== item.id)); } catch (error) { latest.current.onError(libraryError(error)); } }}><Trash2 size={13} /></button></div></article>)}</div>{!library.some(item => libraryFilter === 'all' || item.kind === libraryFilter) && <div className="oe-library-empty"><Stamp size={30} /><p>{t('还没有保存的项目', 'No saved items yet')}</p><span>{t('制作图章、书写签名，或导入已有图片。', 'Create a stamp, draw a signature or import an image.')}</span></div>}</section>}
       {message && <div className="oe-message" role="status"><Check size={14} />{message}</div>}
@@ -599,7 +638,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     {working && <div className="oe-working" role="status"><LoaderCircle size={15} className="spin" />{t('正在处理内容…', 'Processing content…')}</div>}
     {imageEdit && current && <ImageEditDialog image={imageEdit} title={labels[current.id] || t('当前图像对象', 'Current image object')} onClose={() => setImageEdit(null)} onBusyChange={props.onBusyChange} onApply={image => { props.onChange(props.overlays.map(item => item.id === current.id ? { ...item, assetId: image.id, textSource: undefined, markSource: undefined, leaderFor: undefined } : item)); setPreviews(previous => ({ ...previous, [image.id]: image.dataUrl })); }}/>} 
     {pdfStampOpen && <div className="image-workbench-backdrop" onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && ['s','o','p'].includes(event.key.toLowerCase())) event.preventDefault(); if (event.key === 'Escape' && !locked) setPdfStampOpen(false); }}><section ref={pdfDialog} tabIndex={-1} className="image-workbench pdf-fragment-workbench" role="dialog" aria-modal="true" aria-label={t('PDF 片段工作台', 'PDF fragment workspace')}>
-      <header><div><h2>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h2><p>{t('框选、椭圆、多边形或自由套索，可叠加最多 16 区；预览实时更新。', 'Combine up to 16 rectangle, ellipse, polygon or freehand regions with live previews.')}</p></div><button disabled={locked} onClick={() => setPdfStampOpen(false)} aria-label={t('关闭片段工作台','Close fragment workspace')}><X size={20}/></button></header>
+      <header><div><h2>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h2><p>{t('矩形、椭圆、多边形或自由套索，最多 16 区；默认每个选区独立生成。', 'Select up to 16 rectangle, ellipse, polygon or freehand regions. Each becomes a separate fragment by default.')}</p></div><button disabled={locked} onClick={() => setPdfStampOpen(false)} aria-label={t('关闭片段工作台','Close fragment workspace')}><X size={20}/></button></header>
       <div className="image-workbench-body"><aside className="image-workbench-options">
         <button className="oe-action wide" disabled={locked} onClick={() => void choosePdfStamp()}><FileText size={15}/>{pdfStampPath ? t('更换来源 PDF','Change source PDF') : t('选择来源 PDF','Choose source PDF')}</button>
         {pdfStampPath && <><p className="oe-note">{pdfStampPath.split(/[\\/]/).pop()}</p><label className="oe-field"><span>{t('来源页码','Source page')} / {pdfStampPageCount}</span><input aria-label={t('PDF 片段来源页码','PDF fragment source page')} type="number" min={1} max={pdfStampPageCount || undefined} disabled={locked} value={pdfStampPage} onChange={event => setPdfStampPage(event.target.value)}/></label><button className="oe-action wide" disabled={locked || !pdfStampValidPage} onClick={() => void execute(() => loadPdfStampPage(pdfStampPath,pdfStampPage))}>{t('载入此页','Load page')}</button></>}
@@ -607,12 +646,13 @@ export function OverlayEditor(props: OverlayEditorProps) {
         <button className="oe-small-button" disabled={locked} onClick={() => setPdfStampCrop(null)}>{t('使用整页','Use whole page')}</button>
         <div className="oe-fields"><PercentField label={t('左边距','Left')} value={selectedPdfCrop.x} maximum={1-selectedPdfCrop.width} disabled={locked} onChange={x => updatePdfCrop({x})}/><PercentField label={t('上边距','Top')} value={selectedPdfCrop.y} maximum={1-selectedPdfCrop.height} disabled={locked} onChange={y => updatePdfCrop({y})}/><PercentField label={t('选区宽度','Region width')} value={selectedPdfCrop.width} minimum={.002} maximum={1-selectedPdfCrop.x} disabled={locked} onChange={width => updatePdfCrop({width})}/><PercentField label={t('选区高度','Region height')} value={selectedPdfCrop.height} minimum={.002} maximum={1-selectedPdfCrop.y} disabled={locked} onChange={height => updatePdfCrop({height})}/></div>
         <label className="oe-check"><input type="checkbox" checked={pdfStampRemoveWhite} disabled={locked} onChange={event => setPdfStampRemoveWhite(event.target.checked)}/>{t('白底转透明','Make near-white transparent')}</label><label className="oe-check"><input type="checkbox" checked={pdfStampTrim} disabled={locked} onChange={event => setPdfStampTrim(event.target.checked)}/>{t('裁掉透明边缘','Trim transparent margins')}</label>
+        <label className="oe-check fragment-combine-option"><input type="checkbox" checked={pdfStampCombined} disabled={locked} onChange={event => setPdfStampCombined(event.target.checked)}/>{t('将选区合成为一个整体（默认关闭）', 'Combine regions into one item (off by default)')}</label>
         <label className="oe-field"><span>{t('合成方式','Blend mode')}</span><select aria-label={t('片段合成方式','Fragment blend mode')} value={pdfStampBlend} disabled={locked} onChange={event => setPdfStampBlend(event.target.value as BlendMode)}><option value="multiply">{t('正片叠底','Multiply')}</option><option value="normal">{t('正常','Normal')}</option></select></label>
         <label className="oe-field"><span>{t('片段名称','Fragment name')}</span><input maxLength={80} value={pdfStampName} disabled={locked} placeholder={pdfStampDefaultName} onChange={event => setPdfStampName(event.target.value)}/></label>
         <p className="oe-note">{t('内容片段是透明图像；来源 PDF 保持原样。浅色内容建议保留原色并使用正片叠底。','Fragments are images; source PDFs stay unchanged. Keep pale colors and use Multiply when appropriate.')}</p>
       </aside><main className="image-workbench-stage pdf-fragment-source">{pdfStampFullFresh && pdfStampFullPage ? <PdfStampSelection key={pdfStampFullPage.sourceKey} image={pdfStampFullPage} crop={pdfStampCrop} shape={pdfStampShape} onChange={setPdfStampCrop} onPreview={setPdfStampGhost} disabled={locked}/> : <div className="dt-empty"><FileText size={42}/><p>{pdfStampPath ? t('页码已变化，请先载入此页。','The page changed. Load this page first.') : t('选择来源 PDF 后在此处显示整页。','Choose a source PDF to display its page here.')}</p></div>}</main>
-      <aside className="image-workbench-result"><h3>{t('实时片段预览','Live fragment preview')}</h3><div className="oe-checker pdf-fragment-result">{fragmentImage && <PreviewZoom width={fragmentImage.width} height={fragmentImage.height} resetKey={pdfStampFullPage?.sourceKey ?? "fragment"} label={t('PDF 片段可缩放结果预览','Zoomable PDF fragment result')}><img src={fragmentImage.dataUrl} alt={t('PDF 内容片段预览','PDF fragment preview')}/></PreviewZoom>}</div>{liveFragment.error && <p role="alert">{liveFragment.error}</p>}<p>{t('拖动时只更新本机图像预览，不重新载入 PDF。叠加和保存使用完整原生裁切结果。','Dragging updates the local image preview without reloading the PDF. Placement and saving use the full native crop result.')}</p><button className="oe-action wide" disabled={locked || !pdfStampFullFresh} onClick={() => void updatePdfStampPreview()}><RotateCw size={14}/>{t('更新片段预览','Update fragment preview')}</button></aside></div>
-      <footer><span>{t('Esc 取消当前手势或关闭','Esc cancels a gesture or closes this workspace')}</span><button className="button secondary" disabled={locked || !pdfStampFullFresh} onClick={() => void usePdfStamp(false)}>{t('保存到本机库','Save to library')}</button><button className="button primary" disabled={locked || !pdfStampFullFresh} onClick={() => void usePdfStamp(true)}><Plus size={15}/>{t('叠加到当前页','Overlay on this page')}</button></footer>
+      <aside className="image-workbench-result"><h3>{t(`实时预览 · ${previewCrops.length} 个独立片段`, `Live preview · ${previewCrops.length} separate fragments`)}</h3><div className="pdf-fragment-result-list">{pdfStampFullFresh && pdfStampFullPage && previewCrops.map((crop, index) => <PdfFragmentPreview key={`${pdfStampFullPage.id}-${index}`} source={pdfStampFullPage} crop={crop} index={index} removeWhite={pdfStampRemoveWhite} trim={pdfStampTrim}/>)}</div><p>{t('预览自动更新，无需手动刷新。默认每个选区分别生成、分别插入；列表保留后可多次拖放。', 'Previews update automatically. Each region generates and inserts separately by default; reuse the list to drag fragments onto pages.')}</p></aside></div>
+      <footer><span>{t('生成后在右侧片段列表中管理；原 PDF 不变。', 'Manage generated fragments in the right-hand list. Source PDF is retained.')}</span><button className="button secondary" disabled={locked || !pdfStampFullFresh} onClick={() => void usePdfStamp('library')}>{t('保存到本机库','Save to library')}</button><button className="button secondary" disabled={locked || !pdfStampFullFresh} onClick={() => void usePdfStamp('insert')}><Plus size={15}/>{t('分别插入当前页','Insert each fragment')}</button><button className="button primary" disabled={locked || !pdfStampFullFresh} onClick={() => void usePdfStamp('tray')}>{t('生成到片段列表','Create fragment list')}</button></footer>
     </section></div>}
     <footer className="oe-footer">{t('页面内容可撤销；保存副本会将内容写入 PDF。', 'Page edits can be undone. Save a copy to write them into the PDF.')}</footer>
   </aside>;

@@ -77,6 +77,79 @@ fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
     Ok(encoded.into_inner())
 }
 
+fn fragment_pixels(mut pixels: image::RgbaImage, crop: &PdfStampCrop, remove_white: bool, trim: bool) -> image::RgbaImage {
+    let (width, height) = pixels.dimensions();
+    if !crop.points.is_empty() || !crop.regions.is_empty() {
+        super::image_edit::crop_mask(&mut pixels, crop);
+    }
+    let left = ((crop.x * width as f32).floor() as u32).min(width - 1);
+    let top = ((crop.y * height as f32).floor() as u32).min(height - 1);
+    let right = (((crop.x + crop.width) * width as f32).ceil() as u32).min(width).max(left + 1);
+    let bottom = (((crop.y + crop.height) * height as f32).ceil() as u32).min(height).max(top + 1);
+    pixels = image::imageops::crop_imm(&pixels, left, top, right - left, bottom - top).to_image();
+    if remove_white {
+        for pixel in pixels.pixels_mut() {
+            if pixel.0[0] >= 245 && pixel.0[1] >= 245 && pixel.0[2] >= 245 { pixel.0 = [0, 0, 0, 0]; }
+        }
+    }
+    if trim {
+        let mut bounds: Option<(u32, u32, u32, u32)> = None;
+        for (x, y, pixel) in pixels.enumerate_pixels() {
+            if pixel.0[3] != 0 {
+                bounds = Some(match bounds {
+                    Some((l, t, r, b)) => (l.min(x), t.min(y), r.max(x), b.max(y)),
+                    None => (x, y, x, y),
+                });
+            }
+        }
+        pixels = match bounds {
+            Some((l, t, r, b)) => image::imageops::crop_imm(&pixels, l, t, r-l+1, b-t+1).to_image(),
+            None => image::RgbaImage::new(1, 1),
+        };
+    }
+    pixels
+}
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::*;
+    fn region(x: f32, width: f32) -> PdfStampCrop {
+        PdfStampCrop { x, y: 0.0, width, height: 1.0, points: vec![], regions: vec![] }
+    }
+    #[test]
+    fn separate_regions_retain_their_own_pixels_without_mutating_source() {
+        let mut source = image::RgbaImage::from_pixel(100, 80, image::Rgba([255, 255, 255, 255]));
+        source.put_pixel(10, 20, image::Rgba([180, 40, 20, 255]));
+        source.put_pixel(60, 30, image::Rgba([30, 90, 190, 255]));
+        let first = fragment_pixels(source.clone(), &region(0.0, 0.5), false, false);
+        let second = fragment_pixels(source.clone(), &region(0.5, 0.5), false, false);
+        assert_eq!(first.dimensions(), (50, 80)); assert_eq!(second.dimensions(), (50, 80));
+        assert_eq!(first.get_pixel(10, 20).0, [180, 40, 20, 255]);
+        assert_eq!(second.get_pixel(10, 30).0, [30, 90, 190, 255]);
+        assert_eq!(source.dimensions(), (100, 80));
+        assert_eq!(source.get_pixel(60, 30).0, [30, 90, 190, 255]);
+    }
+    #[test]
+    fn freeform_fragment_has_transparent_outside_and_opt_in_white_key() {
+        let mut crop = region(0.0, 1.0);
+        crop.points = vec![ImagePoint{x:0.0,y:0.0}, ImagePoint{x:1.0,y:0.0}, ImagePoint{x:0.0,y:1.0}];
+        let source = image::RgbaImage::from_pixel(100, 100, image::Rgba([255, 255, 255, 255]));
+        let kept = fragment_pixels(source.clone(), &crop, false, false);
+        assert_eq!(kept.get_pixel(10, 10).0, [255, 255, 255, 255]);
+        assert_eq!(kept.get_pixel(90, 90).0[3], 0);
+        let keyed = fragment_pixels(source, &crop, true, true);
+        assert_eq!(keyed.dimensions(), (1, 1)); assert_eq!(keyed.get_pixel(0, 0).0[3], 0);
+    }
+    #[test]
+    fn transparent_trim_retains_a_pale_colored_pixel() {
+        let mut source = image::RgbaImage::new(100, 80);
+        source.put_pixel(70, 30, image::Rgba([250, 230, 240, 170]));
+        let trimmed = fragment_pixels(source, &region(0.0, 1.0), true, true);
+        assert_eq!(trimmed.dimensions(), (1, 1));
+        assert_eq!(trimmed.get_pixel(0, 0).0, [250, 230, 240, 170]);
+    }
+}
+
 impl ImageAsset {
     fn memory_size(&self) -> usize {
         self.png.len()
@@ -180,6 +253,45 @@ impl<'a> PdfEngine<'a> {
             .map_err(|_| invalid("PNG 数据编码无效。"))?;
         let image = normalized_image(&bytes, true)?;
         self.store_image(image, None)
+    }
+
+    /// Crop one immutable page snapshot into separate reusable fragments. No file
+    /// reread or additional PDF rendering, and no partially committed batch.
+    pub fn create_image_fragments(&mut self, asset_id: &str, crops: &[PdfStampCrop], remove_white: bool, trim: bool) -> Result<Vec<ImageAssetInfo>, String> {
+        if crops.is_empty() || crops.len() > 16 { return Err(invalid("一次须生成 1～16 个片段。")); }
+        for crop in crops { super::image_edit::validate_crop(crop)?; }
+        let source = self.assets.get(asset_id).ok_or_else(|| invalid("来源页面快照已失效，请重新载入来源页。"))?;
+        let pixels = normalized_image(&source.png, true)?.into_rgba8();
+        let source_paths = source.source_paths.clone();
+        let before: std::collections::HashSet<_> = self.assets.keys().cloned().collect();
+        let starting_id = self.next_asset_id;
+        let result = (|| {
+            let mut output = Vec::with_capacity(crops.len());
+            let mut decoded = 0_u64;
+            for crop in crops {
+                let image = fragment_pixels(pixels.clone(), crop, remove_white, trim);
+                decoded += image.width() as u64 * image.height() as u64 * 4;
+                if decoded > 64 * 1024 * 1024 { return Err(invalid("本批片段解码量超过 64 MiB，请分批生成或缩小选区。")); }
+                let info = self.store_image(DynamicImage::ImageRgba8(image), None)?;
+                if info.data_url.len() > MAX_REGISTER_DATA_URL { return Err(invalid("片段 PNG 超过 150 万字节，请缩小选区或拆为更小片段。")); }
+                output.push(info);
+            }
+            Ok(output)
+        })();
+        match result {
+            Ok(output) => {
+                for info in &output {
+                    let asset = self.assets.get_mut(&info.id).unwrap();
+                    for path in &source_paths { if !asset.source_paths.contains(path) { asset.source_paths.push(path.clone()); } }
+                }
+                Ok(output)
+            }
+            Err(error) => {
+                self.assets.retain(|id, _| before.contains(id));
+                self.next_asset_id = starting_id;
+                Err(error)
+            }
+        }
     }
 
     fn read_local_image(path: &str) -> Result<(DynamicImage, PathBuf), String> {
@@ -297,65 +409,14 @@ impl<'a> PdfEngine<'a> {
                 .set_clear_color(PdfColor::new(0, 0, 0, 0))
                 .render_form_data(false)
                 .render_annotations(true);
-            let mut pixels = page
+            let pixels = page
                 .render_with_config(&config)
                 .map_err(pdf_error)?
                 .as_image()
                 .map_err(pdf_error)?
                 .into_rgba8();
-            if let Some(rect) = crop {
-                if !rect.points.is_empty() || !rect.regions.is_empty() {
-                    super::image_edit::crop_mask(&mut pixels, rect);
-                }
-                // The full-page bitmap is already in the page's final displayed
-                // orientation, so normalized top-left selection needs no PDF-axis guess.
-                let left = ((rect.x * width as f32).floor() as u32).min(width - 1);
-                let top = ((rect.y * height as f32).floor() as u32).min(height - 1);
-                let right = (((rect.x + rect.width) * width as f32).ceil() as u32)
-                    .min(width)
-                    .max(left + 1);
-                let bottom = (((rect.y + rect.height) * height as f32).ceil() as u32)
-                    .min(height)
-                    .max(top + 1);
-                pixels = image::imageops::crop_imm(&pixels, left, top, right - left, bottom - top)
-                    .to_image();
-            }
-            if remove_white_background {
-                // Opt-in chroma key. Keep every other color and alpha untouched;
-                // this also removes intentional near-white artwork, so preview it.
-                for pixel in pixels.pixels_mut() {
-                    if pixel.0[0] >= 245 && pixel.0[1] >= 245 && pixel.0[2] >= 245 {
-                        pixel.0 = [0, 0, 0, 0];
-                    }
-                }
-            }
-            if trim_transparent_margins {
-                let mut bounds: Option<(u32, u32, u32, u32)> = None;
-                for (x, y, pixel) in pixels.enumerate_pixels() {
-                    if pixel.0[3] != 0 {
-                        bounds = Some(match bounds {
-                            Some((left, top, right, bottom)) => {
-                                (left.min(x), top.min(y), right.max(x), bottom.max(y))
-                            }
-                            None => (x, y, x, y),
-                        });
-                    }
-                }
-                pixels = match bounds {
-                    Some((left, top, right, bottom)) => image::imageops::crop_imm(
-                        &pixels,
-                        left,
-                        top,
-                        right - left + 1,
-                        bottom - top + 1,
-                    )
-                    .to_image(),
-                    // Retain a successful pageCount response so a user can pick
-                    // another page even when the first page has no visible ink.
-                    None => image::RgbaImage::new(1, 1),
-                };
-            }
-            DynamicImage::ImageRgba8(pixels)
+            let whole = PdfStampCrop { x: 0.0, y: 0.0, width: 1.0, height: 1.0, points: vec![], regions: vec![] };
+            DynamicImage::ImageRgba8(fragment_pixels(pixels, crop.unwrap_or(&whole), remove_white_background, trim_transparent_margins))
         };
         drop(document);
         let image = self.store_image(image, Some(path))?;

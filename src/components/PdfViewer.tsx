@@ -135,7 +135,7 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
     }}
     onScroll={() => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(reportScroll); }}>
     <div className="continuous-stage" style={{ width: layout.width, height: layout.height }}>
-      {mountedRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
+      {mountedRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} data-workspace-page-id={row.id} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
         <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onActiveChange}/>
       </div>)}
     </div>

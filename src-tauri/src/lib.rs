@@ -373,6 +373,14 @@ async fn import_pdf_stamp(
 }
 
 #[tauri::command]
+async fn create_image_fragments(
+    state: State<'_, Backend>, asset_id: String, crops: Vec<PdfStampCrop>,
+    remove_white_background: bool, trim_transparent_margins: bool,
+) -> Result<Vec<ImageAssetInfo>, String> {
+    call(state, "create_image_fragments", json!({"assetId":asset_id,"crops":crops,"removeWhiteBackground":remove_white_background,"trimTransparentMargins":trim_transparent_margins})).await
+}
+
+#[tauri::command]
 async fn export_image(
     state: State<'_, Backend>,
     asset_id: String,
@@ -506,6 +514,7 @@ pub fn run() {
             import_image,
             preview_image,
             import_pdf_stamp,
+            create_image_fragments,
             export_image,
             close_all_documents
         ])

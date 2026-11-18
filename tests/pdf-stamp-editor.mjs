@@ -14,6 +14,7 @@ vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/imageGeomet
 vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/overlayGeometry.ts', import.meta.url), 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, { exports: geometry });
+const fragments = {}; vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/pdfFragments.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: fragments, require: name => name === './imageGeometry' ? imageGeometry : geometry, crypto: {randomUUID:()=>`fragment-${++ids}`} });
 let current;
 let library = [];
 let calls = [];
@@ -51,6 +52,7 @@ const png = 'data:image/png;base64,demo';
 vm.runInNewContext(compiled, {
   exports, console, crypto: { randomUUID: () => `generated-${++ids}` },
   require(name) {
+    if(name==='./FragmentTray')return{FragmentTray:'FragmentTray'}; if(name==='../pdfFragments')return fragments;
     if (name === '../imageGeometry') return imageGeometry;
     if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
@@ -65,6 +67,7 @@ vm.runInNewContext(compiled, {
       backend: async (command, args) => {
         calls.push({ command, args });
         if (defer) await defer.promise;
+        if (command === 'create_image_fragments') return args.crops.map((crop,index)=>({id:`asset-${calls.length}-${index}`,dataUrl:png+JSON.stringify(crop),width:Math.max(1,Math.round(1000*crop.width)),height:Math.max(1,Math.round(1400*crop.height))}));
         return { id: `asset-${calls.length}`, dataUrl: png, width: 1000, height: 1400, pageCount: 3 };
       },
     };
@@ -119,52 +122,46 @@ render(); await click('Stamp'); await click('PDF fragment');
 await click('Choose source PDF');
 assert.equal(calls.length, 1);
 assert.deepEqual(plain(calls[0]), { command: 'import_pdf_stamp', args: { path: 'C:\\demo.pdf', pageIndex: 0, crop: null, removeWhiteBackground: false, trimTransparentMargins: false } });
-assert.equal(button('Overlay on this page').props.disabled, false, 'Placement generates the current fragment on demand');
-const crop = { x: .2, y: .3, width: .4, height: .2 };
-walk(host.tree, node => node.type?.name === 'PdfStampSelection')[0].props.onChange(crop); render();
-await click('Update fragment preview');
-assert.deepEqual(plain(calls.at(-1).args), { path: 'C:\\demo.pdf', pageIndex: 0, crop, removeWhiteBackground: false, trimTransparentMargins: true });
-assert.equal(button('Overlay on this page').props.disabled, false);
-// Blend changes are placement metadata and do not invalidate the fragment pixels.
-const blendSelect = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Fragment blend mode')[0];
-blendSelect.props.onChange({ target: { value: 'normal' } }); render();
-assert.equal(button('Overlay on this page').props.disabled, false);
-await click('Overlay on this page');
-assert.equal(props.overlays.length, 1); assert.equal(props.overlays[0].blendMode, 'normal');
-assert.equal(props.overlays[0].assetId, 'asset-2');
-// Placement closes the workspace. Reopen it; stale pixels are regenerated on use.
+const selection=()=>walk(host.tree,node=>node.type?.name==='PdfStampSelection')[0];
+const crop = { x: .2, y: .3, width: .4, height: .2 }, second={x:.7,y:.1,width:.2,height:.1};
+selection().props.onChange(imageGeometry.selectionUnion([crop,second]));render();
+assert.equal(calls.length,1,'Selection previews never reopen PDFs or consume native assets');
+assert.equal(walk(host.tree,node=>node.type?.name==='PdfFragmentPreview').length,2);
+await click('Insert each fragment');
+assert.equal(props.overlays.length,2);assert.equal(changes.length,1,'A multi-insert is one undoable commit');
+assert.ok(props.overlays.every(item=>item.blendMode==='multiply'));assert.notEqual(props.overlays[0].id,props.overlays[1].id);
+assert.deepEqual(plain(calls.at(-1).args.crops),[crop,second]);assert.equal(calls.at(-1).command,'create_image_fragments');
+assert.equal(calls.filter(call=>call.command==='import_pdf_stamp').length,1);
+let tray=walk(host.tree,node=>node.type==='FragmentTray')[0];assert.equal(tray.props.items.length,2,'Generated items remain after modal closes');
+assert.notEqual(tray.props.items[0].image.width,tray.props.items[1].image.width);
+await click('Open PDF fragment workspace');await click('Create fragment list');
+tray=walk(host.tree,node=>node.type==='FragmentTray')[0];assert.equal(tray.props.items.length,2,'Repeated generation preserves the same tray items');
 await click('Open PDF fragment workspace');
-walk(host.tree, node => node.type?.name === 'PdfStampSelection')[0].props.onChange({ ...crop, x: .1 }); render();
-assert.equal(button('Overlay on this page').props.disabled, false);
-const white = walk(host.tree, node => node.type === 'label' && text(node).includes('Make near-white transparent'))[0];
-walk(white, node => node.type === 'input')[0].props.onChange({ target: { checked: true } }); render();
-// No explicit native preview update: saving must use the new crop and processing flags.
-// Persist Multiply and restore it when placing an item from the library.
-walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Fragment blend mode')[0].props.onChange({ target: { value: 'multiply' } }); render();
-await click('Save to library');
-assert.equal(calls.at(-1).args.removeWhiteBackground,true); assert.equal(calls.at(-1).args.crop.x,.1);
-assert.equal(library.length, 1); assert.equal(library[0].blendMode, 'multiply');
-assert.ok(!('assetId' in library[0]));
-// Switching source page cannot reuse the previous page or its selected crop.
-walk(host.tree, node => node.type === 'input' && node.props['aria-label'] === 'PDF fragment source page')[0].props.onChange({ target: { value: '2' } }); render();
-assert.equal(button('Update fragment preview').props.disabled, true);
-assert.equal(button('Overlay on this page').props.disabled, true);
-await click('Load page');
-assert.equal(calls.at(-1).args.pageIndex, 1); assert.equal(calls.at(-1).args.crop, null);
-await click('Update fragment preview'); assert.equal(calls.at(-1).args.crop, null);
-await click('Close fragment workspace'); await click('Library'); await click('Place');
-assert.equal(props.overlays.at(-1).blendMode, 'multiply');
-assert.equal(errors.length, 0);
-assert.ok(busy.every((value, index) => value === (index % 2 === 0)), 'Every async operation releases busy exactly once');
-
-// An unmounted editor must not commit a late native preview or keep busy set.
-await click('Stamp'); await click('Open PDF fragment workspace');
-defer = {}; defer.promise = new Promise(resolve => { defer.resolve = resolve; });
-button('Update fragment preview').props.onClick();
-const busyStart = busy.length;
-for (const effect of host.effects) effect?.cleanup?.();
-defer.resolve(); await settle();
-assert.equal(busy.length, busyStart + 1); assert.equal(busy.at(-1), false);
-assert.equal(changes.length, 2);
-assert.equal(library.length, 1);
-console.log('PASS: PDF crop geometry, whole-page loading, stale preview rejection, blend placement/library, page changes and async unmount protection');
+const combine=walk(host.tree,node=>node.type==='label'&&text(node).includes('Combine regions into one item'))[0];
+walk(combine,node=>node.type==='input')[0].props.onChange({target:{checked:true}});render();
+assert.equal(walk(host.tree,node=>node.type?.name==='PdfFragmentPreview').length,1);
+await click('Insert each fragment');assert.equal(props.overlays.length,3);assert.equal(calls.at(-1).args.crops.length,1);assert.equal(calls.at(-1).args.crops[0].regions.length,2);
+await click('Open PDF fragment workspace');
+walk(host.tree,node=>node.type==='label'&&text(node).includes('Combine regions into one item'))[0].props.children[0].props.onChange({target:{checked:false}});render();
+selection().props.onChange({...crop,x:.1});render();
+const white=walk(host.tree,node=>node.type==='label'&&text(node).includes('Make near-white transparent'))[0];
+walk(white,node=>node.type==='input')[0].props.onChange({target:{checked:true}});render();
+await click('Save to library');assert.equal(library.length,1);assert.equal(library[0].blendMode,'multiply');assert.ok(!('assetId'in library[0]));
+assert.equal(calls.at(-1).args.removeWhiteBackground,true);assert.equal(calls.at(-1).args.crops[0].x,.1);
+walk(host.tree,node=>node.type==='input'&&node.props['aria-label']==='PDF fragment source page')[0].props.onChange({target:{value:'2'}});render();
+assert.equal(button('Insert each fragment').props.disabled,true);assert.equal(button('Create fragment list').props.disabled,true);
+await click('Load page');assert.equal(calls.at(-1).args.pageIndex,1);assert.equal(calls.at(-1).args.crop,null);
+await click('Create fragment list');assert.deepEqual(plain(calls.at(-1).args.crops),[{x:0,y:0,width:1,height:1}]);
+const existing=props.overlays;props.overlays=Array.from({length:30},(_,n)=>({...existing[0],id:`full-${n}`}));render();
+await click('Open PDF fragment workspace');const count=calls.length;await click('Insert each fragment');
+assert.equal(calls.length,count,'Capacity must be checked before native generation');assert.equal(props.overlays.length,30);assert.ok(errors.pop().includes('30'));
+props.overlays=existing;render();await click('Close fragment workspace');await click('Library');await click('Place');
+assert.equal(props.overlays.at(-1).blendMode,'multiply');assert.equal(errors.length,0);
+assert.ok(busy.every((value,index)=>value===(index%2===0)),'Every async operation releases busy once');
+// A late native result must not change the tray or workspace after unmount.
+await click('Stamp');await click('Open PDF fragment workspace');
+defer={};defer.promise=new Promise(resolve=>{defer.resolve=resolve;});
+button('Create fragment list').props.onClick();const busyStart=busy.length,changeCount=changes.length;
+for(const effect of host.effects)effect?.cleanup?.();defer.resolve();await settle();
+assert.equal(busy.length,busyStart+1);assert.equal(busy.at(-1),false);assert.equal(changes.length,changeCount);
+console.log('PASS: independent multi-fragment crops/previews, atomic insert, persistent tray/dedup, explicit union, whole-page/page-switch guards, library blend, capacity and late-result protection');

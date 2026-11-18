@@ -29,7 +29,8 @@ const canvas = {
 };
 const require = name => {
   if (name === './InlineTextInput') return {InlineTextInput:'InlineTextInput'};
-  if (name === '../imageGeometry') return imageGeometry;
+  if(name==='./FragmentTray')return{FragmentTray:'FragmentTray'}; if(name==='../pdfFragments')return fragments;
+    if (name === '../imageGeometry') return imageGeometry;
   if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
   if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
@@ -56,6 +57,7 @@ const numbers = {}; vm.runInNewContext(await transpile('../src/useNumberDraft.ts
 const textFrame = {}, placement = {};
 vm.runInNewContext(await transpile('../src/textFrame.ts'), { exports: textFrame, require });
 vm.runInNewContext(await transpile('../src/placementGeometry.ts'), { exports: placement, require });
+const fragments = {}; vm.runInNewContext(await transpile('../src/pdfFragments.ts'), {exports:fragments,require:name=>name==='./imageGeometry'?imageGeometry:geometry,crypto:{randomUUID:()=>`fragment-${++nextId}`}});
 const editorExports = {};
 vm.runInNewContext(await transpile('../src/components/OverlayEditor.tsx'), { exports: editorExports, require, window: { setTimeout: () => 1, clearTimeout() {} }, crypto: { randomUUID: () => `copy-${++nextId}` }, console, Error });
 const { OverlayEditor } = editorExports;

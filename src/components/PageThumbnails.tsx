@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, PointerEvent } from 'react';
-import { Check, CircleAlert, FileText, GripVertical, LoaderCircle, Plus } from 'lucide-react';
+import { Check, CircleAlert, FileText, GripVertical, LoaderCircle } from 'lucide-react';
 import { usePageLayers } from '../usePageLayers';
 import { LivePageImage } from './LivePageImage';
 import { useI18n } from '../i18n';
@@ -23,16 +23,18 @@ function Thumbnail({ page, index, top, height, active, checked, busy, dragged, o
     <button className="thumbnail-button" {...pointerProps} onClick={event => { if (!gesture.suppressClick()) onSelect(event); }} aria-label={t(`转到第 ${index + 1} 页`, `Go to page ${index + 1}`)} aria-current={active ? 'page' : undefined} disabled={busy}>
       <div className={`thumbnail-sheet ${landscape ? 'landscape' : ''}`}>{layers ? <LivePageImage page={page} layers={layers} label={t(`第 ${index + 1} 页缩略图`, `Page ${index + 1} thumbnail`)}/> : error ? <CircleAlert size={18}/> : loading ? <LoaderCircle className="spin" size={18}/> : <FileText size={22} strokeWidth={1}/>}</div>
       <span className="thumbnail-number">{String(index + 1).padStart(2, '0')}<span className="thumbnail-current-dot"/></span>
+      <span className="thumbnail-source-name" title={page.sourceName}>{page.sourceName}</span>
+      <span className="thumbnail-source-page">{t(`来源第 ${page.pageIndex + 1} 页`, `Source page ${page.pageIndex + 1}`)}</span>
     </button>
     <button className="thumbnail-grip" {...pointerProps} aria-label={t(`拖动第 ${index + 1} 页调整顺序`, `Drag page ${index + 1} to reorder`)} title={t('拖动排序；多选后可一起移动，也可使用 Alt + 方向键', 'Drag to reorder; selected pages move together. Alt + arrows also reorders.')} disabled={busy} onClick={() => gesture.suppressClick()}><GripVertical size={14}/></button>
   </div>;
 }
 
 /** Pointer-based sorting works alongside Tauri's native OS file drop handler on Windows. */
-export function PageThumbnails({ pages, activeId, selection, busy, onSelect, onToggle, onReorder, onAdd }: {
+export function PageThumbnails({ pages, activeId, selection, busy, onSelect, onToggle, onReorder }: {
   pages: WorkspacePage[]; activeId: string; selection: ReadonlySet<string>; busy: boolean;
   onSelect: (event: MouseEvent, page: WorkspacePage, index: number) => void; onToggle: (id: string) => void;
-  onReorder: (source: string, target: string, side: 'before' | 'after') => void; onAdd: () => void;
+  onReorder: (source: string, target: string, side: 'before' | 'after') => void;
 }) {
   const { t } = useI18n();
   const list = useRef<HTMLDivElement>(null);
@@ -133,7 +135,6 @@ export function PageThumbnails({ pages, activeId, selection, busy, onSelect, onT
     {mounted.map(row => { const page = pages[row.index]; return <Thumbnail key={page.id} page={page} index={row.index} top={row.top} height={row.height} active={page.id === activeId} checked={selection.has(page.id)} busy={busy} dragged={draggedIds.has(page.id)} gesture={handlers} onSelect={event => onSelect(event, page, row.index)} onToggle={() => onToggle(page.id)}/>; })}
     {drag?.target && !draggedIds.has(drag.target) && <div className="page-insertion-line" style={{ top: drag.y }}><span>{t('放在这里', 'Drop here')}</span></div>}
     </div>
-    <button className="add-page-tile" onClick={onAdd} disabled={busy}><Plus size={19}/><span>{t('添加 PDF', 'Add PDF')}</span></button>
     <span className="sr-only" role="status">{drag ? t(`正在移动 ${draggedIds.size} 页`, `Moving ${draggedIds.size} pages`) : ''}</span>
   </div>;
 }

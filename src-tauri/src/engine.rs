@@ -615,6 +615,14 @@ impl<'a> PdfEngine<'a> {
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct ImageFragments {
+            asset_id: String,
+            crops: Vec<PdfStampCrop>,
+            remove_white_background: bool,
+            trim_transparent_margins: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct ExportImage {
             asset_id: String,
             output_path: String,
@@ -829,6 +837,10 @@ impl<'a> PdfEngine<'a> {
                     p.crop.as_ref(),
                 )
                 .map(|v| json!(v))
+            }
+            "create_image_fragments" => {
+                let p: ImageFragments = parse(&request.args)?;
+                self.create_image_fragments(&p.asset_id, &p.crops, p.remove_white_background, p.trim_transparent_margins).map(|v| json!(v))
             }
             "export_image" => {
                 let p: ExportImage = parse(&request.args)?;

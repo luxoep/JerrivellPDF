@@ -4,6 +4,19 @@ import type { ImageAsset } from './types';
 import type { ImageSelection } from './imageGeometry';
 import { selectionOutline, selectionRegions } from './imageGeometry';
 
+// Sixteen independent previews share one decoded source, rather than allocating
+// sixteen full-page bitmaps. Keep only the most recent three source snapshots.
+const sources = new Map<string, Promise<HTMLImageElement>>();
+function decodeSource(source: ImageAsset): Promise<HTMLImageElement> {
+  const previous = sources.get(source.id);
+  if (previous) { sources.delete(source.id); sources.set(source.id, previous); return previous; }
+  const image = new Image(); image.src = source.dataUrl;
+  const decoded = image.decode().then(() => image).catch(error => { if (sources.get(source.id) === decoded) sources.delete(source.id); throw error; });
+  sources.set(source.id, decoded);
+  while (sources.size > 3) sources.delete(sources.keys().next().value!);
+  return decoded;
+}
+
 /** Browser-only previews do not consume native assets or reopen PDFs per drag. */
 export function useFragmentPreview(source: ImageAsset | null, crop: ImageSelection | null, removeWhite: boolean, trim: boolean) {
   const [result, setResult] = useState<{ owner: string; image: ImageAsset } | null>(null);
@@ -16,8 +29,7 @@ export function useFragmentPreview(source: ImageAsset | null, crop: ImageSelecti
     const timer = window.setTimeout(() => {
       void (async () => {
         if (decoded.current?.id !== source.id) {
-          const image = new Image(); image.src = source.dataUrl;
-          decoded.current = { id: source.id, promise: image.decode().then(() => image) };
+          decoded.current = { id: source.id, promise: decodeSource(source) };
         }
         const image = await decoded.current.promise; if (disposed) return;
         const region = crop ?? { x: 0, y: 0, width: 1, height: 1 };
