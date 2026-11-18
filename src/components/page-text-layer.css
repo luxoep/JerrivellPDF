@@ -1,4 +1,11 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
+.reader-top .tool-button[aria-pressed]{border:1px solid transparent;transition:background-color .12s,color .12s,border-color .12s}
+.reader-top .tool-button[aria-pressed="true"]{background:var(--accent,#486f8b);border-color:var(--accent-hover,#365a74);color:var(--white,#fffdf6);font-weight:600}
+.reader-top .tool-button[aria-pressed="true"]:hover:not(:disabled){background:var(--accent-hover,#365a74);color:var(--white,#fffdf6)}
+.reader-top .text-select-toggle{gap:6px;padding:0 8px}
+.reader-mode-state{display:inline-flex;align-items:center;justify-content:center;min-width:30px;padding:2px 4px;border-radius:3px;background:#e7eff3;color:#687d8b;font-size:9px;font-weight:500;line-height:1.4}
+.text-select-toggle[aria-pressed="true"] .reader-mode-state{background:#ffffff26;color:inherit}
+@media(prefers-reduced-motion:reduce){.reader-top .tool-button[aria-pressed]{transition:none}}
 .pdf-text-layer{position:absolute;inset:0;z-index:1;outline:none;user-select:none;touch-action:pan-x pan-y}
 .pdf-text-layer.ready{cursor:text;touch-action:none}
 .pdf-text-layer:focus-visible{outline:1px solid #63859c;outline-offset:-1px}

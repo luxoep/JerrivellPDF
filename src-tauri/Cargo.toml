@@ -1,6 +1,6 @@
 [package]
 name = "jerrivell-pdf"
-version = "0.8.7"
+version = "0.8.8"
 description = "A local, open-source PDF workspace for Windows"
 authors = ["Jerry and contributors"]
 edition = "2021"
