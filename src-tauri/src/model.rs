@@ -183,6 +183,22 @@ pub struct PdfStampCrop {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<ImagePoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImagePoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EraseStroke {
+    pub points: Vec<ImagePoint>,
+    pub width: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +245,15 @@ pub struct RenderedPage {
     pub data_url: String,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectPreviewLayers {
+    pub lower: RenderedPage,
+    pub moving: RenderedPage,
+    pub upper: RenderedPage,
+    pub foreground: Vec<RenderedPreviewLayer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

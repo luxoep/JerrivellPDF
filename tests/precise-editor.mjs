@@ -26,6 +26,10 @@ const canvas = {
   createTextPng: (...args) => { drawnFonts.push(['text', ...args]); return { dataUrl: 'data:image/png;base64,AA==', width: 200, height: 100 }; },
 };
 const require = name => {
+  if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
+  if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
+  if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
+  if (name === './OriginalObjectPreview') return {OriginalObjectPreview:'OriginalObjectPreview'};
   if (name === 'react') return react;
   if (name === 'react/jsx-runtime') return jsx;
   if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });

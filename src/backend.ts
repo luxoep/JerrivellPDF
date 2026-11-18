@@ -61,7 +61,15 @@ const stagedData = new Map<string, string>();
 let imageSequence = 0;
 const LOCAL_IMAGE = 'jerrivell-preview-';
 function rememberImage(value: unknown, command: string) {
-  const required = ['register_image', 'import_image', 'import_pdf_stamp'].includes(command);
+  if (command === 'preview_image') {
+    const preview = value as { dataUrl?: string; width?: number; height?: number; thumbnailWidth?: number; thumbnailHeight?: number } | null;
+    if (!preview || typeof preview.dataUrl !== 'string' || !preview.dataUrl.startsWith('data:image/png;base64,')
+      || ![preview.width,preview.height,preview.thumbnailWidth,preview.thumbnailHeight].every(size=>Number.isSafeInteger(size)&&Number(size)>0)) {
+      throw new Error('BACKEND_RESPONSE_INVALID: preview_image 图像预览格式无效，请重试或更新应用。');
+    }
+    return;
+  }
+  const required = ['register_image', 'import_image', 'import_pdf_stamp', 'edit_image_asset', 'extract_content_image', 'get_image_asset', 'rasterize_page_asset'].includes(command);
   const object = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   // Image-returning commands share a flat contract. Recognize any future asset
   // producer by its shape as well, so adding a producer cannot silently omit it
@@ -173,6 +181,9 @@ export function renderPage(page: PageRef, targetWidth: number, thumbnail = false
 
 /** Overlay placement/opacity/history do not change the expensive native raster. */
 export function rasterReference(page: PageRef): PageRef { return pageReference({ ...page, overlays: [] }); }
+export function cachedPageLayers(page: PageRef, targetWidth: number): RenderedPageLayers | undefined {
+  return layerCache.get(`${JSON.stringify(rasterReference(page))}:${Math.max(80,Math.round(targetWidth))}`);
+}
 export function renderPageLayers(page: PageRef, targetWidth: number, thumbnail = false): Promise<RenderedPageLayers> {
   const reference = rasterReference(page), width = Math.max(80, Math.round(targetWidth));
   const key = `${JSON.stringify(reference)}:${width}`;

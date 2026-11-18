@@ -40,8 +40,13 @@ const react={
  useMemo(factory,deps){const current=host,index=current.cursor++,old=current.slots[index];if(!old||deps.some((value,i)=>value!==old.deps[i]))current.slots[index]={deps,value:factory()};return current.slots[index].value;},
  useEffect(effect,deps){const current=host,index=current.cursor++,old=current.effects[index];if(!old||deps.some((value,i)=>value!==old.deps[i]))current.pending.push(()=>{old?.cleanup?.();current.effects[index]={deps,cleanup:effect()};});},
 };
+const imageGeometry=await module('src/imageGeometry.ts',{});
+const region=await module('src/components/RegionSelection.tsx',{require(name){if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;if(name==='../imageGeometry')return imageGeometry;if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};throw new Error(name);}});
 const pngPath=join(output,'fragment-library.png');
 const editor=await module('src/components/OverlayEditor.tsx',{require(name){
+ if(name==='./RegionSelection')return region;
+ if(name==='./ImageEditDialog')return{ImageEditDialog:'ImageEditDialog'};
+ if(name==='../useFragmentPreview')return{useFragmentPreview:()=>({image:null,error:''})};
  if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;
  if(name==='@tauri-apps/plugin-dialog')return{open:async()=>source,save:async()=>pngPath};
  if(name==='lucide-react')return new Proxy({},{get:(_,name)=>`icon-${String(name)}`});
@@ -58,29 +63,30 @@ function find(node,predicate,result=[]){if(!node||typeof node!=='object')return 
 const createHost=()=>({cursor:0,slots:[],effects:[],pending:[],tree:null});let editorHost=createHost();
 const errors=[],busy=[];const props={pageWidth:595,pageHeight:842,overlays:[],disabled:false,onChange:next=>props.overlays=next,onError:error=>errors.push(error),onClose(){},onBusyChange:value=>busy.push(value)};
 function render(){host=editorHost;host.cursor=0;host.pending=[];host.tree=editor.OverlayEditor(props);for(const effect of host.pending)effect();return host.tree;}
-function button(name){const values=find(editorHost.tree,node=>node.type==='button'&&label(node)===name);assert.equal(values.length,1,`button ${name}`);return values[0];}
+function button(name){const values=find(editorHost.tree,node=>node.type==='button'&&(label(node)===name||node.props['aria-label']===name));assert.equal(values.length,1,`button ${name}`);return values[0];}
 async function click(name){const item=button(name);assert.ok(!item.props.disabled,`${name} must be usable`);item.props.onClick();const started=Date.now();while(busy.at(-1)){if(Date.now()-started>120000)throw new Error(`Editor operation stalled: ${name}`);await new Promise(resolve=>setTimeout(resolve,5));}await new Promise(resolve=>setImmediate(resolve));render();assert.equal(errors.length,0,`Editor errors: ${errors.join('; ')}`);}
 function checkLive(page,layers){const tree=live.LivePageImage({page:{...page,overlays:props.overlays},layers,label:'Reader'});const images=find(tree,node=>node.type==='image'&&node.props['data-live-overlay']);assert.equal(images.length,props.overlays.length,'Every placed object must have visible reader pixels, not only a valid native handle');for(const image of images)assert.ok(image.props.href.startsWith('data:image/png;base64,'));return images;}
 async function saveRoundTrip(page,name){const plan={...page,overlays:props.overlays};const path=join(output,name);const preview=await api.renderPage(plan,600);const report=await api.backend('prepare_export',{parts:[{name,pages:[api.pageReference(plan)]}]},3);const result=await api.backend('save_prepared_export',{token:report.token,paths:[path]},3);assert.equal(result.failed,0);assert.equal((await stat(path)).size,report.totalBytes);const reopened=await api.backend('open_document',{path});const reference={documentId:reopened.id,pageIndex:0,rotation:0};const image=await api.renderPage(reference,600);assert.equal(createHash('sha256').update(image.dataUrl).digest('hex'),createHash('sha256').update(preview.dataUrl).digest('hex'),'Saved/reopened pixels must equal native export preview');const content=await api.backend('inspect_page_content',{page:reference});assert.equal(content.objects.filter(value=>value.kind==='image').length,props.overlays.length);return path;}
 try{
  const target=await api.backend('open_document',{path:join(root,'fixtures/sample.pdf')});let page={id:'target',documentId:target.id,pageIndex:0,rotation:0,width:595,height:842};
  const base=await api.renderPageLayers(page,600);render();await click('Stamp');await click('PDF fragment');await click('Choose source PDF');
- assert.equal(button('Overlay on this page').props.disabled,true);
+ assert.equal(button('Overlay on this page').props.disabled,false);
  const selection=find(editorHost.tree,node=>node.type?.name==='PdfStampSelection')[0];assert.ok(selection,'Real source page must be available for selection');
- const selectionHost=createHost();host=selectionHost;const selectionTree=selection.type(selection.props);const group=selectionTree.props.children;group.props.ref.current={getBoundingClientRect:()=>({left:0,top:0,width:200,height:300})};
- const surface={getBoundingClientRect:()=>({left:0,top:0,width:200,height:300}),setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
+ const selectionHost=createHost();host=selectionHost;const selectionTree=region.RegionSelection(selection.props);const group=selectionTree.props.children[0];
+ const surface={getBoundingClientRect:()=>({left:0,top:0,width:200,height:300}),focus(){},setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
+ group.props.ref.current=surface;
  const pointer=(x,y)=>({button:0,pointerId:1,currentTarget:surface,clientX:x,clientY:y,preventDefault(){},stopPropagation(){}});
  group.props.onPointerDown(pointer(40,60));group.props.onPointerMove(pointer(160,180));group.props.onPointerUp(pointer(160,180));render();
  await click('Update fragment preview');const importCall=calls.filter(item=>item.command==='import_pdf_stamp').at(-1);assert.ok(Math.abs(importCall.args.crop.x-.2)<1e-8);assert.ok(Math.abs(importCall.args.crop.width-.6)<1e-8);
  await click('Overlay on this page');assert.equal(props.overlays.length,1);assert.equal(props.overlays[0].blendMode,'multiply');checkLive(page,base);
  assert.equal(await api.renderPageLayers({...page,overlays:props.overlays},600),base,'Placing fragments must preserve the no-refresh reader');
  await saveRoundTrip(page,'placed-fragment.pdf');
- const white=find(editorHost.tree,node=>node.type==='label'&&label(node).includes('Make near-white transparent'))[0];find(white,node=>node.type==='input')[0].props.onChange({target:{checked:true}});render();
- assert.equal(button('Overlay on this page').props.disabled,true);await click('Update fragment preview');await click('Save to library');
+ await click('Open PDF fragment workspace'); const white=find(editorHost.tree,node=>node.type==='label'&&label(node).includes('Make near-white transparent'))[0];find(white,node=>node.type==='input')[0].props.onChange({target:{checked:true}});render();
+ assert.equal(button('Overlay on this page').props.disabled,false);await click('Save to library');assert.equal(calls.filter(item=>item.command==='import_pdf_stamp').at(-1).args.removeWhiteBackground,true);
  assert.equal(library.loadStampLibrary().length,1);assert.equal(library.loadStampLibrary()[0].blendMode,'multiply');assert.ok(!('assetId' in library.loadStampLibrary()[0]));
  find(editorHost.tree,node=>node.type==='input'&&node.props['aria-label']==='PDF fragment source page')[0].props.onChange({target:{value:'2'}});render();assert.equal(button('Update fragment preview').props.disabled,true);
  await click('Load page');await click('Update fragment preview');assert.equal(calls.filter(item=>item.command==='import_pdf_stamp').at(-1).args.pageIndex,1);
- await click('Library');await click('PNG');assert.ok((await stat(pngPath)).size>100);
+ await click('Close fragment workspace');await click('Library');await click('PNG');assert.ok((await stat(pngPath)).size>100);
  for(const effect of editorHost.effects)effect?.cleanup?.();api.resetBackendQueue();await api.backend('close_all_documents');
  const nextTarget=await api.backend('open_document',{path:join(root,'fixtures/sample.pdf')});page={...page,documentId:nextTarget.id};props.overlays=[];editorHost=createHost();render();await click('Library');await click('Place');
  const nextBase=await api.renderPageLayers(page,600);checkLive(page,nextBase);assert.ok(calls.some(item=>item.command==='register_image'),'Library reuse must re-register PNGs after native session reset');

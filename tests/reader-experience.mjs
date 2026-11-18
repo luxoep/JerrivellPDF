@@ -62,7 +62,7 @@ near(rectangle.bounds.x, .1, 'Reverse-drawn left'); near(rectangle.bounds.width,
 assert.equal(marks.createMarkGeometry([{ x: .1, y: .1 }, { x: .1001, y: .1001 }], settings, 600, 800), null, 'Tiny clicks must not create marks');
 assert.equal(marks.createMarkGeometry([{ x: NaN, y: 0 }, { x: 1, y: 1 }], settings, 600, 800), null);
 assert.equal(marks.createMarkGeometry([{ x: .1, y: .1 }, { x: .2, y: .2 }], { ...settings, tool: 'select' }, 600, 800), null);
-for (const tool of ['highlight', 'block', 'rectangle', 'ellipse', 'underline', 'strikeout', 'arrow', 'pen']) {
+for (const tool of ['highlight', 'block', 'rectangle', 'ellipse', 'line', 'arrow', 'pen']) {
   const geometry = marks.createMarkGeometry([{ x: -.1, y: -.1 }, { x: .3, y: .6 }, { x: 1.2, y: 1.2 }], { ...settings, tool }, 900, 500);
   assert.ok(geometry);
   assert.ok(geometry.bounds.x >= 0 && geometry.bounds.y >= 0 && geometry.bounds.x + geometry.bounds.width <= 1.0000001 && geometry.bounds.y + geometry.bounds.height <= 1.0000001, tool);
@@ -72,11 +72,13 @@ for (const tool of ['highlight', 'block', 'rectangle', 'ellipse', 'underline', '
   else assert.ok(canvasCalls.some(call => call[0] === 'stroke' || call[0] === 'strokeRect'));
   assert.ok(!canvasCalls.some(call => call[0] === 'set' && call[1] === 'globalAlpha'), 'Opacity is applied once by the PDF layer, not baked into the PNG again');
 }
-const line = marks.createMarkGeometry([{ x: .2, y: .3 }, { x: .8, y: .3 }], { ...settings, tool: 'underline' }, 600, 800);
+const line = marks.createMarkGeometry([{ x: .2, y: .3 }, { x: .8, y: .3 }], { ...settings, tool: 'line' }, 600, 800);
 assert.ok(line.bounds.height > 0 && line.bounds.height < .02, 'Horizontal lines need a positive tightly bounded image');
 const square = marks.constrainedMarkPoint({ x: .1, y: .2 }, { x: .8, y: .3 }, 'rectangle', true, 600, 800);
 near((square.x - .1) * 600, (square.y - .2) * 800, 'Shift square in physical page units');
-assert.equal(marks.constrainedMarkPoint({ x: .1, y: .2 }, { x: .8, y: .3 }, 'underline', true, 600, 800).y, .2);
+const snapped = marks.constrainedMarkPoint({x:.1,y:.2},{x:.8,y:.3},'line',true,600,800);
+assert.ok(Math.abs(snapped.y-.2)<1e-10);
+assert.deepEqual(Array.from(marks.lineDash('dashDotDot',2)),[18,6,2,6,2,6]);
 
 // Execute real React pointer handlers without a browser; capture/cancel and disabled
 // transitions must not accidentally commit partial strokes or mutate the target page.
@@ -201,4 +203,4 @@ assert.equal(moves.length, 1, 'Pointer cancellation must leave page order unchan
 sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 730)); rafCallback(); assert.ok(pane.scrollTop > 0, 'Dragging at the lower edge auto-scrolls the page sidebar');
 sortListeners.get('keydown')({ key: 'Escape' }); sortTree = renderSort(); sortGesture().finish(event(180, 730)); assert.equal(moves.length, 1, 'Escape must cancel a pending sort');
 sortProps.busy = true; sortTree = renderSort(); sortGesture().begin(event(180, 150), 'a'); sortGesture().move(event(180, 600)); sortGesture().finish(event(180, 600)); assert.equal(moves.length, 1, 'Busy workspaces must reject reordering');
-console.log('PASS: continuous mixed-page layout, 5000-page lookup, fit width/page, native Ctrl+wheel and pointer anchors, viewport resize/scroll/navigation, virtual rasters, stable group sorting with pointer capture/auto-scroll/cancel, eight mark raster paths and pointer/cancel/Escape/busy gestures');
+console.log('PASS: continuous mixed-page layout, 5000-page lookup, fit width/page, native Ctrl+wheel and pointer anchors, viewport resize/scroll/navigation, virtual rasters, stable group sorting with pointer capture/auto-scroll/cancel, seven mark raster paths and pointer/cancel/Escape/busy gestures');

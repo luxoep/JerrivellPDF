@@ -98,7 +98,36 @@ impl ImageAsset {
 }
 
 impl<'a> PdfEngine<'a> {
-    fn store_image(
+    pub fn get_image_asset(&self, id: &str) -> Result<ImageAssetInfo, String> {
+        self.assets
+            .get(id)
+            .map(|asset| asset.info(id))
+            .ok_or_else(|| invalid("图像资源已失效，请重新选择。"))
+    }
+
+    pub fn rasterize_page_asset(&mut self, reference: &PageRef) -> Result<ImageAssetInfo, String> {
+        let document = self.prepare_document(&[reference.clone()])?;
+        let page = document.pages().get(0).map_err(pdf_error)?;
+        let scale = 2400.0 / page.width().value.max(page.height().value);
+        let (width, height) = (
+            (page.width().value * scale).round().max(1.0) as i32,
+            (page.height().value * scale).round().max(1.0) as i32,
+        );
+        let image = page
+            .render_with_config(
+                &PdfRenderConfig::new()
+                    .set_target_size(width, height)
+                    .render_form_data(false)
+                    .render_annotations(true),
+            )
+            .map_err(pdf_error)?
+            .as_image()
+            .map_err(pdf_error)?;
+        drop(page);
+        drop(document);
+        self.store_image(image, None)
+    }
+    pub(super) fn store_image(
         &mut self,
         image: DynamicImage,
         source_path: Option<PathBuf>,
@@ -153,7 +182,7 @@ impl<'a> PdfEngine<'a> {
         self.store_image(image, None)
     }
 
-    pub fn import_image(&mut self, path: &str) -> Result<ImageAssetInfo, String> {
+    fn read_local_image(path: &str) -> Result<(DynamicImage, PathBuf), String> {
         let path = Path::new(path)
             .canonicalize()
             .map_err(|e| invalid(format!("无法打开图片：{e}")))?;
@@ -170,7 +199,20 @@ impl<'a> PdfEngine<'a> {
             return Err(invalid("图片读取期间超过 24 MiB 限制。"));
         }
         let image = normalized_image(&bytes, false)?;
+        Ok((image, path))
+    }
+
+    pub fn import_image(&mut self, path: &str) -> Result<ImageAssetInfo, String> {
+        let (image, path) = Self::read_local_image(path)?;
         self.store_image(image, Some(path))
+    }
+    pub fn preview_image(&self, path: &str) -> Result<Value, String> {
+        let (image, _) = Self::read_local_image(path)?;
+        let (width, height) = (image.width(), image.height());
+        let thumbnail = image.thumbnail(600, 600);
+        Ok(
+            json!({"dataUrl":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(encode_png(&thumbnail)?)),"width":width,"height":height,"thumbnailWidth":thumbnail.width(),"thumbnailHeight":thumbnail.height()}),
+        )
     }
 
     /// Rasterize only the requested page into a reusable, local image asset.
@@ -183,6 +225,9 @@ impl<'a> PdfEngine<'a> {
         trim_transparent_margins: bool,
         crop: Option<&PdfStampCrop>,
     ) -> Result<PdfStampInfo, String> {
+        if let Some(rect) = crop {
+            super::image_edit::validate_crop(rect)?;
+        }
         if let Some(rect) = crop {
             if [rect.x, rect.y, rect.width, rect.height]
                 .iter()
@@ -259,6 +304,9 @@ impl<'a> PdfEngine<'a> {
                 .map_err(pdf_error)?
                 .into_rgba8();
             if let Some(rect) = crop {
+                if !rect.points.is_empty() {
+                    super::image_edit::polygon_mask(&mut pixels, &rect.points);
+                }
                 // The full-page bitmap is already in the page's final displayed
                 // orientation, so normalized top-left selection needs no PDF-axis guess.
                 let left = ((rect.x * width as f32).floor() as u32).min(width - 1);

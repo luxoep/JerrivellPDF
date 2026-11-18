@@ -248,8 +248,69 @@ async fn register_image(
 }
 
 #[tauri::command]
+async fn preview_image(state: State<'_, Backend>, path: String) -> Result<Value, String> {
+    call(state, "preview_image", json!({"path":path})).await
+}
+
+#[tauri::command]
 async fn import_image(state: State<'_, Backend>, path: String) -> Result<ImageAssetInfo, String> {
     call(state, "import_image", json!({"path": path})).await
+}
+
+#[tauri::command]
+async fn edit_image_asset(
+    state: State<'_, Backend>,
+    asset_id: String,
+    crop: Option<PdfStampCrop>,
+    strokes: Vec<EraseStroke>,
+) -> Result<ImageAssetInfo, String> {
+    call(
+        state,
+        "edit_image_asset",
+        json!({"assetId":asset_id,"crop":crop,"strokes":strokes}),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn get_image_asset(
+    state: State<'_, Backend>,
+    asset_id: String,
+) -> Result<ImageAssetInfo, String> {
+    call(state, "get_image_asset", json!({"assetId":asset_id})).await
+}
+#[tauri::command]
+async fn rasterize_page_asset(
+    state: State<'_, Backend>,
+    page: PageRef,
+) -> Result<ImageAssetInfo, String> {
+    call(state, "rasterize_page_asset", json!({"page":page})).await
+}
+
+#[tauri::command]
+async fn extract_content_image(
+    state: State<'_, Backend>,
+    page: PageRef,
+    object_index: u32,
+    fingerprint: String,
+) -> Result<ImageAssetInfo, String> {
+    call(
+        state,
+        "extract_content_image",
+        json!({"page":page,"objectIndex":object_index,"fingerprint":fingerprint}),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn render_object_layers(
+    state: State<'_, Backend>,
+    page: PageRef,
+    object_index: u32,
+    fingerprint: String,
+    target_width: u32,
+) -> Result<ObjectPreviewLayers, String> {
+    call(state,"render_object_layers",json!({"page":page,"objectIndex":object_index,"fingerprint":fingerprint,"targetWidth":target_width})).await
 }
 
 #[tauri::command]
@@ -368,7 +429,13 @@ pub fn run() {
             discard_line_preview,
             export_page,
             register_image,
+            edit_image_asset,
+            get_image_asset,
+            rasterize_page_asset,
+            extract_content_image,
+            render_object_layers,
             import_image,
+            preview_image,
             import_pdf_stamp,
             export_image,
             close_all_documents

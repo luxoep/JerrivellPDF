@@ -20,3 +20,5 @@ html[lang="en-US"] .rail-button{font-size:9px}html[lang="en-US"] .rail-button sp
 .workspace-body.editor-open{padding-right:380px}.content-edit-button.active{background:#eee8fa;color:#7660b2}.editor-open .page-stage{padding-left:20px;padding-right:20px}.editor-open .reader-top,.editor-open .reader-bottom{padding-left:15px;padding-right:15px}.editor-open .page-stage{min-width:0}.editor-open .paper-dimensions{display:none}
 
 .brand-mark{background:none;box-shadow:none;border-radius:0}.brand-icon{display:block;width:43px;height:43px;object-fit:contain}.wordmark{letter-spacing:-1px}
+
+.page-quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:0 15px 9px;flex:none}.page-quick-actions button{display:flex;gap:7px;align-items:center;justify-content:center;padding:8px 5px;border:1px solid #ded5eb;border-radius:6px;color:#8b73aa;font-size:10px;background:#faf7ff}.page-quick-actions button:hover:not(:disabled){background:#eee7fa;border-color:#c6b3df}

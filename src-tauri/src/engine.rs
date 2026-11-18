@@ -13,6 +13,7 @@ use tempfile::NamedTempFile;
 mod assets;
 mod content;
 mod export;
+mod image_edit;
 mod operations;
 mod preview;
 use assets::ImageAsset;
@@ -615,6 +616,34 @@ impl<'a> PdfEngine<'a> {
         }
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct EditImage {
+            asset_id: String,
+            crop: Option<PdfStampCrop>,
+            #[serde(default)]
+            strokes: Vec<EraseStroke>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct ContentImage {
+            page: PageRef,
+            object_index: u32,
+            fingerprint: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct ObjectLayers {
+            page: PageRef,
+            object_index: u32,
+            fingerprint: String,
+            target_width: u32,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct AssetId {
+            asset_id: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct Prepare {
             parts: Vec<ExportPart>,
         }
@@ -726,9 +755,36 @@ impl<'a> PdfEngine<'a> {
                 let p: RegisterImage = parse(&request.args)?;
                 self.register_image(&p.data_url).map(|v| json!(v))
             }
+            "preview_image" => {
+                let p: ImportImage = parse(&request.args)?;
+                self.preview_image(&p.path)
+            }
             "import_image" => {
                 let p: ImportImage = parse(&request.args)?;
                 self.import_image(&p.path).map(|v| json!(v))
+            }
+            "edit_image_asset" => {
+                let p: EditImage = parse(&request.args)?;
+                self.edit_image_asset(&p.asset_id, p.crop.as_ref(), &p.strokes)
+                    .map(|v| json!(v))
+            }
+            "get_image_asset" => {
+                let p: AssetId = parse(&request.args)?;
+                self.get_image_asset(&p.asset_id).map(|v| json!(v))
+            }
+            "rasterize_page_asset" => {
+                let p: Inspect = parse(&request.args)?;
+                self.rasterize_page_asset(&p.page).map(|v| json!(v))
+            }
+            "extract_content_image" => {
+                let p: ContentImage = parse(&request.args)?;
+                self.extract_content_image(&p.page, p.object_index, &p.fingerprint)
+                    .map(|v| json!(v))
+            }
+            "render_object_layers" => {
+                let p: ObjectLayers = parse(&request.args)?;
+                self.render_object_layers(&p.page, p.object_index, &p.fingerprint, p.target_width)
+                    .map(|v| json!(v))
             }
             "import_pdf_stamp" => {
                 let p: ImportPdfStamp = parse(&request.args)?;

@@ -71,6 +71,7 @@ const require = name => {
   if (name === './overlayCanvas') return { DEFAULT_FONT_FAMILY: 'Installed Font' };
   if (name === './FontPicker') return { FontPicker: 'FontPicker' }; if (name === './MarkLayer') return { MarkLayer: 'MarkLayer' };
   if (name === '@tauri-apps/plugin-dialog') return { save: async () => 'K:\\output\\review.pdf', open: async () => ['K:\\input\\first.png', 'K:\\input\\second.jpg'] };
+  if (name === './PageToolPreview') return {PageToolPreview:'PageToolPreview'};
   if (name.endsWith('.css')) return {}; throw new Error(name);
 };
 function harness(Component, props) {

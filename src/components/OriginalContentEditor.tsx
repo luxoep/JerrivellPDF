@@ -8,9 +8,15 @@ import { contentEditFor, contentObjectId, geometryFromMillimeters, MAX_CONTENT_E
 import type { ContentBounds, ContentChange, ContentEdit, ContentObject } from '../originalContent';
 import { FontPicker } from './FontPicker';
 import { DEFAULT_FONT_FAMILY } from './overlayCanvas';
+import { ImageEditDialog } from './ImageEditDialog';
+import type { ImageAsset, PageRef } from '../types';
 import './original-content.css';
 
 export interface OriginalContentEditorProps {
+  page?: PageRef;
+  eraseMode?: boolean;
+  onEraseMode?: (value: boolean) => void;
+  onRasterEdit?: () => void;
   pageWidth: number;
   pageHeight: number;
   objects: ContentObject[];
@@ -50,6 +56,7 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [imageEdit, setImageEdit] = useState<ImageAsset | null>(null);
   const alive = useRef(true);
   const pending = useRef(false);
   const releaseBusy = useRef<(() => void) | null>(null);
@@ -138,13 +145,21 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
   ];
   const filtered = props.objects.filter(item => filter === 'all' || item.kind === filter);
   const kindName = (kind: ContentObject['kind']) => kind === 'text' ? t('文字', 'Text') : kind === 'image' ? t('图片', 'Image') : t('其他内容', 'Other content');
-  return <aside className="original-editor" aria-label={t('编辑 PDF 原有内容', 'Edit original PDF content')} onKeyDown={event => {
+  const editPixels = () => void execute(async () => {
+    if (!props.page || !object || object.kind !== 'image' || !object.editable || object.deleted) return;
+    const asset = await backend<ImageAsset>('extract_content_image',{page:props.page,objectIndex:object.objectIndex,fingerprint:object.fingerprint},3);
+    if (alive.current) setImageEdit(asset);
+  });
+  return <aside className="original-editor" aria-label={t('编辑 PDF 原有内容', 'Edit original PDF content')} onKeyDown={event =>
+    {
     const target = event.target as HTMLElement;
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
     if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
     if (!typing && (event.key === 'Delete' || event.key === 'Backspace')) { event.preventDefault(); if (object?.editable && !object.deleted && !blocked) void toggleDeleted(); }
   }}>
     <header className="oc-header"><div><strong>{t('编辑原文', 'Edit original content')}</strong><span>{t('修改 PDF 中已有的文字与图片对象', 'Modify existing PDF text and image objects')}</span></div><button aria-label={t('关闭原文编辑', 'Close original content editor')} disabled={working} onClick={props.onClose}><X size={18}/></button></header>
+    {props.onEraseMode && <label className="oc-erase-mode"><input type="checkbox" checked={Boolean(props.eraseMode)} disabled={blocked} onChange={event=>props.onEraseMode?.(event.target.checked)}/>{t('对象橡皮擦：点击对象删除，可撤销','Object eraser: click an object to remove it; undo is available')}</label>}
+    {props.onRasterEdit && <div className="oc-pixel-action"><button className="oe-action wide" disabled={blocked} onClick={props.onRasterEdit}>{t('当前页像素编辑（转换为图像）','Edit page pixels (convert to image)')}</button></div>}
     <div className="oc-scroll">{props.onEditLines && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onEditLines}><FileText size={14}/>{t('组合文字行编辑、字距与前后预览', 'Edit grouped text lines, spacing and comparison')}</button></section>}
       <section className="oc-section"><div className="oc-section-heading"><h3>{t('本页原有对象', 'Original page objects')}</h3><button disabled={blocked} onClick={props.onRefresh} aria-label={t('重新读取原有对象', 'Refresh original objects')}><RefreshCw size={13}/></button></div>
         <p className="oc-description">{t('先在页面框内或下方列表中选择一个对象。PDF 文字可能按行或小片段拆分，不会自动重排相邻段落。', 'Choose an object on the page or in the list. PDF text may be split into lines or short runs; neighboring paragraphs do not reflow automatically.')}</p>
@@ -183,5 +198,10 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
     </div>
     {working && <div className="oc-working" role="status"><LoaderCircle className="spin" size={14}/>{t('正在验证原文修改…', 'Validating original content changes…')}</div>}
     <footer className="oc-footer">{t('修改可撤销。保存副本后重新打开，原文修改仍保留。', 'Changes can be undone. Original content edits survive saving and reopening a copy.')}</footer>
+    {object?.kind === 'image' && <div className="oc-pixel-action"><button className="oe-action wide" disabled={!canEdit || !props.page} onClick={editPixels}>{t('图片裁切 / 橡皮擦','Image crop / Eraser')}</button></div>}
+    {imageEdit && object && <ImageEditDialog image={imageEdit} title={t('原 PDF 图片对象','Original PDF image object')} onClose={() => setImageEdit(null)} onBusyChange={props.onBusyChange} onApply={async image => {
+      const result = await latest.current.onChange(upsertContentEdit(latest.current.contentEdits,object,{replacementAssetId:image.id}));
+      return result;
+    }}/>} 
   </aside>;
 }

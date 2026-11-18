@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-export type MarkTool = 'select' | 'highlight' | 'block' | 'rectangle' | 'ellipse' | 'underline' | 'strikeout' | 'arrow' | 'pen';
+export type MarkTool = 'select' | 'highlight' | 'block' | 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'pen';
+export type LineStyle = 'solid' | 'dashed' | 'dashDot' | 'dashDotDot';
 export interface MarkPoint { x: number; y: number }
-export interface MarkSettings { tool: MarkTool; color: string; opacity: number; lineWidth: number }
+export interface MarkSettings { tool: MarkTool; color: string; opacity: number; lineWidth: number; lineStyle?: LineStyle }
 export interface MarkGeometry {
   tool: Exclude<MarkTool, 'select'>;
   bounds: { x: number; y: number; width: number; height: number };
@@ -9,16 +10,19 @@ export interface MarkGeometry {
   pageWidth: number;
   pageHeight: number;
   lineWidth: number;
+  lineStyle?: LineStyle;
+}
+export function lineDash(style: LineStyle = 'solid', width = 1): number[] {
+  return (style === 'dashed' ? [7, 4] : style === 'dashDot' ? [9, 3, 1, 3] : style === 'dashDotDot' ? [9, 3, 1, 3, 1, 3] : []).map(value => value * Math.max(1, width));
 }
 export const DEFAULT_MARK: MarkSettings = { tool: 'highlight', color: '#f6ce45', opacity: 0.35, lineWidth: 2 };
 export const markPoint = (x: number, y: number): MarkPoint => ({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) });
 
 export function constrainedMarkPoint(start: MarkPoint, end: MarkPoint, tool: MarkTool, square: boolean, pageWidth: number, pageHeight: number): MarkPoint {
   if (!square) return end;
-  if (tool === 'underline' || tool === 'strikeout') return { x: end.x, y: start.y };
   if (tool === 'pen' || tool === 'select') return end;
   const dx = (end.x - start.x) * pageWidth, dy = (end.y - start.y) * pageHeight;
-  if (tool === 'arrow') {
+  if (tool === 'arrow' || tool === 'line') {
     const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4;
     return markPoint(start.x + Math.cos(angle) * Math.hypot(dx, dy) / pageWidth, start.y + Math.sin(angle) * Math.hypot(dx, dy) / pageHeight);
   }
@@ -42,7 +46,7 @@ export function createMarkGeometry(points: MarkPoint[], settings: MarkSettings, 
     left = Math.max(0, left - pad / pageWidth); right = Math.min(1, right + pad / pageWidth);
     top = Math.max(0, top - pad / pageHeight); bottom = Math.min(1, bottom + pad / pageHeight);
   }
-  return { tool: settings.tool, points: used, bounds: { x: left, y: top, width: right - left, height: bottom - top }, pageWidth, pageHeight, lineWidth };
+  return { tool: settings.tool, points: used, bounds: { x: left, y: top, width: right - left, height: bottom - top }, pageWidth, pageHeight, lineWidth, lineStyle: settings.lineStyle ?? 'solid' };
 }
 
 /** Original canvas geometry; only its transparent PNG asset is passed to the PDF worker. */
@@ -56,6 +60,7 @@ export function createMarkPng(mark: MarkGeometry, color: string): string {
   if (!context) throw new Error('CANVAS_UNAVAILABLE');
   context.scale(canvas.width / physicalWidth, canvas.height / physicalHeight);
   context.fillStyle = color; context.strokeStyle = color; context.lineWidth = mark.lineWidth; context.lineCap = 'round'; context.lineJoin = 'round';
+  context.setLineDash?.(lineDash(mark.lineStyle, mark.lineWidth));
   const points = mark.points.map(point => ({ x: (point.x - bounds.x) * pageWidth, y: (point.y - bounds.y) * pageHeight }));
   const start = points[0], end = points[points.length - 1];
   const x = Math.min(start.x, end.x), y = Math.min(start.y, end.y), width = Math.abs(end.x - start.x), height = Math.abs(end.y - start.y);

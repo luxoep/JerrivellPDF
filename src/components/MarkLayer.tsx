@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
-import { constrainedMarkPoint, createMarkGeometry, markPoint } from '../markGeometry';
+import { constrainedMarkPoint, createMarkGeometry, lineDash, markPoint } from '../markGeometry';
 import type { MarkGeometry, MarkPoint, MarkSettings } from '../markGeometry';
 import { useI18n } from '../i18n';
 
@@ -17,7 +17,7 @@ export function MarkPreview({ mark, color, opacity }: { mark: MarkGeometry; colo
     const angle = Math.atan2(last.y - first.y, last.x - first.x), head = Math.max(7, mark.lineWidth * 4);
     shape = <><polyline points={points.map(point => `${point.x},${point.y}`).join(' ')}/>{mark.tool === 'arrow' && <polyline points={`${last.x - head * Math.cos(angle - Math.PI / 6)},${last.y - head * Math.sin(angle - Math.PI / 6)} ${last.x},${last.y} ${last.x - head * Math.cos(angle + Math.PI / 6)},${last.y - head * Math.sin(angle + Math.PI / 6)}`}/>}</>;
   }
-  return <svg className="mark-preview" viewBox={`0 0 ${mark.pageWidth} ${mark.pageHeight}`} preserveAspectRatio="none" aria-hidden="true" style={{ opacity }}><g fill="none" stroke={color} strokeWidth={mark.lineWidth} strokeLinecap="round" strokeLinejoin="round">{shape}</g></svg>;
+  return <svg className="mark-preview" viewBox={`0 0 ${mark.pageWidth} ${mark.pageHeight}`} preserveAspectRatio="none" aria-hidden="true" style={{ opacity }}><g fill="none" stroke={color} strokeWidth={mark.lineWidth} strokeDasharray={lineDash(mark.lineStyle, mark.lineWidth).join(' ')} strokeLinecap="round" strokeLinejoin="round">{shape}</g></svg>;
 }
 
 export function MarkLayer({ settings, pageWidth, pageHeight, disabled, onBegin, onComplete }: {

@@ -40,6 +40,8 @@ let changeReply = async () => true;
 let importReply = async () => ({ id: 'replacement-asset' });
 const calls = [], changes = [], busy = [], errors = [], copied = [];
 const require = name => {
+  if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
+  if (name === './OriginalObjectPreview') return {OriginalObjectPreview:'OriginalObjectPreview'};
   if (name === 'react') return react;
   if (name === 'react/jsx-runtime') return jsx;
   if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
@@ -142,4 +144,13 @@ handle.props.onPointerDown(pointer(100, 200)); handle.props.onPointerMove(pointe
 handleProps.inspectionKey = 'new-inspection'; renderHandles();
 handle.props.onPointerUp(pointer(200, 300));
 assert.equal(handleChanges.length, beforeUnsupported, 'Changed inspection must invalidate an in-flight gesture');
+// A committed drag retains pixels until the new native raster is ready;
+// undo during rendering also clears the transient transform.
+handleProps.inspectionKey='drag-start';handleProps.rendering=false;handleProps.disabled=false;renderHandles();
+handle=walk(handleHost.tree,node=>node.props.role==='button')[0];handle.props.onPointerDown(pointer(100,200));handle.props.onPointerMove(pointer(150,250));handle.props.onPointerUp(pointer(150,250));renderHandles();
+handleProps.inspectionKey='drag-committed';handleProps.rendering=true;renderHandles();renderHandles();
+assert.equal(walk(handleHost.tree,node=>node.type==='OriginalObjectPreview')[0].props.visible,true);
+handleProps.inspectionKey='drag-start';handleProps.rendering=false;renderHandles();renderHandles();
+assert.equal(walk(handleHost.tree,node=>node.type==='OriginalObjectPreview')[0].props.visible,false,'Undo must remove a settling object preview');
+handleProps.eraseMode=true;renderHandles();handle=walk(handleHost.tree,node=>node.props.role==='button')[0];handle.props.onPointerDown(pointer(100,200));assert.equal(handleChanges.at(-1)[0].deleted,true);
 console.log('PASS: immutable original-content patches, native-validation wait/retry, text/font vs geometry semantics, tombstone restore/reset, image replacement, unmount cleanup and stale/unsupported handle boundaries');

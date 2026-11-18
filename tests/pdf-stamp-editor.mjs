@@ -48,7 +48,10 @@ const png = 'data:image/png;base64,demo';
 vm.runInNewContext(compiled, {
   exports, console, crypto: { randomUUID: () => `generated-${++ids}` },
   require(name) {
-    if (name === 'react') return react;
+    if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
+  if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
+  if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
+  if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props, key) => ({ type, props, key }), jsxs: (type, props, key) => ({ type, props, key }), Fragment: 'fragment' };
     if (name === '@tauri-apps/plugin-dialog') return { open: async () => 'C:\\demo.pdf', save: async () => null };
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
@@ -101,7 +104,7 @@ function walk(node, predicate, result = []) {
   walk(node.props?.children, predicate, result); return result;
 }
 function button(label) {
-  const result = walk(host.tree, node => node.type === 'button' && text(node) === label);
+  const result = walk(host.tree, node => node.type === 'button' && (text(node) === label || node.props['aria-label'] === label));
   assert.equal(result.length, 1, `Expected one button ${label}`); return result[0];
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -110,29 +113,30 @@ render(); await click('Stamp'); await click('PDF fragment');
 await click('Choose source PDF');
 assert.equal(calls.length, 1);
 assert.deepEqual(plain(calls[0]), { command: 'import_pdf_stamp', args: { path: 'C:\\demo.pdf', pageIndex: 0, crop: null, removeWhiteBackground: false, trimTransparentMargins: false } });
-assert.equal(button('Overlay on this page').props.disabled, true, 'Whole-page load alone must not authorize a stale fragment');
+assert.equal(button('Overlay on this page').props.disabled, false, 'Placement generates the current fragment on demand');
 const crop = { x: .2, y: .3, width: .4, height: .2 };
 walk(host.tree, node => node.type?.name === 'PdfStampSelection')[0].props.onChange(crop); render();
 await click('Update fragment preview');
 assert.deepEqual(plain(calls.at(-1).args), { path: 'C:\\demo.pdf', pageIndex: 0, crop, removeWhiteBackground: false, trimTransparentMargins: true });
 assert.equal(button('Overlay on this page').props.disabled, false);
 // Blend changes are placement metadata and do not invalidate the fragment pixels.
-const blendSelect = walk(host.tree, node => node.type === 'select' && node.props.value === 'multiply')[0];
+const blendSelect = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Fragment blend mode')[0];
 blendSelect.props.onChange({ target: { value: 'normal' } }); render();
 assert.equal(button('Overlay on this page').props.disabled, false);
 await click('Overlay on this page');
 assert.equal(props.overlays.length, 1); assert.equal(props.overlays[0].blendMode, 'normal');
 assert.equal(props.overlays[0].assetId, 'asset-2');
-// Changing a crop or processing flag disables use until the updated preview arrives.
+// Placement closes the workspace. Reopen it; stale pixels are regenerated on use.
+await click('Open PDF fragment workspace');
 walk(host.tree, node => node.type?.name === 'PdfStampSelection')[0].props.onChange({ ...crop, x: .1 }); render();
-assert.equal(button('Overlay on this page').props.disabled, true);
+assert.equal(button('Overlay on this page').props.disabled, false);
 const white = walk(host.tree, node => node.type === 'label' && text(node).includes('Make near-white transparent'))[0];
 walk(white, node => node.type === 'input')[0].props.onChange({ target: { checked: true } }); render();
-await click('Update fragment preview');
-assert.equal(calls.at(-1).args.removeWhiteBackground, true);
+// No explicit native preview update: saving must use the new crop and processing flags.
 // Persist Multiply and restore it when placing an item from the library.
-walk(host.tree, node => node.type === 'select' && node.props.value === 'normal')[0].props.onChange({ target: { value: 'multiply' } }); render();
+walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Fragment blend mode')[0].props.onChange({ target: { value: 'multiply' } }); render();
 await click('Save to library');
+assert.equal(calls.at(-1).args.removeWhiteBackground,true); assert.equal(calls.at(-1).args.crop.x,.1);
 assert.equal(library.length, 1); assert.equal(library[0].blendMode, 'multiply');
 assert.ok(!('assetId' in library[0]));
 // Switching source page cannot reuse the previous page or its selected crop.
@@ -142,18 +146,19 @@ assert.equal(button('Overlay on this page').props.disabled, true);
 await click('Load page');
 assert.equal(calls.at(-1).args.pageIndex, 1); assert.equal(calls.at(-1).args.crop, null);
 await click('Update fragment preview'); assert.equal(calls.at(-1).args.crop, null);
-await click('Library'); await click('Place');
+await click('Close fragment workspace'); await click('Library'); await click('Place');
 assert.equal(props.overlays.at(-1).blendMode, 'multiply');
 assert.equal(errors.length, 0);
 assert.ok(busy.every((value, index) => value === (index % 2 === 0)), 'Every async operation releases busy exactly once');
 
 // An unmounted editor must not commit a late native preview or keep busy set.
-await click('Stamp');
+await click('Stamp'); await click('Open PDF fragment workspace');
 defer = {}; defer.promise = new Promise(resolve => { defer.resolve = resolve; });
 button('Update fragment preview').props.onClick();
 const busyStart = busy.length;
 for (const effect of host.effects) effect?.cleanup?.();
 defer.resolve(); await settle();
 assert.equal(busy.length, busyStart + 1); assert.equal(busy.at(-1), false);
-assert.equal(changes.length, 2); assert.equal(library.length, 1);
+assert.equal(changes.length, 2);
+assert.equal(library.length, 1);
 console.log('PASS: PDF crop geometry, whole-page loading, stale preview rejection, blend placement/library, page changes and async unmount protection');

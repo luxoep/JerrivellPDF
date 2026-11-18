@@ -44,7 +44,7 @@ const decorated = backend.renderPageLayers({ ...page, decorations: [{ id: 'numbe
 next('render_page_layers').resolve(layers); await decorated; await flush();
 const imported = backend.backend('import_image', { path: 'sample.png' }); next('import_image').resolve({ ...asset, id: 'imported' }); await imported;
 assert.equal(backend.previewImageAsset('imported').width, 30);
-for (const command of ['register_image','import_image','import_pdf_stamp']) {
+for (const command of ['register_image','import_image','import_pdf_stamp','edit_image_asset','extract_content_image','get_image_asset','rasterize_page_asset']) {
   const id=`contract-${command}`;
   const response=backend.backend(command,{});
   next(command).resolve({...asset,id,...(command==='import_pdf_stamp'?{pageCount:3}:{})});
@@ -54,6 +54,8 @@ for (const command of ['register_image','import_image','import_pdf_stamp']) {
   next(command).resolve({image:{...asset,id:`wrong-${id}`},pageCount:3});await invalid;
   assert.equal(backend.previewImageAsset(`wrong-${id}`),undefined,'An invalid nested response must fail visibly, not create an invisible placement');
 }
+const thumbnail=backend.backend('preview_image');next('preview_image').resolve({dataUrl:asset.dataUrl,width:1200,height:800,thumbnailWidth:600,thumbnailHeight:400});await thumbnail;
+const badThumbnail=assert.rejects(backend.backend('preview_image'),/BACKEND_RESPONSE_INVALID/);next('preview_image').resolve({image:asset});await badThumbnail;
 const future=backend.backend('future_asset_producer');next('future_asset_producer').resolve({...asset,id:'future'});await future;
 assert.ok(backend.previewImageAsset('future'),'Valid asset-shaped responses are recognized without a command-specific cache branch');
 const failedStage = backend.stageImageAsset('data:image/png;base64,will-fail');
@@ -93,6 +95,11 @@ decodeReady(); pendingDecode = null; await flush(); result = render(); assert.eq
 currentPage = { ...currentPage, contentEdits: [{ objectIndex: 1, fingerprint: 'old', text: 'new' }] }; result = render(); assert.ok(result.layers); assert.equal(result.loading, true, 'Stale native text is never editable');
 runTimers(); next('render_page_layers').reject('preview failed'); await flush(); result = render(); assert.equal(result.error, 'preview failed'); assert.ok(result.layers);
 currentPage = { ...currentPage, pageIndex: 1 }; result = render(); assert.equal(result.layers, null, 'Changing pages must never display another source page');
+// A new viewer for a copied page reuses an already decoded identical raster.
+const cloneTimers=timers.size;const cloneState={cursor:0,slots:[],effects:[]};host=cloneState;
+const clone=hook.usePageLayers({...page,id:'copied-page'},1000,true);
+for(const effect of cloneState.effects)effect();
+assert.ok(clone.layers);assert.equal(clone.loading,false);assert.equal(timers.size,cloneTimers,'A copied page does not flash a loading placeholder or schedule another raster');
 const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
 const geometry = load('../src/viewerGeometry.ts', {});
 const live = load('../src/components/LivePageImage.tsx', { require(name) {

@@ -23,6 +23,11 @@ export interface ImageAsset {
   height: number;
 }
 
+export interface ImageFilePreview {
+  dataUrl: string; width: number; height: number;
+  thumbnailWidth: number; thumbnailHeight: number;
+}
+
 /** Matches Rust PdfStampInfo's serde(flatten) JSON response. */
 export interface PdfStampImage extends ImageAsset {
   pageCount: number;
@@ -75,6 +80,11 @@ export interface RenderedPage {
 export interface RenderedPageLayers {
   background: RenderedPage;
   foreground: { image: RenderedPage; blendMode: 'normal' | 'multiply' }[];
+}
+
+export interface ObjectPreviewLayers {
+  lower: RenderedPage; moving: RenderedPage; upper: RenderedPage;
+  foreground: RenderedPageLayers['foreground'];
 }
 
 export interface BackendStatus {

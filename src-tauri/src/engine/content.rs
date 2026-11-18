@@ -940,6 +940,69 @@ impl<'a> PdfEngine<'a> {
         })
     }
 
+    /// Extract filtered/masked pixels in intrinsic image coordinates. Reset the
+    /// matrix on a copied page only; replacement later keeps the original matrix.
+    pub fn extract_content_image(
+        &mut self,
+        reference: &PageRef,
+        object_index: u32,
+        fingerprint: &str,
+    ) -> Result<ImageAssetInfo, String> {
+        let inspection = self.inspect_page_content(reference)?;
+        let selected = inspection
+            .objects
+            .iter()
+            .find(|o| {
+                o.object_index == object_index
+                    && o.fingerprint == fingerprint
+                    && o.kind == "image"
+                    && o.editable
+                    && !o.deleted
+            })
+            .ok_or_else(|| invalid("请选择当前页面可编辑的图片对象。"))?;
+        let _ = selected;
+        let mut output = self.copied_content_page(reference)?;
+        let mut page = output.pages().get(0).map_err(pdf_error)?;
+        self.apply_content_edits(
+            &mut output,
+            &mut page,
+            reference,
+            &mut ContentFontCache::default(),
+        )?;
+        let index = object_index as usize
+            - reference
+                .content_edits
+                .iter()
+                .filter(|edit| edit.object_index < object_index && edit.deleted == Some(true))
+                .count();
+        let mut object = page.objects().get(index).map_err(pdf_error)?;
+        let image = object
+            .as_image_object_mut()
+            .ok_or_else(|| invalid("所选对象不是图片。"))?;
+        let (width, height) = (
+            image.width().map_err(pdf_error)? as f32,
+            image.height().map_err(pdf_error)? as f32,
+        );
+        if width <= 0.0 || height <= 0.0 {
+            return Err(invalid("图片尺寸无效。"));
+        }
+        let scale = (2400.0 / width.max(height)).min(1.0);
+        let (w, h) = (
+            (width * scale).round().max(1.0) as i32,
+            (height * scale).round().max(1.0) as i32,
+        );
+        image
+            .reset_matrix(PdfMatrix::new(w as f32, 0.0, 0.0, h as f32, 0.0, 0.0))
+            .map_err(pdf_error)?;
+        let pixels = image
+            .get_processed_image_with_size(&output, w, h)
+            .map_err(pdf_error)?;
+        drop(object);
+        drop(page);
+        drop(output);
+        self.store_image(pixels, None)
+    }
+
     pub fn page_content_text(&self, reference: &PageRef) -> Result<String, String> {
         let mut output = self.copied_content_page(reference)?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;

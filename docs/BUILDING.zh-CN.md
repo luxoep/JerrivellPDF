@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-# 构建 Jerrivell PDF 0.6.2
+# 构建 Jerrivell PDF 0.7.0
 
 本文件适用于本标签的历史代码；功能与依赖以同一标签下的锁文件和脚本为准。
 
@@ -10,7 +10,7 @@
 ```powershell
 git clone https://github.com/luxoep/JerrivellPDF.git
 Set-Location JerrivellPDF
-git checkout v0.6.2
+git checkout v0.7.0
 npm ci
 npm run setup:pdfium
 npm run tauri dev

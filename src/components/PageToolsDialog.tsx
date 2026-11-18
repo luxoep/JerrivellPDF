@@ -7,11 +7,9 @@ import { duplicatePage, numberedPages, splitPlan } from '../documentTools';
 import type { ExportPart, GenerateRequest } from '../documentTools';
 import type { DocumentInfo, WorkspacePage } from '../types';
 import { parsePageRange } from '../pageRanges';
-import { visiblePageSize } from '../viewerGeometry';
-import { usePageImage } from '../usePageImage';
 import { FontPicker } from './FontPicker';
 import { DEFAULT_FONT_FAMILY } from './overlayCanvas';
-import { MarkLayer } from './MarkLayer';
+import { PageToolPreview } from './PageToolPreview';
 import { useI18n } from '../i18n';
 import './document-tools.css';
 
@@ -23,6 +21,8 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
   onExport: (parts: ExportPart[]) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const { t } = useI18n();
+  const modal=useRef<HTMLDivElement>(null);
+  useEffect(()=>{modal.current?.focus();},[]);
   const [tab, setTab] = useState<Tab>(pages.length ? 'blank' : 'images');
   const [scope, setScope] = useState<'current' | 'all' | 'selected' | 'range'>(selectedIds.size ? 'selected' : 'current');
   const [range, setRange] = useState(''), [position, setPosition] = useState('after');
@@ -35,6 +35,7 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
   const [useLocalFont, setUseLocalFont] = useState(false), [font, setFont] = useState(DEFAULT_FONT_FAMILY);
   const [color, setColor] = useState('#667085'), [opacity, setOpacity] = useState(20), [angle, setAngle] = useState('-30'), [placement, setPlacement] = useState('bottom-center');
   const [crop, setCrop] = useState({ x: 0.05, y: 0.05, width: .9, height: .9 });
+  const [previewReady,setPreviewReady]=useState(true);
   const [working, setWorking] = useState(false), [error, setError] = useState('');
   const pending = useRef(false), alive = useRef(true), callbacks = useRef({ onPlan, onGenerated, onExport, onBusyChange }); callbacks.current = { onPlan, onGenerated, onExport, onBusyChange };
   useEffect(() => { alive.current = true; return () => { alive.current = false; callbacks.current.onBusyChange(false); }; }, []);
@@ -55,10 +56,12 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
       return { pages: numberedPages(pages, new Set(targets.map(page => page.id)), { kind: watermark ? 'watermark' : 'number', template: watermark ? watermarkText : numberText, start: first, fontSize: size, fontFamily: watermark || useLocalFont ? font : null, color, opacity: watermark ? opacity / 100 : 1, angle: watermark ? rotation : 0, placement: watermark ? 'center' : placement, margin: distance * PT_PER_MM }, () => `decoration-preview-${watermark ? 'watermark' : 'number'}`), valid: true };
     } catch { return { pages, valid: false }; }
   }, [tab, pages, targets, numberText, watermarkText, start, fontSize, markFontSize, useLocalFont, font, color, opacity, angle, margin, placement]);
-  const previewPage = draftPlan.pages.find(page => page.id === targets[0]?.id) ?? pages[activeIndex];
-  const previewEnabled = Boolean(previewPage && ['number', 'watermark', 'crop'].includes(tab));
-  const { image, loading, error: previewError } = usePageImage(previewPage, 750, previewEnabled);
-  const dimensions = previewPage ? visiblePageSize(previewPage) : { width: 595, height: 842 };
+  const splitDraft = useMemo(() => {
+    if (tab !== 'split') return { parts: [] as ExportPart[], error: '' };
+    try { return { parts: splitPlan(targets, splitMode, splitEvery, splitRanges, prefix), error: '' }; }
+    catch (reason) { return { parts: [] as ExportPart[], error: errorMessage(reason) }; }
+  }, [tab, targets, splitMode, splitEvery, splitRanges, prefix]);
+  const draftTargets = targets.map(page => draftPlan.pages.find(candidate => candidate.id === page.id) ?? page);
   const insertAt = position === 'end' ? pages.length : position === 'before' ? activeIndex : Math.min(pages.length, activeIndex + 1);
   const execute = async (task: () => Promise<void>) => {
     if (pending.current) return;
@@ -66,6 +69,7 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
     try { await task(); } catch (reason) { if (alive.current) setError(errorMessage(reason)); }
     finally { pending.current = false; if (alive.current) setWorking(false); callbacks.current.onBusyChange(false); }
   };
+  const cropValid=[crop.x,crop.y,crop.width,crop.height].every(Number.isFinite)&&crop.x>=0&&crop.y>=0&&crop.width>0&&crop.height>0&&crop.x+crop.width<=1.000001&&crop.y+crop.height<=1.000001;
   const apply = () => void execute(async () => {
     if (tab === 'duplicate') {
       const n = Number(copies);
@@ -107,7 +111,7 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
   const tabs = [
     { id: 'blank', label: t('空白页', 'Blank pages'), icon: FilePlus2 }, { id: 'duplicate', label: t('复制页', 'Duplicate'), icon: Files }, { id: 'images', label: t('图片转 PDF', 'Images to PDF'), icon: ImagePlus }, { id: 'split', label: t('批量拆分', 'Split PDFs'), icon: Scissors }, { id: 'number', label: t('页码', 'Page numbers'), icon: Type }, { id: 'watermark', label: t('水印', 'Watermark'), icon: Stamp }, { id: 'crop', label: t('裁剪', 'Crop'), icon: Crop },
   ] as const;
-  return <div className="dt-backdrop" onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && ['s', 'o', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault(); if (event.key === 'Escape' && !working) onClose(); }}><div className="dt-modal page-tools-modal" role="dialog" aria-modal="true" aria-labelledby="page-tools-title">
+  return <div className="dt-backdrop" onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && ['s', 'o', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault(); if (event.key === 'Escape' && !working) onClose(); }}><div ref={modal} tabIndex={-1} className="dt-modal page-tools-modal" role="dialog" aria-modal="true" aria-labelledby="page-tools-title">
     <header className="dt-header"><div><h2 id="page-tools-title">{t('页面与批量工具', 'Page and batch tools')}</h2><p>{t('页面修改可撤销；导出前会检查页序、大小与结构风险。', 'Page changes can be undone. Export includes order, size and structure review.')}</p></div><button onClick={onClose} disabled={working} aria-label={t('关闭页面工具', 'Close page tools')}><X size={19}/></button></header>
     <nav className="dt-tabs">{tabs.map(({ id, label, icon: Icon }) => <button key={id} className={tab === id ? 'active' : ''} disabled={working || !pages.length && id !== 'blank' && id !== 'images'} onClick={() => { setTab(id); if (['split', 'number', 'watermark'].includes(id)) setScope(selectedIds.size ? 'selected' : 'all'); setError(''); }}><Icon size={16}/>{label}</button>)}</nav>
     <div className="page-tools-body"><section className="page-tools-fields">
@@ -122,8 +126,8 @@ export function PageToolsDialog({ pages, activeIndex, selectedIds, title, onClos
         {!watermark && <label className="dt-check"><input type="checkbox" checked={useLocalFont} disabled={working} onChange={event => setUseLocalFont(event.target.checked)}/>{t('使用本机字体（中文需要）', 'Use installed font (required for Chinese)')}</label>}{(watermark || useLocalFont) && <FontPicker value={font} onChange={setFont} disabled={working} embedForOriginal sample={watermark ? watermarkText : numberText}/>}
         <p className="dt-muted">{t('同类页码/水印在选页中替换，不叠加旧方案；使用真实 PDF 文字。水印显示在正文上方。', 'Replaces this decoration type on selected pages using real PDF text. Watermarks appear above page content.')}</p><button className="text-button" disabled={working || !targets.length} onClick={() => { const ids = selectedIdsFor(targets); callbacks.current.onPlan(pages.map(page => ids.has(page.id) ? { ...page, decorations: (page.decorations ?? []).filter(item => item.kind !== (watermark ? 'watermark' : 'number')) } : page)); }}>{watermark ? t('清除选页水印', 'Clear watermarks on selected pages') : t('清除选页页码', 'Clear numbers on selected pages')}</button></>}
       {tab === 'crop' && <><p className="dt-muted">{t('在右侧预览上拖动框选，或输入百分比。同一比例应用到全部处理页。', 'Drag on the preview or enter percentages. The same proportions apply to all processed pages.')}</p><div className="dt-field-row">{(['x', 'y', 'width', 'height'] as const).map((key, index) => <label className="dt-field" key={key}>{[t('左 %', 'Left %'), t('上 %', 'Top %'), t('宽 %', 'Width %'), t('高 %', 'Height %')][index]}<input type="number" min={0} max={100} step={.1} value={Math.round(crop[key] * 1000) / 10} disabled={working} onChange={event => setCrop(value => ({ ...value, [key]: Number(event.target.value) / 100 }))}/></label>)}</div><p className="dt-notice warning">{t('裁剪调整可见区域，不移除区域外的底层内容。应用会固化该页已有编辑，可撤销恢复；不能用作敏感信息清除。', 'Cropping changes the visible area and does not remove hidden content. Applying bakes current edits; undo restores them. This is not secure redaction.')}</p></>}
-    </section><section className="page-tools-preview">{previewEnabled ? <><div className="dt-tool-page" style={{ width: Math.min(460, 375 * dimensions.width / dimensions.height), aspectRatio: `${dimensions.width}/${dimensions.height}` }}>{image ? <img src={image.dataUrl} alt={t('页面工具预览', 'Page tool preview')}/> : loading ? <LoaderCircle size={24} className="spin"/> : <p className="dt-error">{previewError}</p>}{tab === 'crop' && image && <><div className="dt-crop-outline" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }}/><MarkLayer settings={{ tool: 'rectangle', color: '#7561cb', opacity: .7, lineWidth: 2 }} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={working || loading} onBegin={() => {}} onComplete={mark => setCrop(mark.bounds)}/></>}</div><p className="dt-muted">{t('预览处理列表中的第一页；保存副本前可逐页检查。', 'Preview shows the first processed page. Review every page before exporting.')}</p></> : <div className="dt-empty">{tab === 'images' ? <ImagePlus size={42}/> : tab === 'split' ? <Scissors size={42}/> : <FilePlus2 size={42}/>}<h3>{tabs.find(item => item.id === tab)?.label}</h3><p>{tab === 'images' ? t(`已选择 ${imagePaths.length} 张图片，每张生成一页，完整保留比例。`, `${imagePaths.length} images selected. Each becomes one aspect-preserving page.`) : tab === 'split' ? t('下一步预览每个文件的页序、页数、大小及结构风险。', 'Next, review each file’s page order, count, size and structure risks.') : t('应用后回到工作区检查；一次操作可一次撤销。', 'Inspect the result in the workspace; one undo reverses the operation.')}</p></div>}</section></div>
-    {error && <p className="dt-error" role="alert">{error}</p>}<footer className="dt-footer"><button className="button secondary" disabled={working} onClick={onClose}>{t('取消', 'Cancel')}</button><button className="button primary" disabled={working} onClick={apply}>{working ? <LoaderCircle size={15} className="spin"/> : <Check size={15}/>} {tab === 'split' ? t('预览拆分结果', 'Review split output') : t('应用到工作区', 'Apply to workspace')}</button></footer>
+    </section><PageToolPreview onReady={setPreviewReady} tab={tab} pages={pages} targets={draftTargets} insertAt={insertAt} count={Number(count)} copies={Number(copies)} width={Number(width) * PT_PER_MM} height={Number(height) * PT_PER_MM} imagePaths={imagePaths} imagePaper={imagePaper} margin={Number(margin) * PT_PER_MM} parts={splitDraft.parts} splitError={splitDraft.error} crop={crop} onCrop={setCrop} working={working}/></div>
+    {error && <p className="dt-error" role="alert">{error}</p>}<footer className="dt-footer"><button className="button secondary" disabled={working} onClick={onClose}>{t('取消', 'Cancel')}</button><button className="button primary" disabled={working || !previewReady || (tab==='crop'&&!cropValid) || (tab==='blank'&&(!Number.isInteger(Number(count))||Number(count)<1||Number(count)>100||Number(width)<10||Number(height)<10||Number(width)>2000||Number(height)>2000)) || (['duplicate','split','number','watermark','crop'].includes(tab) && !targets.length) || (tab==='split' && !splitDraft.parts.length) || ((tab==='number'||tab==='watermark')&&!draftPlan.valid)} onClick={apply}>{working ? <LoaderCircle size={15} className="spin"/> : <Check size={15}/>} {tab === 'split' ? t('预览拆分结果', 'Review split output') : t('应用到工作区', 'Apply to workspace')}</button></footer>
   </div></div>;
 }
 

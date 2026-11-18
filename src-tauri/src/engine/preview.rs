@@ -37,6 +37,82 @@ fn clear_content(page: &mut PdfPage<'_>) -> Result<(), String> {
 }
 
 impl<'a> PdfEngine<'a> {
+    /// Cache once per selected source object. Pointer moves compose these
+    /// layers in the browser; they do not call PDFium or alter source objects.
+    pub fn render_object_layers(
+        &self,
+        reference: &PageRef,
+        object_index: u32,
+        fingerprint: &str,
+        target_width: u32,
+    ) -> Result<ObjectPreviewLayers, String> {
+        let inspection = self.inspect_page_content(reference)?;
+        if !inspection.objects.iter().any(|o| {
+            o.object_index == object_index
+                && o.fingerprint == fingerprint
+                && o.editable
+                && !o.deleted
+        }) {
+            return Err("来源对象已变化或不支持实时编辑。".into());
+        }
+        let pivot = object_index as usize
+            - reference
+                .content_edits
+                .iter()
+                .filter(|edit| edit.object_index < object_index && edit.deleted == Some(true))
+                .count();
+        let mut content = reference.clone();
+        content.overlays.clear();
+        content.decorations.clear();
+        let mut images = Vec::new();
+        for group in 0..3 {
+            let document = self.prepare_document(&[content.clone()])?;
+            let mut page = document.pages().get(0).map_err(pdf_error)?;
+            page.set_content_regeneration_strategy(PdfPageContentRegenerationStrategy::Manual);
+            for index in (0..page.objects().len() as usize).rev() {
+                let keep = match group {
+                    0 => index < pivot,
+                    1 => index == pivot,
+                    _ => index > pivot,
+                };
+                if !keep {
+                    drop(
+                        page.objects_mut()
+                            .remove_object_at_index(index)
+                            .map_err(pdf_error)?,
+                    );
+                }
+            }
+            page.regenerate_content().map_err(pdf_error)?;
+            let (width, height) =
+                render_dimensions(page.width().value, page.height().value, target_width, false)?;
+            let bitmap = page
+                .render_with_config(
+                    &PdfRenderConfig::new()
+                        .set_target_size(width as i32, height as i32)
+                        .render_form_data(false)
+                        .render_annotations(false)
+                        .set_clear_color(if group == 0 {
+                            PdfColor::WHITE
+                        } else {
+                            PdfColor::new(0, 0, 0, 0)
+                        }),
+                )
+                .map_err(pdf_error)?
+                .as_image()
+                .map_err(pdf_error)?;
+            images.push(encoded(bitmap)?.0);
+        }
+        let mut raster = reference.clone();
+        raster.overlays.clear();
+        let foreground = self.render_page_layers(&raster, target_width)?.foreground;
+        Ok(ObjectPreviewLayers {
+            lower: images.remove(0),
+            moving: images.remove(0),
+            upper: images.remove(0),
+            foreground,
+        })
+    }
     /// Stable PDF background + transparent foreground. Added images are composed
     /// in the reader, between the PDF content and its decorations/annotations.
     /// The original document and the export/print renderer are never modified.
