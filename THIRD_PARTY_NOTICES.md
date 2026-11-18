@@ -6,7 +6,7 @@ Jerrivell PDF 0.8.0 起，Jerry 有权许可的自有代码、文档与原创合
 
 本文件与 `licenses/` 保存的原文一同交付。精确版本以 `src-tauri/Cargo.lock`、`package-lock.json`、PDFium 来源清单及实际随包内容为准。`licenses/inventory.json` 记录从当前本地依赖取得的许可文件、元数据和 SHA-256；清单也包含部分构建/开发依赖，不代表每个包都进入最终二进制。安装后本文件位于 `legal/`，对应原文位于 `legal/licenses/`。
 
-0.4.1 根据用户 Jerry 的名字将产品更名为 **Jerrivell PDF**。旧名 Rivuleaf PDF（页澜）在历史源码包和验证记录中保留。新应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.12.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.12.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell-PDF-0.12.0-manifest.json)。下方保留的旧版本归档名是历史取得材料，不表示它们已经改名。
+**Jerrivell PDF** 从 0.4.1 起使用当前名称。应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.12.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.12.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell-PDF-0.12.0-manifest.json)。
 
 ## 主要直接组件
 
@@ -42,7 +42,7 @@ PDFium 的组成部分包括 FreeType、Independent JPEG Group / libjpeg-turbo�
 
 Windows、WebView2 及系统字体是外部平台依赖，各自采用其供应方许可。当前安装包配置不嵌入 Microsoft WebView2 引导器，运行环境需已具备 WebView2；本项目自有代码的 MIT OR Apache-2.0 许可不覆盖这些平台组件。
 
-0.4.0 原文编辑显式替换字体时，通过 Windows GDI 读取选定 TrueType 字体的内存快照，核对实际名称、`OS/2.fsType` 和所需字形，再嵌入用户保存的 PDF；不将系统字体加入项目、安装包、主源码或第三方源码补充包。该权限位检查不能代替字体许可条款；用户应确认文档用途和嵌入/传播权限。新增文字和图章仍以本机 Canvas 绘制为 PNG。详见 [原文编辑说明](docs/原文编辑说明.md)。
+原文编辑显式替换字体时，通过 Windows GDI 读取选定 TrueType 字体的内存快照，核对实际名称、`OS/2.fsType` 和所需字形，再嵌入用户保存的 PDF；不将系统字体加入项目、安装包、主源码或第三方源码补充包。该权限位检查不能代替字体许可条款；用户应确认文档用途和嵌入/传播权限。新增文字和图章仍以本机 Canvas 绘制为 PNG。详见 [原文编辑说明](docs/原文编辑说明.md)。
 
 ## MPL 覆盖源码与安装器来源
 

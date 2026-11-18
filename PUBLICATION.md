@@ -1,6 +1,6 @@
 # Public source publication — 0.12.0
 
-This is a public documentation/packaging edition of the original local 0.12.0 source archive. Runtime source, manifests/lockfiles, build scripts, tests, original fixtures, icons and all licenses/** files are preserved byte-for-byte. Developer-local documentation/history was replaced with public guides; the project's third-party overview only updates source-archive/link references, without changing upstream originals. .gitignore/.gitattributes keep local caches excluded and preserve archived bytes. This public archive therefore has a newly calculated SHA-256.
+This public source edition is based on the original 0.12.0 archive. It includes public guides, the Jerrivell launch scripts, and updated project references in the packaging script and welcome screen. Dependency manifests, lockfiles, tests, fixture files, icons, and upstream license texts retain their original bytes. The source archive has its own SHA-256.
 
 - Repository: https://github.com/luxoep/JerrivellPDF
 - Original archive SHA-256: 59315195b3df5c380bbe4d20cc9de3de8a7c4c9f45f7abbfb53a6c14851e030e
@@ -9,4 +9,4 @@ This is a public documentation/packaging edition of the original local 0.12.0 so
 
 No private PDFs, installed-app backups, local logs, credential helper output, dependency caches or user font programs are published. PDFium runtime is prepared from the pinned upstream by the included build script; binary releases include its own notices. Exact dependency versions and source/provenance links are in the lockfiles and retained license inventory. See the corresponding Release for all downloadable materials and checksums.
 
-GitHub normalizes spaces in installer asset filenames to periods. Public download names use Jerrivell.PDF_<version>_x64-setup.exe; installer bytes are unchanged. The 0.12.0 source ZIP includes this follow-up documentation commit after the original version tag. The Release manifest separately records source commit and releaseTagCommit; no runtime or upstream-license file changed.
+GitHub normalizes spaces in installer asset filenames to periods. Public download names use Jerrivell.PDF_<version>_x64-setup.exe; installer bytes are unchanged. The Release manifest records the public source commit and the original installer version's releaseTagCommit.

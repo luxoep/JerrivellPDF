@@ -1,6 +1,6 @@
 # 第三方许可原文集合
 
-这些文件保留各自的原始许可；AuraPdf 根目录的 GPL 声明不覆盖它们。
+这些第三方文件各自适用其原始许可。Jerrivell PDF 自有代码的许可见根目录的 [LICENSE](../LICENSE)。
 
 - `npm/`：从本机已安装、与 `package-lock.json` 对应的 npm 包复制的 LICENSE、NOTICE、COPYING、THIRD-PARTY-LICENSE 等原文。包含部分开发工具，便于一并审阅；不代表这些工具都被链接到最终应用。
 - `rust/`：从 Cargo 注册表源代码缓存、与 `src-tauri/Cargo.lock` 对应的 crate 复制的相应原文。包含构建工具、开发和平台条件依赖。
@@ -20,4 +20,4 @@ python scripts/collect-licenses.py
 
 脚本不会更改原始 npm/Cargo 缓存，也不会删除已有文件。上游补充文件会校验哈希；更新组件版本时需要重新核对对应补充记录。`not-in-local-source-cache` 表示锁文件记录没有下载到本机，并不等于应用缺失运行库，也不证明它一定没有进入其他平台产物。应结合该次实际目标、启用特性和分发文件核查。
 
-收集结果是可追溯的原文与组件清单，不是对所有代码版权、二进制来源、许可兼容性或对应源代码交付完成度的自动法律审定。分发记录和剩余工作见 `docs/发布检查.md`。
+收集结果是可追溯的原文与组件清单，不是对所有代码版权、二进制来源、许可兼容性或对应源代码交付完成度的自动法律审定。分发说明见 [PUBLICATION.md](../PUBLICATION.md)。

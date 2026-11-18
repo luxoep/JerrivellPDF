@@ -1,6 +1,6 @@
 # Jerrivell PDF 版本下载
 
-仅列出本次公开的 Jerrivell PDF 版本；不发布 AuraPdf 或 Rivuleaf 的旧安装包。通常推荐 [最新版](https://github.com/luxoep/JerrivellPDF/releases/latest)。
+这里列出从 0.4.1 起使用 Jerrivell PDF 名称的公开版本。通常推荐 [最新版](https://github.com/luxoep/JerrivellPDF/releases/latest)。
 
 | 版本 | Windows x64 安装包与对应源码 | 本版原创代码许可 |
 | --- | --- | --- |

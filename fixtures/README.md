@@ -2,7 +2,7 @@
 
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-这些样本的文字、矢量图形、PDF 对象、注释和书签为 Rivuleaf PDF 独立编写，采用 `MIT OR Apache-2.0`。生成器 `tools/generate-fixtures.py` 是可修改源形式，只使用 Python 3.10+ 标准库。没有第三方 PDF、嵌入字体文件、图片、JavaScript、附件或真实个人信息。
+这些样本的文字、矢量图形、PDF 对象、注释和书签由 Jerrivell PDF 项目独立编写，采用 `MIT OR Apache-2.0`。生成器 `tools/generate-fixtures.py` 是可修改源形式，只使用 Python 3.10+ 标准库。没有第三方 PDF、嵌入字体文件、图片、JavaScript、附件或真实个人信息。
 
 ```powershell
 python tools/generate-fixtures.py

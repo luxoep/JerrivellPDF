@@ -30,7 +30,7 @@ try {
     $taskFiles = @(
         '.gitattributes', '.gitignore', 'index.html', 'compare.html', 'LICENSE', 'package.json', 'package-lock.json',
         'README.md', 'rust-toolchain.toml', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'tsconfig.json', 'vite.config.ts',
-        '启动Jerrivell.cmd', '启动页澜.cmd', '启动AuraPdf.cmd', '启动开发版.cmd', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock',
+        '启动Jerrivell.cmd', '启动开发版.cmd', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock',
         'fixtures/README.md', 'fixtures/sample.pdf', 'fixtures/second.pdf', 'fixtures/manifest.json',
         'src-tauri/build.rs', 'src-tauri/tauri.conf.json', 'src-tauri/windows-hooks.nsh'
     )
