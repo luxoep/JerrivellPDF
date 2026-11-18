@@ -1,0 +1,172 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 14 0 R /Lang (en-US) >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 3 /Kids [5 0 R 6 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate 0 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R /Annots [10 0 R] >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Rotate 0 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 11 0 R /Annots [12 0 R] >>
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Rotate 90 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R  >>
+endobj
+8 0 obj
+<< /Length 2443  >>
+stream
+q 1 1 1 rg 1 w 0 0 595 842 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 800 Tm (RIVULEAF / PDF) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Original synthetic fixture - GPL-3.0-or-later) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 525 24 Tm (01) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 43 m 553 43 l S Q
+BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 744 Tm (Make room for clarity.) Tj ET
+BT /F1 13 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 711 Tm (A small document for a real PDF workflow.) Tj ET
+q 0.965 0.973 0.969 rg 1 w 42 584 511 96 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 58 653 Tm (01 / WELCOME) Tj ET
+BT /F1 13 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 627 Tm (Open, search, organize, and save a new copy.) Tj ET
+BT /F2 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 605 Tm (Search token: aurora) Tj ET
+BT /F2 18 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 543 Tm (A document with more than one page) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 513 Tm (This file contains three pages with different geometry.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 492 Tm (The next page is landscape; the last has a rotation flag.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 471 Tm (A note annotation is attached near the welcome panel.) Tj ET
+q 0.88 0.95 0.92 rg 1 w 42 332 161 100 re f Q
+BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 385 Tm (1) Tj ET
+BT /F2 10 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 354 Tm (PORTRAIT) Tj ET
+q 0.92 0.93 0.98 rg 1 w 217 332 161 100 re f Q
+BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 233 385 Tm (2) Tj ET
+BT /F2 10 Tf 0.11 0.17 0.20 rg 1 0 0 1 233 354 Tm (LANDSCAPE) Tj ET
+q 0.98 0.94 0.86 rg 1 w 392 332 161 100 re f Q
+BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 408 385 Tm (3) Tj ET
+BT /F2 10 Tf 0.11 0.17 0.20 rg 1 0 0 1 408 354 Tm (ROTATED) Tj ET
+BT /F2 16 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 290 Tm (Page operations checklist) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 262 Tm (1. Move page 3 to the beginning, then undo.) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 239 Tm (2. Rotate a page by 90 degrees, then undo.) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 216 Tm (3. Delete page 2 and save to a new filename.) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 193 Tm (4. Merge second.pdf and confirm five pages in total.) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 170 Tm (5. Export a PNG and compare it with the on-screen page.) Tj ET
+BT /F1 10 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 98 Tm (Rivuleaf PDF fixture / alpha / PAGE-ONE) Tj ET
+
+endstream
+endobj
+9 0 obj
+<< /Length 123 /Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 24 24] /Resources << >> >>
+stream
+q 0.98 0.76 0.28 rg 1 1 22 22 re f 0.48 0.32 0.04 RG 1 w 1 1 22 22 re S 5 16 m 18 16 l S 5 11 m 18 11 l S 5 6 m 14 6 l S Q
+
+endstream
+endobj
+10 0 obj
+<< /Type /Annot /Subtype /Text /Rect [519 648 543 672] /P 5 0 R /Name /Note /Open false /F 4 /C [0.98 0.76 0.28] /AP << /N 9 0 R >> /T (Rivuleaf PDF fixture) /Contents (Original sample note. Verify this annotation survives a save-copy workflow.) >>
+endobj
+11 0 obj
+<< /Length 2058  >>
+stream
+q 1 1 1 rg 1 w 0 0 842 595 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 553 Tm (RIVULEAF / PDF) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Landscape - 842 x 595 PDF points) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 772 24 Tm (02) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 43 m 800 43 l S Q
+BT /F2 29 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 503 Tm (A wider view.) Tj ET
+BT /F1 13 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 473 Tm (A synthetic planning table. Every value is invented.) Tj ET
+q 0.08 0.43 0.40 rg 1 w 42 393 758 44 re f Q
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 58 410 Tm (WORKSTREAM) Tj ET
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 330 410 Tm (STATUS) Tj ET
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 550 410 Tm (NEXT STEP) Tj ET
+q 0.965 0.973 0.969 rg 1 w 42 343 758 50 re f Q
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 362 Tm (Reading) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 330 362 Tm (Ready to explore) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 550 362 Tm (Search the document) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 343 m 800 343 l S Q
+q 1 1 1 rg 1 w 42 293 758 50 re f Q
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 312 Tm (Page organization) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 330 312 Tm (Ready to explore) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 550 312 Tm (Try moving a page) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 293 m 800 293 l S Q
+q 0.965 0.973 0.969 rg 1 w 42 243 758 50 re f Q
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 262 Tm (File output) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 330 262 Tm (Ready to explore) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 550 262 Tm (Save a copy) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 243 m 800 243 l S Q
+BT /F2 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 190 Tm (Search token: aurora) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 161 Tm (The table uses ordinary text and vector rectangles, not a screenshot.) Tj ET
+BT /F1 11 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 118 Tm (Back to the welcome page) Tj ET
+q 0.08 0.43 0.40 RG 1 w 42 114 m 185 114 l S Q
+BT /F1 10 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 77 Tm (Rivuleaf PDF fixture / beta / PAGE-TWO) Tj ET
+
+endstream
+endobj
+12 0 obj
+<< /Type /Annot /Subtype /Link /Rect [42 111 190 132] /P 6 0 R /Border [0 0 0] /Dest [5 0 R /Fit] >>
+endobj
+13 0 obj
+<< /Length 1006  >>
+stream
+q 0 1 -1 0 420 0 cm
+q 1 1 1 rg 1 w 0 0 595 420 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 378 Tm (RIVULEAF / PDF) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (MediaBox 420 x 595 / Rotate 90) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 525 24 Tm (03) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 43 m 553 43 l S Q
+BT /F2 28 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 322 Tm (A different angle.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 289 Tm (This page has an explicit /Rotate 90 entry.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 267 Tm (Its content transform keeps the initial view upright.) Tj ET
+q 0.88 0.95 0.92 rg 1 w 42 136 226 93 re f Q
+BT /F2 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 193 Tm (Search token: aurora) Tj ET
+BT /F1 11 Tf 0.11 0.17 0.20 rg 1 0 0 1 58 164 Tm (A quarter-turn is still a page.) Tj ET
+q 0.08 0.43 0.40 RG 5 w 355 157 m 438 157 l 438 211 l S 426 199 m 438 211 l 450 199 l S Q
+BT /F1 10 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 88 Tm (Rivuleaf PDF fixture / gamma / PAGE-THREE) Tj ET
+Q
+
+endstream
+endobj
+14 0 obj
+<< /Type /Outlines /First 15 0 R /Last 17 0 R /Count 3 >>
+endobj
+15 0 obj
+<< /Title (Welcome) /Parent 14 0 R /Next 16 0 R /Dest [5 0 R /Fit] >>
+endobj
+16 0 obj
+<< /Title (Landscape table) /Parent 14 0 R /Prev 15 0 R /Next 17 0 R /Dest [6 0 R /Fit] >>
+endobj
+17 0 obj
+<< /Title (Rotated page) /Parent 14 0 R /Prev 16 0 R /Dest [7 0 R /Fit] >>
+endobj
+18 0 obj
+<< /Title (Rivuleaf PDF sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; GPL-3.0-or-later; source: tools/generate-fixtures.py) >>
+endobj
+xref
+0 19
+0000000000 65535 f 
+0000000015 00000 n 
+0000000095 00000 n 
+0000000164 00000 n 
+0000000261 00000 n 
+0000000363 00000 n 
+0000000526 00000 n 
+0000000690 00000 n 
+0000000839 00000 n 
+0000003335 00000 n 
+0000003586 00000 n 
+0000003851 00000 n 
+0000005963 00000 n 
+0000006080 00000 n 
+0000007140 00000 n 
+0000007214 00000 n 
+0000007300 00000 n 
+0000007407 00000 n 
+0000007498 00000 n 
+trailer
+<< /Size 19 /Root 1 0 R /Info 18 0 R >>
+startxref
+7760
+%%EOF

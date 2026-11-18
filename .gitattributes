@@ -1,0 +1,6 @@
+# Preserve archived source and third-party notice bytes across checkouts.
+* -text
+*.png binary
+*.ico binary
+*.pdf binary
+*.dll binary

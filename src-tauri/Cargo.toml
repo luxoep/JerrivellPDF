@@ -1,0 +1,31 @@
+[package]
+name = "jerrivell-pdf"
+version = "0.4.1"
+description = "A local, open-source PDF workspace for Windows"
+authors = ["Jerry and contributors"]
+edition = "2021"
+license = "GPL-3.0-or-later"
+default-run = "jerrivell-pdf"
+
+[lib]
+name = "jerrivell_pdf_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "image_025", "thread_safe"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+base64 = "0.22"
+tempfile = "3"
+same-file = "1"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

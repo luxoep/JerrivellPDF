@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+.oe-unit-row,.oe-font-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px;color:#898195;font-size:10px}
+.oe-unit-row select{padding:5px 8px;border:1px solid #e1dbe9;border-radius:5px;color:#6a597b;background:#fff;font:inherit}
+.oe-align-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:10px 0}
+.oe-align-grid button{padding:7px 4px;font-size:10px;min-width:0;border:1px solid #e2dbea;border-radius:5px;background:#fff;color:#8c7c9c}
+.oe-align-grid button:hover:not(:disabled){background:#f3eefb;border-color:#cbbce0}
+.oe-object-tools{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.oe-object-tools button{flex:1;white-space:nowrap}
+.oe-object-lock{margin:12px 0!important;white-space:normal;line-height:1.6}
+.oe-font-picker{margin:0 0 17px;padding:11px;background:#f8f6fc;border:1px solid #ece6f3;border-radius:7px}
+.oe-font-picker .oe-field{margin-bottom:8px}.oe-font-picker .oe-font-heading{margin:0 0 8px}.oe-font-heading>button{display:inline-flex;align-items:center;gap:4px}
+.oe-font-preview{border:1px solid #e8e1ef;background:#fff;border-radius:5px;padding:10px;min-height:43px;max-height:110px;overflow:auto;font-size:17px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:#383146}
+.oe-font-picker>.oe-note{font-size:9px;margin-top:7px}
+.overlay-placement-handle.overlay-object-locked{cursor:default;border-style:dotted}
+.overlay-placement-handle.overlay-object-locked .overlay-item-number{background:#9297a5}

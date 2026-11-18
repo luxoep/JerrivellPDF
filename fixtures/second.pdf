@@ -1,0 +1,92 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R /Lang (en-US) >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [5 0 R 6 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Rotate 0 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R  >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Rotate 0 /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R  >>
+endobj
+7 0 obj
+<< /Length 1111  >>
+stream
+q 1 1 1 rg 1 w 0 0 612 792 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 750 Tm (RIVULEAF / PDF) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Merge fixture - 612 x 792 PDF points) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 542 24 Tm (01) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 43 m 570 43 l S Q
+BT /F2 26 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 695 Tm (Bring documents together.) Tj ET
+BT /F1 12 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 658 Tm (This is an original synthetic document for Rivuleaf PDF.) Tj ET
+q 0.965 0.973 0.969 rg 1 w 42 485 528 117 re f Q
+BT /F2 11 Tf 0.08 0.43 0.40 rg 1 0 0 1 60 567 Tm (DOCUMENT TWO / PAGE 1) Tj ET
+BT /F2 21 Tf 0.11 0.17 0.20 rg 1 0 0 1 60 534 Tm (MERGE-ONE) Tj ET
+BT /F2 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 438 Tm (Search token: horizon) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 407 Tm (Append this file after sample.pdf to produce five pages.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 383 Tm (Reopen the saved copy and check both unique merge markers.) Tj ET
+BT /F1 10 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 105 Tm (Rivuleaf PDF fixture / second document / MERGE-ONE) Tj ET
+
+endstream
+endobj
+8 0 obj
+<< /Length 1113  >>
+stream
+q 1 1 1 rg 1 w 0 0 612 792 re f Q
+BT /F2 10 Tf 0.08 0.43 0.40 rg 1 0 0 1 42 750 Tm (RIVULEAF / PDF) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 24 Tm (Merge fixture - 612 x 792 PDF points) Tj ET
+BT /F1 9 Tf 0.38 0.44 0.47 rg 1 0 0 1 542 24 Tm (02) Tj ET
+q 0.84 0.88 0.87 RG 1 w 42 43 m 570 43 l S Q
+BT /F2 26 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 695 Tm (Keep the order intentional.) Tj ET
+BT /F1 12 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 658 Tm (This is an original synthetic document for Rivuleaf PDF.) Tj ET
+q 0.965 0.973 0.969 rg 1 w 42 485 528 117 re f Q
+BT /F2 11 Tf 0.08 0.43 0.40 rg 1 0 0 1 60 567 Tm (DOCUMENT TWO / PAGE 2) Tj ET
+BT /F2 21 Tf 0.11 0.17 0.20 rg 1 0 0 1 60 534 Tm (MERGE-TWO) Tj ET
+BT /F2 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 438 Tm (Search token: horizon) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 407 Tm (Append this file after sample.pdf to produce five pages.) Tj ET
+BT /F1 12 Tf 0.11 0.17 0.20 rg 1 0 0 1 42 383 Tm (Reopen the saved copy and check both unique merge markers.) Tj ET
+BT /F1 10 Tf 0.38 0.44 0.47 rg 1 0 0 1 42 105 Tm (Rivuleaf PDF fixture / second document / MERGE-TWO) Tj ET
+
+endstream
+endobj
+9 0 obj
+<< /Type /Outlines /First 10 0 R /Last 11 0 R /Count 2 >>
+endobj
+10 0 obj
+<< /Title (MERGE-ONE) /Parent 9 0 R /Next 11 0 R /Dest [5 0 R /Fit] >>
+endobj
+11 0 obj
+<< /Title (MERGE-TWO) /Parent 9 0 R /Prev 10 0 R /Dest [6 0 R /Fit] >>
+endobj
+12 0 obj
+<< /Title (Rivuleaf PDF merge sample) /Author (Rivuleaf PDF contributors) /Creator (Rivuleaf PDF original fixture generator) /Producer (Python standard library) /Subject (Synthetic test content; GPL-3.0-or-later; source: tools/generate-fixtures.py) >>
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000094 00000 n 
+0000000157 00000 n 
+0000000254 00000 n 
+0000000356 00000 n 
+0000000503 00000 n 
+0000000650 00000 n 
+0000001814 00000 n 
+0000002980 00000 n 
+0000003053 00000 n 
+0000003140 00000 n 
+0000003227 00000 n 
+trailer
+<< /Size 13 /Root 1 0 R /Info 12 0 R >>
+startxref
+3495
+%%EOF

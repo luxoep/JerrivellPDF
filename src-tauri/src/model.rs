@@ -1,0 +1,196 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendStatus {
+    pub engine_ready: bool,
+    pub engine_version: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageRef {
+    pub document_id: String,
+    pub page_index: u32,
+    /// Additional clockwise rotation; the source's intrinsic rotation is retained.
+    pub rotation: u16,
+    #[serde(default)]
+    pub overlays: Vec<PageOverlay>,
+    #[serde(default)]
+    pub content_edits: Vec<ContentEdit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContentBounds {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContentEdit {
+    pub object_index: u32,
+    pub fingerprint: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub font_family: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<f32>,
+    #[serde(default)]
+    pub fill_color: Option<String>,
+    #[serde(default)]
+    pub bounds: Option<ContentBounds>,
+    #[serde(default)]
+    pub deleted: Option<bool>,
+    #[serde(default)]
+    pub replacement_asset_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentObject {
+    pub object_index: u32,
+    pub fingerprint: String,
+    pub kind: String,
+    pub bounds: ContentBounds,
+    pub original_bounds: ContentBounds,
+    pub text: Option<String>,
+    pub original_text: Option<String>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f32>,
+    pub fill_color: Option<String>,
+    pub editable: bool,
+    pub reason: Option<String>,
+    pub deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageContent {
+    pub objects: Vec<ContentObject>,
+    pub total_objects: u32,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageOverlay {
+    pub id: String,
+    pub asset_id: String,
+    /// Coordinates refer to the final displayed page, normalized from its top-left.
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub opacity: f32,
+    #[serde(default)]
+    pub rotation: u16,
+    #[serde(default)]
+    pub blend_mode: OverlayBlendMode,
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayBlendMode {
+    #[default]
+    Normal,
+    Multiply,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PdfStampCrop {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageAssetInfo {
+    pub id: String,
+    pub data_url: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfStampInfo {
+    #[serde(flatten)]
+    pub image: ImageAssetInfo,
+    pub page_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageInfo {
+    pub index: u32,
+    pub width: f32,
+    pub height: f32,
+    pub rotation: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentInfo {
+    pub id: String,
+    pub path: String,
+    pub file_name: String,
+    pub page_count: u32,
+    pub file_size: u64,
+    pub pages: Vec<PageInfo>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedPage {
+    pub data_url: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchMatch {
+    pub page_index: u32,
+    pub match_count: usize,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDocument {
+    pub path: String,
+    pub page_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedPage {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerRequest {
+    pub id: u64,
+    pub command: String,
+    #[serde(default)]
+    pub args: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WorkerResponse {
+    pub id: u64,
+    pub result: Option<serde_json::Value>,
+    pub error: Option<String>,
+}

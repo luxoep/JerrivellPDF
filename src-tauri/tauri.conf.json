@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Jerrivell PDF",
+  "version": "0.4.1",
+  "identifier": "local.rivuleaf.pdf",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Jerrivell PDF",
+        "width": 1360,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 680,
+        "center": true,
+        "dragDropEnabled": true,
+        "backgroundColor": "#f4f5f8"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; frame-src 'none'",
+      "devCsp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Jerrivell PDF · Jerry 的本地 PDF 工作台",
+    "longDescription": "开源、离线优先的 Windows PDF 阅读与页面整理工具。",
+    "copyright": "Copyright Jerry and contributors",
+    "licenseFile": "../LICENSE",
+    "resources": {
+      "resources/pdfium/": "pdfium/",
+      "../LICENSE": "legal/LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "legal/THIRD_PARTY_NOTICES.md",
+      "../licenses/": "legal/licenses/"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      },
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    },
+    "publisher": "Jerry"
+  }
+}

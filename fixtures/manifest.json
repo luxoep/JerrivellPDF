@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "origin": "Original synthetic content authored for Rivuleaf PDF; no imported document or embedded font file.",
+  "license": "GPL-3.0-or-later",
+  "generator": "tools/generate-fixtures.py",
+  "encrypted": false,
+  "javascript": false,
+  "files": [
+    {
+      "name": "sample.pdf",
+      "sha256": "eecb7f7bc356362313291eed5605656efe223aa0200806e5394d1f285d374808",
+      "bytes": 8219,
+      "page_count": 3,
+      "media_boxes": [
+        [
+          0,
+          0,
+          595,
+          842
+        ],
+        [
+          0,
+          0,
+          842,
+          595
+        ],
+        [
+          0,
+          0,
+          420,
+          595
+        ]
+      ],
+      "rotations": [
+        0,
+        0,
+        90
+      ],
+      "search_word": "aurora",
+      "search_occurrences_case_sensitive": 3,
+      "note_annotations": 1,
+      "internal_link_annotations": 1,
+      "outline_entries": 3
+    },
+    {
+      "name": "second.pdf",
+      "sha256": "12165021c53300d2bd6d14c8155b83dbe0b9c2254ea5585b5d965b8bf9a318c5",
+      "bytes": 3834,
+      "page_count": 2,
+      "media_boxes": [
+        [
+          0,
+          0,
+          612,
+          792
+        ],
+        [
+          0,
+          0,
+          612,
+          792
+        ]
+      ],
+      "rotations": [
+        0,
+        0
+      ],
+      "search_word": "horizon",
+      "search_occurrences_case_sensitive": 2,
+      "note_annotations": 0,
+      "internal_link_annotations": 0,
+      "outline_entries": 2
+    }
+  ]
+}

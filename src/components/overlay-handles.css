@@ -1,0 +1,8 @@
+.overlay-interaction-layer{position:absolute;inset:0;pointer-events:none;z-index:2}
+.overlay-placement-handle{position:absolute;box-sizing:border-box;border:1px solid transparent;pointer-events:auto;cursor:move;touch-action:none;outline:none}
+.overlay-placement-handle:hover,.overlay-placement-handle:focus-visible,.overlay-placement-handle.selected{border-color:#7563d6;background:rgba(117,99,214,.035)}
+.overlay-placement-handle.dragging{border-style:dashed;background:rgba(117,99,214,.12)}
+.overlay-item-number{position:absolute;left:-1px;top:-19px;min-width:18px;height:18px;display:none;align-items:center;justify-content:center;border-radius:4px 4px 0 0;background:#7563d6;color:white;font:11px/1 system-ui;pointer-events:none}
+.overlay-placement-handle:hover .overlay-item-number,.overlay-placement-handle.selected .overlay-item-number,.overlay-placement-handle:focus-visible .overlay-item-number{display:flex}
+.overlay-resize-handle{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;display:none;border:1px solid white;border-radius:3px;background:#7563d6;cursor:nwse-resize;touch-action:none}
+.overlay-placement-handle:hover .overlay-resize-handle,.overlay-placement-handle.selected .overlay-resize-handle,.overlay-placement-handle:focus-visible .overlay-resize-handle{display:block}
