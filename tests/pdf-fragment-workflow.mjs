@@ -41,14 +41,14 @@ const react={
  useEffect(effect,deps){const current=host,index=current.cursor++,old=current.effects[index];if(!old||deps.some((value,i)=>value!==old.deps[i]))current.pending.push(()=>{old?.cleanup?.();current.effects[index]={deps,cleanup:effect()};});},
 };
 const imageGeometry=await module('src/imageGeometry.ts',{});
-const region=await module('src/components/RegionSelection.tsx',{require(name){if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;if(name==='../imageGeometry')return imageGeometry;if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};throw new Error(name);}});
+const region=await module('src/components/RegionSelection.tsx',{require(name){if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;if(name==='../imageGeometry')return imageGeometry;if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};throw new Error(name);}});
 const pngPath=join(output,'fragment-library.png');
 const editor=await module('src/components/OverlayEditor.tsx',{require(name){
  if(name==='../imageGeometry')return imageGeometry;
  if(name==='./RegionSelection')return region;
  if(name==='./ImageEditDialog')return{ImageEditDialog:'ImageEditDialog'};
  if(name==='../useFragmentPreview')return{useFragmentPreview:()=>({image:null,error:''})};
- if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;
+ if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if(name==='react')return react;if(name==='react/jsx-runtime')return jsx;
  if(name==='@tauri-apps/plugin-dialog')return{open:async()=>source,save:async()=>pngPath};
  if(name==='lucide-react')return new Proxy({},{get:(_,name)=>`icon-${String(name)}`});
  if(name==='../i18n')return{useI18n:()=>({t:(zh,en)=>en??zh})};

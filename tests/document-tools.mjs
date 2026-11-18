@@ -63,7 +63,7 @@ const backend = {
   },
 };
 const require = name => {
-  if (name === 'react') return react; if (name === 'react/jsx-runtime') return jsx;
+  if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if (name === 'react') return react; if (name === 'react/jsx-runtime') return jsx;
   if (name === 'lucide-react') return new Proxy({}, { get: (_, name) => `icon-${String(name)}` });
   if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };
   if (name === '../backend') return backend; if (name === '../documentTools') return tools;

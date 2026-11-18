@@ -46,7 +46,7 @@ export function run(command, args) {
 export async function frontendChecks() {
   const names = ['frontend-queue', 'frontend-pages-i18n', 'local-font-canvas', 'overlay-geometry',
     'original-content', 'pdf-stamp-editor', 'precise-editor', 'printing', 'reader-experience',
-    'stamp-library', 'document-tools', 'live-preview', 'workbench-experience', 'multi-region', 'performance'];
+    'stamp-library', 'document-tools', 'live-preview', 'workbench-experience', 'multi-region', 'performance', 'preview-zoom', 'windows-ui'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`]);
   return names;
 }

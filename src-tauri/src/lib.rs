@@ -9,6 +9,8 @@ mod printing;
 mod startup;
 #[cfg(windows)]
 mod window_style;
+#[cfg(windows)]
+mod windows_integration;
 mod worker;
 
 use model::*;
@@ -23,6 +25,20 @@ struct Backend(Arc<Mutex<worker::WorkerClient>>);
 #[tauri::command]
 fn get_startup_files() -> Vec<String> {
     startup::pdf_paths(std::env::args_os())
+}
+
+#[tauri::command]
+async fn register_pdf_integration() -> Result<windows_integration::IntegrationStatus, String> {
+    tauri::async_runtime::spawn_blocking(windows_integration::register_pdf_integration)
+        .await
+        .map_err(|e| format!("WINDOWS_INTEGRATION_ERROR: {e}"))?
+}
+
+#[tauri::command]
+async fn open_default_pdf_settings() -> Result<windows_integration::IntegrationStatus, String> {
+    tauri::async_runtime::spawn_blocking(windows_integration::open_default_pdf_settings)
+        .await
+        .map_err(|e| format!("WINDOWS_INTEGRATION_ERROR: {e}"))?
 }
 
 #[tauri::command]
@@ -431,6 +447,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_startup_files,
+            register_pdf_integration,
+            open_default_pdf_settings,
             preview_image_edit,
             get_backend_status,
             list_system_fonts,

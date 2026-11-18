@@ -33,7 +33,7 @@ const require = name => {
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
   if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
   if (name === './OriginalObjectPreview') return {OriginalObjectPreview:'OriginalObjectPreview'};
-  if (name === 'react') return react;
+  if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if (name === 'react') return react;
   if (name === 'react/jsx-runtime') return jsx;
   if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
   if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };

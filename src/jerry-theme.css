@@ -54,7 +54,7 @@ input,select,textarea{accent-color:#486f8b}
 .tool-order-preview,.tool-summary{background:#fff8e7;border-color:#e0cda9;color:#825638}
 .toast{background:#2b4053;color:#fffdf6}
 .rail{background:#2b4053}.workspace-toolbar,.document-panel,.status-bar{background:#fffdf6;border-color:#dbd3c0;color:#536b7c}
-.workspace-toolbar .tool-button.active,.panel-tabs button.active,.panel-tabs button.selected{background:#e7eff3;color:#365a74;border-color:#789bb0}
+.workspace-toolbar .tool-button.active{background:#e7eff3;color:#365a74;border-color:#789bb0}
 .icon-button:hover:not(:disabled),.tool-button:hover:not(:disabled),.fit-button:hover:not(:disabled){background:#e7eff3;color:#365a74}
 .selection-pill{background:#f5e5c2;color:#825638}.thumbnail-item.is-active,.thumbnail-item.is-selected{background:#e7eff3;border-color:#789bb0}
 .thumbnail-item.is-drop-target{border-color:#9a603d}.thumbnail-check.checked{background:#486f8b;border-color:#486f8b}.thumbnail-current-dot{background:#9a603d}

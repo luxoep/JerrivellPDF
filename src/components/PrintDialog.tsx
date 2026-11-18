@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, CircleAlert, LoaderCircle, Printer, X } from 'lucide-react';
 import { backend, errorMessage, pageReference, renderPage } from '../backend';
 import { useI18n } from '../i18n';
+import { PreviewZoom } from './PreviewZoom';
 import { selectPrintIndices, validPrintCopies } from '../printing';
 import type { PrintOptions, PrintResult, PrintScope, PrintSubset } from '../printing';
 import type { RenderedPage, WorkspacePage } from '../types';
@@ -112,7 +113,7 @@ export function PrintDialog({ pages, activeIndex, selectedIds, title, onClose, o
           <p className="print-hint">{t('页码按当前工作区顺序计算；份数与逐份选项以系统打印窗口为准。打印包含尚未保存的新增内容。', 'Page numbers follow this workspace. The system print dialog determines copies and collation. Unsaved added content is included.')}</p>
         </fieldset></div>
         <section className="print-preview" aria-label={t('页面内容预览', 'Page content preview')}>
-          <div className="print-preview-stage">{page ? image ? <img src={image.dataUrl} alt={t(`打印预览：工作区第 ${pageIndex + 1} 页`, `Print preview: workspace page ${pageIndex + 1}`)}/> : previewError ? <div className="print-preview-empty"><CircleAlert/><p>{previewError}</p></div> : <LoaderCircle className="spin"/> : <p>{t('没有符合条件的页面。', 'No pages match these settings.')}</p>}</div>
+          <div className="print-preview-stage">{page ? image ? <PreviewZoom width={image.width} height={image.height} resetKey={page.id} label={t('打印页面可缩放预览', 'Zoomable print page preview')}><img src={image.dataUrl} alt={t(`打印预览：工作区第 ${pageIndex + 1} 页`, `Print preview: workspace page ${pageIndex + 1}`)}/></PreviewZoom> : previewError ? <div className="print-preview-empty"><CircleAlert/><p>{previewError}</p></div> : <LoaderCircle className="spin"/> : <p>{t('没有符合条件的页面。', 'No pages match these settings.')}</p>}</div>
           <div className="print-preview-navigation"><button className="icon-button" disabled={working || position === 0} onClick={() => setPreviewAt(position - 1)} aria-label={t('预览上一张', 'Preview previous sheet')}><ChevronLeft size={17}/></button><span>{count ? `${position + 1} / ${count}` : '0 / 0'}{page && ` · ${t(`第 ${pageIndex + 1} 页`, `Page ${pageIndex + 1}`)}`}</span><button className="icon-button" disabled={working || position >= count - 1} onClick={() => setPreviewAt(position + 1)} aria-label={t('预览下一张', 'Preview next sheet')}><ChevronRight size={17}/></button></div>
           <p className="print-hint">{t('此处预览页面内容。纸张、双面与彩色等选项在系统打印机属性中设置，最终排版以所选打印机为准。', 'This previews page content. Set paper, duplex and color in system printer properties; final layout depends on the selected printer.')}</p>
         </section>

@@ -81,7 +81,7 @@ let printReply = () => Promise.resolve({ status: 'cancelled', pageCount: 0, copi
 const { PrintDialog } = await load('../src/components/PrintDialog.tsx', {
   document: { activeElement: null }, HTMLElement: class HTMLElement {},
   require(name) {
-    if (name === 'react') return react;
+    if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props, key) => ({ type, props, key }), jsxs: (type, props, key) => ({ type, props, key }), Fragment: 'fragment' };
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });
     if (name === '../i18n') return { useI18n: () => ({ t: (zh, en) => en ?? zh }) };

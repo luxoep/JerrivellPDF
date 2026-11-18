@@ -18,17 +18,19 @@ import { I18nProvider, useI18n, translate as t } from './i18n';
 import { PageRangeError, parsePageRange } from './pageRanges';
 import { rotatePageClockwise } from './pageOperations';
 import { ImageEditDialog } from './components/ImageEditDialog';
+import { WindowsSettingsDialog } from './components/WindowsSettingsDialog';
+import { DeferredDialog } from './components/DeferredDialog';
 import { OverlayEditor } from './components/OverlayEditor';
 import { OverlayHandles } from './components/OverlayHandles';
 import { PrintDialog } from './components/PrintDialog';
 import { OriginalContentEditor } from './components/OriginalContentEditor';
 import { OriginalContentHandles } from './components/OriginalContentHandles';
 import type { ContentEdit, ContentInspection } from './originalContent';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, Copy, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, Wrench, X, } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, Copy, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, Settings2, ShieldCheck, Trash2, Undo2, Upload, Wrench, X, } from 'lucide-react';
 import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, resetBackendQueue, sessionInvalidatedEvent, stageImageAsset } from './backend';
 import type { ImageAsset, BackendStatus, DocumentInfo, PageOverlay, SearchMatch, WorkspaceMatch, WorkspacePage } from './types';
 type Panel = 'pages' | 'search';
@@ -148,6 +150,8 @@ function AppWorkspace() {
     const [draggingFile, setDraggingFile] = useState(false);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [showShortcuts, setShowShortcuts] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const appRoot = useRef<HTMLDivElement>(null), appHeader = useRef<HTMLElement>(null), workspaceBody = useRef<HTMLDivElement>(null);
     const [replaceRequest, setReplaceRequest] = useState<string[] | null>(null);
     const [closeRequest, setCloseRequest] = useState(false);
     const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
@@ -160,6 +164,17 @@ function AppWorkspace() {
     const dirty = pages.length > 0 && workspaceSignature !== savedSignature;
     live.current = { pages, sources, dirty };
     const totalBytes = sources.reduce((sum, source) => sum + source.fileSize, 0);
+    const hasPages = pages.length > 0;
+    useLayoutEffect(() => {
+        const measure = () => {
+            if (workspaceBody.current && appRoot.current) appRoot.current.style.setProperty('--workspace-panel-top', `${Math.round(workspaceBody.current.getBoundingClientRect().top)}px`);
+        };
+        measure();
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+        if (appHeader.current) observer?.observe(appHeader.current);
+        window.addEventListener('resize', measure, { passive: true });
+        return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+    }, [hasPages]);
     const warnings = sources.flatMap((source) => source.warnings.map((message) => ({ source: source.fileName, message })));
     const [showWarnings, setShowWarnings] = useState(false);
     const resetWorkspace = useCallback(() => {
@@ -783,13 +798,14 @@ function AppWorkspace() {
                 if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault();
                 return;
             }
-            if (passwordRequest || replaceRequest || importRequest || closeRequest || showShortcuts || showWarnings) {
+            if (passwordRequest || replaceRequest || importRequest || closeRequest || showShortcuts || showWarnings || settingsOpen) {
                 if (event.key === 'Escape' && !passwordRequest) {
                     setReplaceRequest(null);
                     setImportRequest(null);
                     setCloseRequest(false);
                     setShowShortcuts(false);
                     setShowWarnings(false);
+                    setSettingsOpen(false);
                 }
                 return;
             }
@@ -875,7 +891,7 @@ function AppWorkspace() {
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
+    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, settingsOpen, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
     const selectThumbnail = (event: React.MouseEvent, page: WorkspacePage, index: number) => {
         if (busyRef.current) return;
         if (event.shiftKey) {
@@ -891,21 +907,17 @@ function AppWorkspace() {
             setSelection(new Set());
         }
     };
-    return <div className="app-shell">
-    <aside className="rail" aria-label={t("主导航")}>
-      <a className="brand-mark" href="#" onClick={(event) => { event.preventDefault(); if (!pages.length)
-        void chooseFiles(); }} aria-label={t("Jerrivell PDF")}><img className="brand-icon" src={brandIcon} alt=""/></a>
-      <div className="rail-separator"/>
-      <button className="rail-button rail-open" onClick={() => void chooseFiles()} disabled={!!busy || !status?.engineReady} title={t("打开 PDF \u00B7 Ctrl+O")}><FolderOpen size={21}/><span>{t("打开")}</span></button>
-      <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
-      <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
-      <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={21}/><span>{t('工具', 'Tools')}</span></button>
-      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.8.0</div></div>
-    </aside>
-
+    return <div className="app-shell" ref={appRoot}>
     <div className="app-main">
-      <header className="app-header">
-        <div className="header-title"><div className="wordmark" aria-label={t("Jerrivell PDF")}>Jerrivell<span>PDF</span></div><div className="header-divider"/><div className="document-title-group"><h1 title={title || t("你的 PDF 工作台")}>{title || t("你的 PDF 工作台")}</h1><div className="document-subtitle">{pages.length ? <><span className={dirty ? 'status-dot modified' : 'status-dot'}/>{dirty ? t("有未保存的修改") : savedPath ? t("副本已保存") : t("原始文档")}<span className="meta-dot">·</span>{t(`${pages.length} 页`, `${pages.length} pages`)}{sources.length > 1 && <><span className="meta-dot">·</span>{t(`${sources.length} 个来源`, `${sources.length} sources`)}</>}</> : <>{t("Jerry 的本地 PDF 工作台")}</>}</div></div></div>
+      <header className="app-header" ref={appHeader}>
+        <div className="header-title"><div className="brand-lockup" aria-label={t("Jerrivell PDF")}><img className="brand-icon" src={brandIcon} alt=""/><div className="wordmark">Jerrivell<span>PDF</span></div></div><div className="header-divider"/><div className="document-title-group"><h1 title={title || t("你的 PDF 工作台")}>{title || t("你的 PDF 工作台")}</h1><div className="document-subtitle">{pages.length ? <><span className={dirty ? 'status-dot modified' : 'status-dot'}/>{dirty ? t("有未保存的修改") : savedPath ? t("副本已保存") : t("原始文档")}<span className="meta-dot">·</span>{t(`${pages.length} 页`, `${pages.length} pages`)}{sources.length > 1 && <><span className="meta-dot">·</span>{t(`${sources.length} 个来源`, `${sources.length} sources`)}</>}</> : <>{t("Jerry 的本地 PDF 工作台")}</>}</div></div></div>
+        <nav className="floating-navigation" aria-label={t('主导航')}>
+          <button className="rail-button rail-open" onClick={() => void chooseFiles()} disabled={!!busy || !status?.engineReady} title={t('打开 PDF · Ctrl+O')}><FolderOpen size={18}/><span>{t('打开')}</span></button>
+          <button className={`rail-button ${pages.length && panel === 'pages' && !sidebarCollapsed && !pageToolsOpen ? 'active' : ''}`} aria-pressed={!!pages.length && panel === 'pages' && !sidebarCollapsed && !pageToolsOpen} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} disabled={!pages.length} title={t('页面工作台')}><Layers3 size={18}/><span>{t('页面')}</span></button>
+          <button className={`rail-button ${pages.length && panel === 'search' && !sidebarCollapsed ? 'active' : ''}`} aria-pressed={!!pages.length && panel === 'search' && !sidebarCollapsed} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t('查找文字 · Ctrl+F')}><Search size={18}/><span>{t('查找')}</span></button>
+          <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} aria-pressed={pageToolsOpen} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={18}/><span>{t('工具', 'Tools')}</span></button>
+          <button className={`rail-button ${settingsOpen ? 'active' : ''}`} aria-pressed={settingsOpen} disabled={!!busy} onClick={() => setSettingsOpen(true)} title={t('默认应用与打开方式设置', 'Default app and Open with settings')}><Settings2 size={18}/><span>{t('设置', 'Settings')}</span></button>
+        </nav>
         <div className="header-actions"><select className="language-select" aria-label={t("界面语言", "Interface language")} value={language} onChange={event => setLanguage(event.target.value as 'zh-CN' | 'en-US')} disabled={!!busy}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>{pages.length > 0 ? <><button className="button secondary" disabled={!!busy} onClick={() => void chooseFiles(true)} title={t("添加 PDF \u00B7 Ctrl+Shift+O")}><FilePlus2 size={16}/><span>{t("添加 PDF")}</span></button><button className="button primary save-button" disabled={!!busy} onClick={() => void saveCopy()} title={t("保存副本 \u00B7 Ctrl+S")}><Save size={16}/><span>{t("保存副本")}</span></button></> : <span className="privacy-pill"><span />{t("本地处理 \u00B7 文件不上传")}</span>}</div>
       </header>
 
@@ -921,7 +933,7 @@ function AppWorkspace() {
         <footer className="welcome-footer"><span><span className={`status-dot ${status?.engineReady ? '' : 'muted'}`}/>{checkingEngine ? t("正在准备工作台\u2026") : status?.engineReady ? t("工作台已就绪") : t("等待桌面环境")}</span><span>OPEN SOURCE. OPEN POSSIBILITIES.</span></footer>
       </main> : <>
         <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className="tool-button" disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} title={t('图片转 PDF、拆分、页码、水印和裁剪', 'Images to PDF, splitting, numbering, watermarks and crop')}><Wrench size={16}/><span>{t('页面工具', 'Page tools')}</span></button><button className={`tool-button ${markOpen ? 'active' : ''}`} aria-pressed={markOpen} disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(value => !value); }} title={t('直接在页面上框选高亮、色块或绘制图形', 'Draw highlights, color blocks and shapes directly on the page')}><Highlighter size={16}/><span>{t('标记', 'Mark')}</span></button><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setMarkOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、图章和签名', 'Add text, images, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(true); setLineOpen(true); }} title={t('识别文字行，调整字距与对齐并预览', 'Group text runs, adjust spacing and alignment, and compare')}><FileText size={16}/><span>{t('文字行', 'Text lines')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
-        <div className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <div ref={workspaceBody} className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <aside className="document-panel"><div className="panel-tabs"><button className={panel === 'pages' ? 'selected' : ''} onClick={() => setPanel('pages')}><Layers3 size={15}/>{t("页面")}<span>{pages.length}</span></button><button className={panel === 'search' ? 'selected' : ''} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 30); }}><Search size={15}/>{t("查找")}</button></div>
             {panel === 'pages' ? <><div className="page-panel-tools"><button className="text-button" onClick={() => setSelection(selection.size === pages.length ? new Set() : new Set(pages.map((page) => page.id)))} disabled={!!busy}><CheckCheck size={14}/>{selection.size === pages.length ? t("取消全选") : t("选择全部")}</button><div><button className="icon-button small" onClick={() => movePages(-1)} disabled={!!busy} title={t("前移选中页 \u00B7 Alt+\u2191")} aria-label={t("前移选中页")}><ArrowUp size={14}/></button><button className="icon-button small" onClick={() => movePages(1)} disabled={!!busy} title={t("后移选中页 \u00B7 Alt+\u2193")} aria-label={t("后移选中页")}><ArrowDown size={14}/></button></div></div><div className="page-quick-actions"><button disabled={!!busy} onClick={quickDuplicate} title={t('复制所选页面，保留内容与标记','Duplicate selected pages with content and marks')}><Copy size={14}/>{t('复制页','Duplicate pages')}</button><button disabled={!!busy} onClick={() => void quickBlank()} title={t('在当前页后插入 A4 空白页','Insert an A4 blank page after the current page')}><FilePlus2 size={14}/>{t('空白页','Blank page')}</button></div><div className="page-range-controls">
                 <label htmlFor="page-range">{t('按页码选择', 'Select by page range')}</label>
@@ -979,10 +991,11 @@ function AppWorkspace() {
     {editorOpen && currentPage && <OverlayEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); }} onBusyChange={editorBusyChanged}/>}
     {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} onRasterEdit={() => void openPixelEdit(true)} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
     {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={pixelEdit.overlayId?t('选中标记或图章','Selected mark or stamp'):t('当前页像素编辑','Current page pixels')} notice={pixelEdit.overlayId?undefined:t('应用后仅将当前页转换为图像。该页文字不再可搜索，链接、可编辑对象及批注结构不保留；其他页不变，可撤销恢复。','Applying converts only this page to an image. Its searchable text, links, editable objects and annotation structure are not retained. Other pages stay unchanged; undo restores the page.')} applyLabel={pixelEdit.overlayId?undefined:t('转换本页并应用','Convert this page and apply')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>} 
-    {pageToolsOpen && <PageToolsDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => setPageToolsOpen(false)} onBusyChange={documentToolsBusy} onPlan={next => { commit(next); setPageToolsOpen(false); notify(t('页面方案已更新，可撤销。', 'Page plan updated. You can undo it.'), 'success'); }} onGenerated={addGeneratedPages} onExport={parts => { setPageToolsOpen(false); void requestExport(parts); }}/>} 
-    {lineOpen && currentPage && <TextLineEditor page={currentPage} objects={visibleOriginal?.objects ?? []} loading={originalLoading || !visibleOriginal} onClose={() => setLineOpen(false)} onBusyChange={documentToolsBusy} onApplied={document => addGeneratedPages(document, [currentPage.id], 0)}/>}
-    {exportRequest && <ExportDialog parts={exportRequest.parts} onClose={cancelExport} onSaved={finishedExport} onBusyChange={documentToolsBusy}/>}
-    {printOpen && pages.length > 0 && <PrintDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => { if (!busyRef.current) setPrintOpen(false); }} onBusyChange={printingBusyChanged} onNotify={notify}/>}
+    {pageToolsOpen && <DeferredDialog onCancel={() => setPageToolsOpen(false)}><PageToolsDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => setPageToolsOpen(false)} onBusyChange={documentToolsBusy} onPlan={next => { commit(next); setPageToolsOpen(false); notify(t('页面方案已更新，可撤销。', 'Page plan updated. You can undo it.'), 'success'); }} onGenerated={addGeneratedPages} onExport={parts => { setPageToolsOpen(false); void requestExport(parts); }}/></DeferredDialog>}
+    {lineOpen && currentPage && <DeferredDialog onCancel={() => setLineOpen(false)}><TextLineEditor page={currentPage} objects={visibleOriginal?.objects ?? []} loading={originalLoading || !visibleOriginal} onClose={() => setLineOpen(false)} onBusyChange={documentToolsBusy} onApplied={document => addGeneratedPages(document, [currentPage.id], 0)}/></DeferredDialog>}
+    {exportRequest && <DeferredDialog onCancel={cancelExport}><ExportDialog parts={exportRequest.parts} onClose={cancelExport} onSaved={finishedExport} onBusyChange={documentToolsBusy}/></DeferredDialog>}
+    {printOpen && pages.length > 0 && <DeferredDialog onCancel={() => setPrintOpen(false)}><PrintDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => { if (!busyRef.current) setPrintOpen(false); }} onBusyChange={printingBusyChanged} onNotify={notify}/></DeferredDialog>}
+    {settingsOpen && <WindowsSettingsDialog onClose={() => setSettingsOpen(false)} onShortcuts={() => { setSettingsOpen(false); setShowShortcuts(true); }}/>} 
     {passwordRequest && <PasswordDialog request={passwordRequest} onAnswer={answerPassword}/>}
     {replaceRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-symbol"><FileText size={26}/></div><h2 id="replace-title">{t("先保留这次修改\uFF1F")}</h2><p className="modal-description">{t("当前文档有未保存的页面调整\u3002打开新的文档前\uFF0C可以先将它保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" onClick={async () => { const paths = replaceRequest; if (await saveCopy()) {
         setReplaceRequest(null);

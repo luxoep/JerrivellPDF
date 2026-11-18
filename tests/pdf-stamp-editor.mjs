@@ -54,7 +54,7 @@ vm.runInNewContext(compiled, {
     if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};
   if (name === '../useFragmentPreview') return {useFragmentPreview:()=>({image:null,error:''})};
-  if (name === 'react') return react;
+  if(name==='./PreviewZoom')return{PreviewZoom:'PreviewZoom'};if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props, key) => ({ type, props, key }), jsxs: (type, props, key) => ({ type, props, key }), Fragment: 'fragment' };
     if (name === '@tauri-apps/plugin-dialog') return { open: async () => 'C:\\demo.pdf', save: async () => null };
     if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => `icon-${String(key)}` });

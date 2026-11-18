@@ -9,13 +9,14 @@ import type { DocumentInfo, RenderedPage, WorkspacePage } from '../types';
 import { FontPicker } from './FontPicker';
 import { DEFAULT_FONT_FAMILY } from './overlayCanvas';
 import { useI18n } from '../i18n';
+import { PreviewZoom } from './PreviewZoom';
 import './document-tools.css';
 
 interface LinePreview { token: string; before: RenderedPage; after: RenderedPage; bounds: ContentBounds; textWidth: number; availableWidth: number; overflowLine: boolean; overflowPage: boolean; canApply: boolean; key: string }
 function ComparisonImage({ image, bounds, whole, label }: { image: RenderedPage; bounds: ContentBounds; whole: boolean; label: string }) {
   const left = Math.max(0, bounds.x - .035), top = Math.max(0, bounds.y - .035);
   const width = Math.min(1 - left, bounds.width + .07), height = Math.min(1 - top, bounds.height + .07);
-  return <div className="line-comparison-image"><b>{label}</b>{whole ? <img src={image.dataUrl} alt={label}/> : <div className="line-crop-preview" style={{ aspectRatio: `${width * image.width}/${height * image.height}` }}><img src={image.dataUrl} alt={label} style={{ width: `${100 / width}%`, left: `${-left / width * 100}%`, top: `${-top / height * 100}%` }}/></div>}</div>;
+  return <div className="line-comparison-image"><b>{label}</b><div className={`line-comparison-zoom${whole ? ' is-whole' : ''}`}><PreviewZoom width={image.width * (whole ? 1 : width)} height={image.height * (whole ? 1 : height)} resetKey={`${label}:${whole}:${left}:${top}:${width}:${height}`} label={label}>{whole ? <img src={image.dataUrl} alt={label}/> : <div className="line-crop-preview" style={{ aspectRatio: `${width * image.width}/${height * image.height}` }}><img src={image.dataUrl} alt={label} style={{ width: `${100 / width}%`, left: `${-left / width * 100}%`, top: `${-top / height * 100}%` }}/></div>}</PreviewZoom></div></div>;
 }
 
 export function TextLineEditor({ page, objects, loading, onClose, onApplied, onBusyChange }: {
