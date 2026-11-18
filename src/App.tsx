@@ -18,7 +18,7 @@ import { attachLeader, prepareEditableOverlays } from './editableOverlays';
 import type { OverlayChangeOptions } from './editableOverlays';
 import { DEFAULT_FONT_FAMILY } from './components/overlayCanvas';
 import type { MarkGeometry, MarkSettings, MarkStylePatch } from './markGeometry';
-import { clampZoom, fittedPageWidth, reorderPages, visiblePageSize } from './viewerGeometry';
+import { clampZoom, reorderPages, visiblePageSize, relativeViewerZoom } from './viewerGeometry';
 import type { ViewerZoom, ViewportSize } from './viewerGeometry';
 import { duplicatedOverlay } from './overlayGeometry';
 import brandIcon from './brand/jerrivell-icon.svg';
@@ -978,9 +978,8 @@ function AppWorkspace() {
             setPageInput(String(activeIndex + 1));
     };
     const pageDimensions = currentPage ? visiblePageSize(currentPage) : { width: 595, height: 842 };
-    const displayedWidth = currentPage ? fittedPageWidth(currentPage, viewerSize, zoom) : 595;
-    const zoomPercent = Math.round(displayedWidth / pageDimensions.width * 100);
-    const changeZoom = useCallback((delta: number) => setZoom(clampZoom(Math.round((zoomPercent + delta) / 10) * 10)), [zoomPercent]);
+    const zoomPercent = Math.round(currentPage?relativeViewerZoom(currentPage,viewerSize,zoom):100);
+    const changeZoom = useCallback((delta: number) => { if(currentPage)setZoom({fitPercent:clampZoom(Math.round((relativeViewerZoom(currentPage,viewerSize,zoom)+delta)/10)*10)}); }, [currentPage,viewerSize,zoom]);
     const addDrawnMark = (pageId: string, mark: MarkGeometry, settings: MarkSettings) => {
         if (busyRef.current) return;
         const page = live.current.pages.find(item => item.id === pageId);
@@ -1286,7 +1285,7 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
             <div className="reader-bottom"><div className="page-navigation"><button className="icon-button small" disabled={activeIndex === 0} onClick={() => goToPage(activeIndex - 1)} aria-label={t("上一页")} title={t("上一页 \u00B7 \u2190")}><ChevronLeft size={17}/></button><input aria-label={t("页码")} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageInput} onKeyDown={(event) => { if (event.key === 'Enter') {
             applyPageInput();
             event.currentTarget.blur();
-        } }}/><span>/ {pages.length}</span><button className="icon-button small" disabled={activeIndex === pages.length - 1} onClick={() => goToPage(activeIndex + 1)} aria-label={t("下一页")} title={t("下一页 \u00B7 \u2192")}><ChevronRight size={17}/></button></div><div className="zoom-controls"><button className="icon-button small" aria-label={t("缩小")} title={t("缩小 \u00B7 Ctrl+-")} onClick={() => changeZoom(-10)} disabled={zoomPercent <= 25}><Minus size={16}/></button><button className="zoom-label" onClick={() => setZoom(100)} title={t("恢复 100%")}>{zoomPercent}%</button><button className="icon-button small" aria-label={t("放大")} title={t("放大 \u00B7 Ctrl++")} onClick={() => changeZoom(10)} disabled={zoomPercent >= 400}><Plus size={16}/></button><span className="toolbar-divider"/><button className={`fit-button ${zoom === 'fit' ? 'active' : ''}`} onClick={() => setZoom('fit')} title={t("适合宽度 \u00B7 Ctrl+0")}><Maximize2 size={14}/><span>{t("适宽")}</span></button><button className={`fit-button ${zoom === 'page' ? 'active' : ''}`} onClick={() => setZoom('page')} title={t('适合整页 · Ctrl+1', 'Fit whole page · Ctrl+1')}><FileText size={14}/><span>{t('整页', 'Page')}</span></button></div></div>
+        } }}/><span>/ {pages.length}</span><button className="icon-button small" disabled={activeIndex === pages.length - 1} onClick={() => goToPage(activeIndex + 1)} aria-label={t("下一页")} title={t("下一页 \u00B7 \u2192")}><ChevronRight size={17}/></button></div><div className="zoom-controls"><button className="icon-button small" aria-label={t("缩小")} title={t("缩小 \u00B7 Ctrl+-")} onClick={() => changeZoom(-10)} disabled={zoomPercent <= 25}><Minus size={16}/></button><button className="zoom-label" onClick={() => setZoom({fitPercent:100})} title={t('恢复适宽基准 100%', 'Reset to 100% of fitted width')}>{zoomPercent}%</button><button className="icon-button small" aria-label={t("放大")} title={t("放大 \u00B7 Ctrl++")} onClick={() => changeZoom(10)} disabled={zoomPercent >= 400}><Plus size={16}/></button><span className="toolbar-divider"/><button className={`fit-button ${zoom === 'fit' || typeof zoom === 'object' && zoom.fitPercent === 100 ? 'active' : ''}`} onClick={() => setZoom('fit')} title={t("适合宽度 \u00B7 Ctrl+0")}><Maximize2 size={14}/><span>{t("适宽")}</span></button><button className={`fit-button ${zoom === 'page' ? 'active' : ''}`} onClick={() => setZoom('page')} title={t('适合整页 · Ctrl+1', 'Fit whole page · Ctrl+1')}><FileText size={14}/><span>{t('整页', 'Page')}</span></button></div></div>
           </main>
         </div>
         <footer className="status-bar"><span><ShieldCheck size={12}/>{t("本地处理")}<span className="footer-dot">·</span>{sizeLabel(totalBytes)}<span className="footer-dot">·</span>{busy ? <><LoaderCircle size={12} className="spin"/>{busy}</> : dirty ? t("修改尚未保存") : t("就绪")}</span><span>{selection.size ? t(`${selection.size} 页已选中`) : t("R 旋转 \u00B7 Delete 删除 \u00B7 Ctrl+S 保存副本")}</span></footer>

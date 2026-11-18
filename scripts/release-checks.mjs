@@ -45,7 +45,7 @@ export function run(command, args) {
 
 export async function frontendChecks() {
   await run(process.execPath, ['tests/drawing-compare.mjs']);
-  const names = ['frontend-queue', 'frontend-pages-i18n', 'local-font-canvas', 'overlay-geometry',
+  const names = ['compare-phase-two', 'frontend-queue', 'frontend-pages-i18n', 'local-font-canvas', 'overlay-geometry',
     'original-content', 'pdf-stamp-editor', 'pdf-fragments', 'precise-editor', 'printing', 'text-selection', 'reader-experience',
     'stamp-library', 'document-tools', 'live-preview', 'workbench-experience', 'multi-region', 'performance', 'preview-zoom', 'preview-raster', 'overlay-text', 'overlay-text-editor', 'text-frame', 'number-draft', 'compact-text', 'mark-paths', 'editable-overlays', 'page-rotation-editable', 'editable-project', 'project-app', 'close-document', 'windows-ui'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`]);
@@ -56,7 +56,7 @@ export async function integrationChecks(exe = executable, dll = library) {
   // Batch-export tests refuse overwrites; each run owns an unused output folder.
   const output = join(root, `test-results/${version}/integration-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   await mkdir(output, { recursive: true });
-  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker', 'compare-worker'];
+  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker', 'compare-worker', 'compare-phase-two-worker'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`, exe, dll, join(output, name)]);
   const result = { status: 'PASS', executable: exe, output, tests: names };
   await writeFile(join(output, 'results.json'), JSON.stringify(result, null, 2));

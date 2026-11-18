@@ -125,6 +125,8 @@ pub struct Progress {
     pub total: u32,
     pub report: Option<Report>,
     pub error: Option<String>,
+    pub alignment: Option<Alignment>,
+    pub batch: Option<BatchSummary>,
 }
 impl Default for Progress {
     fn default() -> Self {
@@ -135,8 +137,47 @@ impl Default for Progress {
             total: 0,
             report: None,
             error: None,
+            alignment: None,
+            batch: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Alignment {
+    pub options: Options,
+    #[serde(rename = "offsetXmm")]
+    pub offset_x_mm: f64,
+    #[serde(rename = "offsetYmm")]
+    pub offset_y_mm: f64,
+    pub reliable: bool,
+    pub agreement: f64,
+    pub ambiguity_margin: f64,
+    pub reason: String,
+    pub samples: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchItem {
+    pub index: u32,
+    pub options: Options,
+    pub status: String,
+    pub changed_pixels: Option<u64>,
+    pub region_count: Option<u32>,
+    pub ignored_pixels: u64,
+    pub uncovered: bool,
+    pub error: Option<String>,
+    pub alignment: Option<Alignment>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchSummary {
+    pub job_id: String,
+    pub items: Vec<BatchItem>,
+    pub all_analyzed: bool,
+    pub unpaired_a: Vec<u32>,
+    pub unpaired_b: Vec<u32>,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

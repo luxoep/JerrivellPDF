@@ -3,10 +3,10 @@ mod content;
 mod project;
 mod selection;
 
-static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static NATIVE_PDFIUM: std::sync::OnceLock<Pdfium> = std::sync::OnceLock::new();
 
-fn native_pdfium() -> &'static Pdfium {
+pub(crate) fn native_pdfium() -> &'static Pdfium {
     NATIVE_PDFIUM.get_or_init(|| {
         let library =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/pdfium/bin/pdfium.dll");

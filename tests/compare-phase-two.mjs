@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+function load(file,require=()=>{throw Error('unexpected import')}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(`../src/${file}.ts`,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports,require});return exports;}
+const g=load('compare/geometry'),types=load('compare/types'),ranges=load('pageRanges');
+const p=load('compare/pairs',()=>ranges),v=load('viewerGeometry');
+const source=(w,h)=>({fileName:'original.pdf',fileSize:10,pages:[{width:w,height:h}]}),a=source(600,800),b=source(2400,3200),f=g.comparisonFrame(a,b,0,0,0,0);
+const ga=g.sheetGeometry(f,'a',true,500,650,1),gb=g.sheetGeometry(f,'b',true,500,650,1);
+assert.equal(ga.width,gb.width);assert.equal(ga.height,gb.height);assert.ok(f.uncovered);assert.equal(f.widthPt,2400);
+assert.equal(g.sheetGeometry(f,'a',true,500,650,2).width,2*ga.width);
+assert.equal(g.pointInFrame(ga.rect,.5,.5).x,.125);
+const solo=g.comparisonFrame(null,b,0,0,-10,30);assert.equal(solo.widthPt,2400);assert.equal(solo.originXPt,0);
+const options={pageA:0,pageB:0,dpi:300,threshold:0,offsetXmm:0,offsetYmm:0,ignored:[{x:0,y:0,width:1,height:1}]};
+assert.equal(g.pairOptions(options,2,4).ignored.length,0);
+assert.equal(p.rangePairs('1-3','2-3',3,4).pairs.length,2);assert.equal(p.rangePairs('1-3','2-3',3,4).unmatchedA.length,1);
+assert.equal(p.validatePairs([{a:0,b:1},{a:0,b:1}],3,3),false);assert.equal(p.validatePairs([{a:NaN,b:1}],3,3),false);
+const item={index:0,options,status:'complete',changedPixels:0,regionCount:0,ignoredPixels:0,uncovered:false,error:null,alignment:null};
+const batch={jobId:'batch',items:[item],allAnalyzed:true,unpairedA:[1],unpairedB:[1]};assert.equal(types.validateBatch(batch,'batch'),batch);
+assert.throws(()=>types.validateBatch({...batch,allAnalyzed:false},'batch'));
+assert.throws(()=>types.validateBatch({...batch,unpairedA:[0]},'batch'));
+assert.throws(()=>types.validateBatch({...batch,items:[{...item,status:'failed'}]},'batch'));
+assert.throws(()=>types.validateAlignment({options,offsetXmm:NaN}));
+assert.throws(()=>types.validateTextAssistance({status:'restricted',limited:false,changes:[{old:'M8',new:'M10',dimensionLike:true}]}));
+const viewport={width:1000,height:800},pg={width:600,height:800,rotation:0},large={...pg,width:2400,height:3200};
+for(const zoom of ['fit',{fitPercent:175}])assert.equal(v.fittedPageWidth(pg,viewport,zoom),v.fittedPageWidth(large,viewport,zoom));
+assert.equal(v.relativeViewerZoom(large,viewport,{fitPercent:175}),175);
+const cache=new Map();for(let i=0;i<6;i++)g.cachePreview(cache,String(i),'x'.repeat(100),x=>x.length,3);assert.equal(cache.size,3);
+g.cachePreview(cache,'oversized','x'.repeat(33*1024*1024),x=>x.length,3);assert.equal(cache.size,0);
+console.log('PASS: display/physical geometry, mixed paper zoom, pairing, response consistency and bounded preview caches');

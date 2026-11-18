@@ -3,8 +3,11 @@ mod client;
 mod difference;
 mod engine;
 mod report_image;
+mod registration;
+mod quality;
 #[cfg(test)]
 mod tests;
+#[cfg(test)] mod phase_two_tests;
 mod types;
 mod worker;
 
@@ -70,7 +73,7 @@ pub async fn compare_call(
     if !state.guard.load(Ordering::Acquire) {
         return Err("外部资源阻断尚未就绪，暂不读取图纸。请关闭对比窗口后重试。".into());
     }
-    if !["open", "preview", "start", "cancel", "export", "status"].contains(&command.as_str()) {
+    if !["open", "clear", "preview", "page_preview", "text_assist", "start", "cancel", "export", "export_batch", "status"].contains(&command.as_str()) {
         return Err("无效的对比命令。".into());
     }
     let client = state.client.clone();

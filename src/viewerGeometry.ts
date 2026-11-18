@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import type { WorkspacePage } from './types';
 
-export type ViewerZoom = number | 'fit' | 'page';
+export type ViewerZoom = number | 'fit' | 'page' | { fitPercent: number };
 export interface ViewportSize { width: number; height: number }
 export interface PageLayout { id: string; index: number; left: number; top: number; width: number; height: number }
 export interface DocumentLayout { pages: PageLayout[]; width: number; height: number }
@@ -30,7 +30,12 @@ export function fittedPageWidth(page: Pick<WorkspacePage, 'width' | 'height' | '
   const available = Math.max(120, viewport.width - VIEW_MARGIN * 2);
   if (zoom === 'fit') return available;
   if (zoom === 'page') return Math.min(available, Math.max(120, viewport.height - VIEW_MARGIN * 2 - 20) * dimensions.width / dimensions.height);
+  if (typeof zoom === 'object') return available * clampZoom(zoom.fitPercent) / 100;
   return dimensions.width * clampZoom(zoom) / 100;
+}
+
+export function relativeViewerZoom(page: Pick<WorkspacePage,'width'|'height'|'rotation'>, viewport: ViewportSize, zoom: ViewerZoom): number {
+  return fittedPageWidth(page,viewport,zoom)/fittedPageWidth(page,viewport,'fit')*100;
 }
 
 /** Reserve exact page geometry even when its raster is outside the render window. */

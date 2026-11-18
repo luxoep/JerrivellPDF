@@ -917,4 +917,8 @@ impl Write for LimitedWriter {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+/// Shared permission probe for independent local modules. No main session access.
+pub(crate) fn source_copy_allowed(pdfium:&Pdfium,bytes:&[u8],password:Option<&str>)->Option<bool>{
+    selection::source_copy_permission(pdfium,bytes,password)
+}

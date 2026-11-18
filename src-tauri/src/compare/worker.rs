@@ -106,11 +106,20 @@ pub fn run(library: &Path) -> Result<(), String> {
             struct Start {
                 job_id: String,
                 options: Options,
+                #[serde(default)]
+                task: String,
+                #[serde(default)]
+                pairs: Vec<Options>,
+                #[serde(default)]
+                auto_align: bool,
             }
             let parsed = serde_json::from_value::<Start>(request.args)
                 .map_err(|_| "无效的对比任务参数。".to_owned())
                 .and_then(|value| {
                     value.options.validate()?;
+                    if !["", "compare", "align", "batch"].contains(&value.task.as_str()) {
+                        return Err("无效的任务类型。".into());
+                    }
                     if value.job_id.is_empty()
                         || value.job_id.len() > 100
                         || !value
@@ -146,7 +155,7 @@ pub fn run(library: &Path) -> Result<(), String> {
                 Ok(json!({"jobId":input.job_id})),
             ));
             let job_id = input.job_id.clone();
-            let result = engine.compare(input.job_id, input.options, &token, |completed, total| {
+            let progress = |completed, total| {
                 send(Reply {
                     id: None,
                     result: None,
@@ -156,38 +165,57 @@ pub fn run(library: &Path) -> Result<(), String> {
                         status: "running".into(),
                         completed,
                         total,
-                        report: None,
-                        error: None,
+                        ..Progress::default()
                     }),
                 })
-            });
-            let state = match result {
-                Ok(report) => Progress {
-                    job_id,
-                    status: "complete".into(),
-                    completed: report.tile_count,
-                    total: report.tile_count,
-                    report: Some(report),
-                    error: None,
-                },
-                Err(error) => Progress {
-                    job_id,
-                    status: if error == "COMPARE_CANCELLED" {
+            };
+            let mut state = Progress {
+                job_id: job_id.clone(),
+                ..Progress::default()
+            };
+            let result = match input.task.as_str() {
+                "align" => engine
+                    .auto_align(&input.options, &token, progress)
+                    .map(|a| {
+                        state.alignment = Some(a);
+                        state.completed = 100;
+                        state.total = 100
+                    }),
+                "batch" => engine
+                    .compare_batch(
+                        input.job_id,
+                        input.pairs,
+                        input.auto_align,
+                        &token,
+                        progress,
+                    )
+                    .map(|b| {
+                        state.completed = b.items.len() as u32;
+                        state.total = state.completed;
+                        state.batch = Some(b)
+                    }),
+                _ => engine
+                    .compare(input.job_id, input.options, &token, progress)
+                    .map(|r| {
+                        state.completed = r.tile_count;
+                        state.total = r.tile_count;
+                        state.report = Some(r)
+                    }),
+            };
+            match result {
+                Ok(()) => state.status = "complete".into(),
+                Err(error) => {
+                    state.status = if error == "COMPARE_CANCELLED" {
                         "cancelled"
                     } else {
                         "failed"
                     }
-                    .into(),
-                    completed: 0,
-                    total: 0,
-                    report: None,
-                    error: if error == "COMPARE_CANCELLED" {
-                        None
-                    } else {
-                        Some(error)
-                    },
-                },
-            };
+                    .into();
+                    if error != "COMPARE_CANCELLED" {
+                        state.error = Some(error)
+                    }
+                }
+            }
             busy.store(false, Ordering::Release);
             send(Reply {
                 id: None,
@@ -212,6 +240,51 @@ pub fn run(library: &Path) -> Result<(), String> {
                     engine
                         .open(&input.side, &input.path, input.password.as_deref())
                         .map(|v| json!(v))
+                }
+                "clear" => {
+                    #[derive(Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Clear {
+                        side: String,
+                    }
+                    let v: Clear =
+                        serde_json::from_value(request.args).map_err(|_| "无效的清除请求。")?;
+                    engine.clear(&v.side)
+                }
+                "page_preview" => {
+                    #[derive(Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct PagePreview {
+                        side: String,
+                        page: u32,
+                        width: u32,
+                    }
+                    let v: PagePreview =
+                        serde_json::from_value(request.args).map_err(|_| "无效的单页预览参数。")?;
+                    engine
+                        .page_preview(&v.side, v.page, v.width)
+                        .map(|p| json!(p))
+                }
+                "text_assist" => {
+                    #[derive(Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Text {
+                        options: Options,
+                    }
+                    let v: Text =
+                        serde_json::from_value(request.args).map_err(|_| "无效的文字辅助请求。")?;
+                    engine.text_assist(&v.options)
+                }
+                "export_batch" => {
+                    #[derive(Deserialize)]
+                    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                    struct ExportBatch {
+                        job_id: String,
+                        path: String,
+                    }
+                    let v: ExportBatch =
+                        serde_json::from_value(request.args).map_err(|_| "无效的批量导出请求。")?;
+                    engine.export_batch(&v.job_id, &v.path)
                 }
                 "preview" => {
                     #[derive(Deserialize)]

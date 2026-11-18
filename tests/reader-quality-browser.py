@@ -9,7 +9,7 @@ sys.path.insert(0,str(ROOT/'test-results/0.8.3/browser-tools'))
 from playwright.sync_api import sync_playwright
 spec=importlib.util.spec_from_file_location('reader_harness',ROOT/'tests/reader-writing-browser.py')
 reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
-HARNESS=reader.HARNESS.replace('commands:[],encodes:0','commands:[],calls:[],blockRaster:false,blockedCount:0,inFlight:0,encodes:0')
+HARNESS=reader.HARNESS.replace('width:600,height:800,rotation:0', 'width:stats.mixed&&index===1?2400:600,height:stats.mixed&&index===1?3200:800,rotation:0').replace('commands:[],encodes:0','commands:[],calls:[],blockRaster:false,blockedCount:0,inFlight:0,encodes:0')
 HARNESS=HARNESS.replace('stats.commands.push(command);','stats.commands.push(command);stats.calls.push({command,args:JSON.parse(JSON.stringify(args??{})),at:performance.now()});')
 HARNESS=HARNESS.replace("if(command==='render_page_layers')return{background:image,foreground:[]};", """if(command==='render_page_layers'){
  stats.inFlight++;
@@ -37,9 +37,10 @@ def run(page,url,dpr,out):
     initial=first_page_calls(page);assert initial
     fit_width=width(page);fit_target=initial[-1]['args']['targetWidth']
     assert fit_target>=fit_width*max(2,dpr),(fit_width,fit_target,dpr)
-    # 100% creates a mounted but offscreen next page; its prefetch must stay small.
+    # Whole-page fit creates a mounted but offscreen next page; its prefetch stays small.
+    page.get_by_role('button',name='Page',exact=True).click();pause(page)
     page.locator('.zoom-label').click();pause(page)
-    css_100=width(page);assert abs(css_100-600)<.1
+    css_100=width(page);assert abs(css_100-fit_width)<.1
     assert first_page_calls(page)[-1]['args']['targetWidth']>=css_100*2
     overscan=[c for c in calls(page) if c['args']['page']['pageIndex']==1 and c['args']['targetWidth']>154]
     assert overscan and all(c['args']['targetWidth']<=768 for c in overscan),overscan
@@ -49,13 +50,13 @@ def run(page,url,dpr,out):
     # decoded SVG must stay visible, and a rapid wheel burst requests one final resolution.
     before=len(first_page_calls(page));page.evaluate('stats.blockRaster=true');wheel_to_400(page)
     page.wait_for_function('stats.blockedCount>0',timeout=10000)
-    assert abs(width(page)-2400)<.1
+    assert abs(width(page)-css_100*4)<.1
     assert page.locator('.continuous-page[data-reader-page="1"] .live-page-image').count()==1
     assert page.locator('.continuous-page[data-reader-page="1"] .page-placeholder').count()==0
     assert len(first_page_calls(page))==before+1,'Wheel burst must coalesce the intermediate resolutions'
-    held=first_page_calls(page)[-1]['args']['targetWidth'];assert held>2400
+    held=first_page_calls(page)[-1]['args']['targetWidth'];assert held>css_100*4
     assert held*round(held*800/600)<=32*1024*1024 and round(held*800/600)<=8192
-    if dpr>=3:assert held<2400*dpr,'Extreme density must respect the per-page pixel budget'
+    if dpr>=3:assert held<css_100*4*dpr,'Extreme density must respect the per-page pixel budget'
     page.screenshot(path=str(out/f'quality-upgrade-held-{dpr}.png'))
     page.evaluate('releaseQualityRaster()');pause(page)
     count=len(calls(page));pause(page);assert len(calls(page))==count,'Idle pages must not continuously re-render'
@@ -83,7 +84,15 @@ def run(page,url,dpr,out):
     pause(page);assert page.evaluate('stats.calls.filter(item=>item.command==="render_page").length')==print_previews,'DPI choices must not repeatedly rasterize print previews'
     assert page.evaluate('stats.calls.filter(item=>item.command==="print_document").length')==0,'No physical jobs are submitted by this UI check'
     page.screenshot(path=str(out/f'quality-print-dpi-{dpr}.png'));page.get_by_role('button',name='Close print preview',exact=True).click();pause(page)
-    return {'dpr':dpr,'fitCssWidth':fit_width,'fitRequestedPixels':fit_target,'densityHonored':True,'css100':css_100,'overscanWidth':overscan[0]['args']['targetWidth'],'foregroundBeforePrefetch':True,'css400':2400,'zoomRequestedPixels':zoomed,'singleUpgradeForWheelBurst':True,'oldRasterVisibleDuringUpgrade':True,'idleRequestsStable':True,'zoomOutReusesHigherRaster':True,'panelPdfAncestorsStationary':True,'printDpiChoices':['auto',150,300,600],'dpiChangesReusePreview':True,'noPhysicalPrintJob':True}
+    mixed_result=None
+    if dpr==1:
+        page.goto(url,wait_until='domcontentloaded');page.wait_for_function('!!window.harness');page.evaluate('stats.mixed=true');page.get_by_role('button',name=re.compile('^Open PDF')).click();page.locator('.pdf-text-layer').first.wait_for();pause(page)
+        mixed_fit=width(page);wheel_to_400(page);pause(page);mixed_zoom=width(page)
+        page.locator('.continuous-viewport').evaluate('e=>e.scrollTop=e.scrollHeight/2');pause(page)
+        second=page.locator('.continuous-page[data-reader-page="2"]').bounding_box()['width'];assert abs(second-mixed_zoom)<.1 and mixed_zoom>mixed_fit*2
+        page.locator('.zoom-label').click();pause(page);assert abs(page.locator('.continuous-page[data-reader-page="2"]').bounding_box()['width']-mixed_fit)<.1
+        mixed_result={'smallPaperPt':600,'largePaperPt':2400,'fittedCss':mixed_fit,'zoomedCssBoth':second,'fitResetAcrossSizes':True}
+    return {'mixedPaper':mixed_result,'dpr':dpr,'fitCssWidth':fit_width,'fitRequestedPixels':fit_target,'densityHonored':True,'css100':css_100,'overscanWidth':overscan[0]['args']['targetWidth'],'foregroundBeforePrefetch':True,'css400':css_100*4,'zoomRequestedPixels':zoomed,'singleUpgradeForWheelBurst':True,'oldRasterVisibleDuringUpgrade':True,'idleRequestsStable':True,'zoomOutReusesHigherRaster':True,'panelPdfAncestorsStationary':True,'printDpiChoices':['auto',150,300,600],'dpiChangesReusePreview':True,'noPhysicalPrintJob':True}
 
 def main():
     out=ROOT/f'test-results/{VERSION}';out.mkdir(parents=True,exist_ok=True);(out/'reader-quality-harness.tsx').write_text(HARNESS,encoding='utf-8');(out/'reader-quality-harness.html').write_text(HTML,encoding='utf-8')

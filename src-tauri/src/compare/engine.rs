@@ -21,6 +21,7 @@ struct Source<'a> {
     document: PdfDocument<'a>,
     path: PathBuf,
     size: u64,
+    copy_allowed: Option<bool>,
 }
 #[derive(Clone, Copy)]
 struct Frame {
@@ -35,6 +36,7 @@ pub struct Engine<'a> {
     a: Option<Source<'a>>,
     b: Option<Source<'a>>,
     last: Option<(Report, Components)>,
+    batch: Option<(BatchSummary, Vec<Vec<Region>>)>,
 }
 pub fn png(image: RgbaImage) -> Result<Picture, String> {
     let (width, height) = image.dimensions();
@@ -91,6 +93,7 @@ impl<'a> Engine<'a> {
             a: None,
             b: None,
             last: None,
+            batch: None,
         }
     }
     pub fn open(
@@ -135,6 +138,7 @@ impl<'a> Engine<'a> {
             return Err("PDF 读取期间超过大小上限。".into());
         }
         let size = bytes.len() as u64;
+        let copy_allowed = crate::engine::source_copy_allowed(self.pdfium, &bytes, password);
         let document = self
             .pdfium
             .load_pdf_from_byte_vec(bytes, password)
@@ -182,6 +186,7 @@ impl<'a> Engine<'a> {
             document,
             path,
             size,
+            copy_allowed,
         };
         if side == "a" {
             self.a = Some(source)
@@ -189,6 +194,7 @@ impl<'a> Engine<'a> {
             self.b = Some(source)
         }
         self.last = None;
+        self.batch = None;
         Ok(info)
     }
     fn pages(&self, o: &Options) -> Result<(PdfPage<'_>, PdfPage<'_>, Frame), String> {
@@ -604,5 +610,469 @@ impl<'a> Engine<'a> {
     }
     pub fn input_bytes(&self) -> u64 {
         self.a.as_ref().map_or(0, |s| s.size) + self.b.as_ref().map_or(0, |s| s.size)
+    }
+
+    pub fn clear(&mut self, side: &str) -> Result<Value, String> {
+        match side {
+            "a" => self.a = None,
+            "b" => self.b = None,
+            _ => return Err("无效的对比侧。".into()),
+        };
+        self.last = None;
+        self.batch = None;
+        Ok(json!({"cleared":side,"inputBytes":self.input_bytes()}))
+    }
+    pub fn page_preview(&self, side: &str, index: u32, width: u32) -> Result<Picture, String> {
+        if index > 4999 || !(128..=4096).contains(&width) {
+            return Err("预览参数无效。".into());
+        }
+        let source = match side {
+            "a" => self.a.as_ref(),
+            "b" => self.b.as_ref(),
+            _ => None,
+        }
+        .ok_or("请先选择该侧 PDF。")?;
+        let page = source
+            .document
+            .pages()
+            .get(index as i32)
+            .map_err(|_| "页码超出范围。")?;
+        let (w, h) = (page.width().value as f64, page.height().value as f64);
+        let s = (width as f64 / w)
+            .min((16_000_000. / (w * h)).sqrt())
+            .min(20.);
+        png(Self::render(
+            &page,
+            s,
+            [0., 0.],
+            0,
+            0,
+            (w * s).round().max(1.) as u32,
+            (h * s).round().max(1.) as u32,
+        )?)
+    }
+    pub fn text_assist(&self, o: &Options) -> Result<Value, String> {
+        let (a, b, _) = self.pages(o)?;
+        if self.a.as_ref().unwrap().copy_allowed != Some(true)
+            || self.b.as_ref().unwrap().copy_allowed != Some(true)
+        {
+            return Ok(json!({"status":"restricted","changes":[],"limited":false}));
+        }
+        let (at, bt) = (
+            a.text().map_err(|_| "文字层读取失败。")?,
+            b.text().map_err(|_| "文字层读取失败。")?,
+        );
+        if at.len() > 50000 || bt.len() > 50000 {
+            return Ok(json!({"status":"limited","changes":[],"limited":true}));
+        }
+        Ok(json!(super::quality::compare(&at.all(), &bt.all())))
+    }
+    pub fn auto_align<F: FnMut(u32, u32)>(
+        &self,
+        o: &Options,
+        token: &AtomicBool,
+        mut progress: F,
+    ) -> Result<Alignment, String> {
+        use super::registration::{pooled, search, search_sets, Features};
+        let (a, b, f) = self.pages(o)?;
+        cancelled(token)?;
+        let s = 1536. / f.width.max(f.height);
+        let (w, h) = (
+            (f.width * s).round().max(1.) as u32,
+            (f.height * s).round().max(1.) as u32,
+        );
+        let ia = Self::render(&a, s, [-f.x, -f.y], 0, 0, w, h)?;
+        cancelled(token)?;
+        let ib = Self::render(
+            &b,
+            s,
+            [
+                o.offset_x_mm * 72. / 25.4 - f.x,
+                o.offset_y_mm * 72. / 25.4 - f.y,
+            ],
+            0,
+            0,
+            w,
+            h,
+        )?;
+        let mut proposal = Alignment {
+            options: o.clone(),
+            offset_x_mm: o.offset_x_mm,
+            offset_y_mm: o.offset_y_mm,
+            reliable: false,
+            agreement: 0.,
+            ambiguity_margin: 0.,
+            reason: "insufficient-features".into(),
+            samples: 0,
+        };
+        let mut shift = [0, 0];
+        let mut margin = 0.;
+        let mut final_match = None;
+        for (level, long) in [192_u32, 384, 768].into_iter().enumerate() {
+            cancelled(token)?;
+            let (aa, bb) = (pooled(&ia, long), pooled(&ib, long));
+            let (af, bf) = (
+                Features::new(&aa, &o.ignored),
+                Features::new(&bb, &o.ignored),
+            );
+            if !af.informative() || !bf.informative() {
+                return Ok(proposal);
+            }
+            let ratio = long as f64 / f.width.max(f.height);
+            let radius = if level == 0 {
+                ((100. * 72. / 25.4 * ratio).ceil() as i32).clamp(2, 100)
+            } else {
+                4
+            };
+            let found = search(
+                &af,
+                &bf,
+                if level == 0 {
+                    [0, 0]
+                } else {
+                    [shift[0] * 2, shift[1] * 2]
+                },
+                [radius, radius],
+                if level == 0 { 2 } else { 1 },
+                token,
+            )?;
+            if level == 0 {
+                margin = found.margin
+            }
+            shift = [found.x, found.y];
+            progress(20 + level as u32 * 20, 100);
+            final_match = Some(found);
+        }
+        let coarse = final_match.unwrap();
+        let ratio = 768. / f.width.max(f.height);
+        let pixel_mm = 25.4 / o.dpi as f64;
+        let x =
+            ((o.offset_x_mm + coarse.x as f64 / ratio * 25.4 / 72.) / pixel_mm).round() * pixel_mm;
+        let y =
+            ((o.offset_y_mm + coarse.y as f64 / ratio * 25.4 / 72.) / pixel_mm).round() * pixel_mm;
+        let full = o.dpi as f64 / 72.;
+        let (fw, fh) = (
+            (f.width * full).round() as u32,
+            (f.height * full).round() as u32,
+        );
+        let overview = Features::new(&pooled(&ia, 768), &o.ignored);
+        let mut bins = vec![(0_usize, 0_usize); 9];
+        for &(px, py) in &overview.points {
+            let k = (py as usize * 3 / overview.height).min(2) * 3
+                + (px as usize * 3 / overview.width).min(2);
+            bins[k].0 += 1;
+            bins[k].1 = k
+        }
+        bins.sort_by_key(|v| std::cmp::Reverse(v.0));
+        let (mut aa, mut bb) = (vec![], vec![]);
+        for &(count, k) in bins.iter().take(3) {
+            if count == 0 {
+                continue;
+            }
+            cancelled(token)?;
+            let (tw, th) = (fw.min(768), fh.min(768));
+            let point = overview
+                .points
+                .iter()
+                .filter(|&&(px, py)| {
+                    (py as usize * 3 / overview.height).min(2) * 3
+                        + (px as usize * 3 / overview.width).min(2)
+                        == k
+                })
+                .nth(count / 2)
+                .copied()
+                .unwrap_or(overview.points[0]);
+            let (tx, ty) = (
+                point.0 as f64 / overview.width as f64 * fw as f64,
+                point.1 as f64 / overview.height as f64 * fh as f64,
+            );
+            let (l, t) = (
+                (tx - tw as f64 / 2.).max(0.).min((fw - tw) as f64) as u32,
+                (ty - th as f64 / 2.).max(0.).min((fh - th) as f64) as u32,
+            );
+            let pa = Self::render(&a, full, [-f.x, -f.y], l, t, tw, th)?;
+            let pb = Self::render(
+                &b,
+                full,
+                [x * 72. / 25.4 - f.x, y * 72. / 25.4 - f.y],
+                l,
+                t,
+                tw,
+                th,
+            )?;
+            let exclusions = o
+                .ignored
+                .iter()
+                .filter_map(|r| {
+                    let x = (r.x * fw as f64 - l as f64).max(0.);
+                    let y = (r.y * fh as f64 - t as f64).max(0.);
+                    let right = ((r.x + r.width) * fw as f64 - l as f64).min(tw as f64);
+                    let bottom = ((r.y + r.height) * fh as f64 - t as f64).min(th as f64);
+                    if right > x && bottom > y {
+                        Some(Rect {
+                            x: x / tw as f64,
+                            y: y / th as f64,
+                            width: (right - x) / tw as f64,
+                            height: (bottom - y) / th as f64,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            aa.push(Features::new(&pa, &exclusions));
+            bb.push(Features::new(&pb, &exclusions));
+        }
+        let radius = (full / ratio * 2.).ceil().clamp(3., 80.) as i32;
+        let step = (radius / 10).max(1);
+        let m = search_sets(&aa, &bb, [0, 0], [radius, radius], step, token)?;
+        let m = search_sets(&aa, &bb, [m.x, m.y], [step, step], 1, token)?;
+        proposal.offset_x_mm = x + m.x as f64 * pixel_mm;
+        proposal.offset_y_mm = y + m.y as f64 * pixel_mm;
+        proposal.agreement = m.agreement;
+        proposal.ambiguity_margin = margin;
+        proposal.samples = m.samples as u32;
+        proposal.reliable = m.agreement >= 0.80
+            && m.cost <= 2.5
+            && margin >= 0.035
+            && proposal.offset_x_mm.abs() <= 100.
+            && proposal.offset_y_mm.abs() <= 100.;
+        proposal.reason = if proposal.reliable {
+            "translation-only"
+        } else if margin < 0.035 {
+            "ambiguous-pattern"
+        } else {
+            "low-agreement"
+        }
+        .into();
+        progress(100, 100);
+        Ok(proposal)
+    }
+    pub fn compare_batch<F: FnMut(u32, u32)>(
+        &mut self,
+        job_id: String,
+        pairs: Vec<Options>,
+        auto_align: bool,
+        token: &AtomicBool,
+        mut progress: F,
+    ) -> Result<BatchSummary, String> {
+        if pairs.is_empty() || pairs.len() > 100 {
+            return Err("批量对比需要 1～100 组页面。".into());
+        }
+        let mut pixels = 0_u64;
+        let mut seen = std::collections::HashSet::new();
+        for o in &pairs {
+            let (_, _, f) = self.pages(o)?;
+            if !seen.insert((o.page_a, o.page_b)) {
+                return Err("页面配对重复。".into());
+            }
+            pixels += (f.width * o.dpi as f64 / 72.).ceil() as u64
+                * (f.height * o.dpi as f64 / 72.).ceil() as u64;
+        }
+        if pixels > 1_200_000_000 {
+            return Err("本次批量超过 12 亿像素总预算，请降低 DPI 或分组对比。".into());
+        }
+        self.batch = None;
+        self.last = None;
+        let (mut items, mut regions, mut region_total) = (vec![], vec![], 0_usize);
+        let n = pairs.len() as u32;
+        let mut actual_pixels = 0_u64;
+        for (index, mut options) in pairs.into_iter().enumerate() {
+            self.last = None;
+            cancelled(token)?;
+            let mut alignment = None;
+            let aligned = if auto_align {
+                match self.auto_align(&options, token, |_, _| {}) {
+                    Ok(a) => {
+                        let good = a.reliable;
+                        if good {
+                            options.offset_x_mm = a.offset_x_mm;
+                            options.offset_y_mm = a.offset_y_mm
+                        }
+                        alignment = Some(a);
+                        good
+                    }
+                    Err(e) if e == "COMPARE_CANCELLED" => return Err(e),
+                    Err(_) => false,
+                }
+            } else {
+                true
+            };
+            let (_, _, frame) = self.pages(&options)?;
+            actual_pixels += (frame.width * options.dpi as f64 / 72.).ceil() as u64
+                * (frame.height * options.dpi as f64 / 72.).ceil() as u64;
+            if actual_pixels > 1_200_000_000 {
+                return Err("配准后的批量总像素超出预算，请降低 DPI 或分组对比。".into());
+            }
+            let result = if aligned {
+                self.compare(
+                    format!("{job_id}-{index}"),
+                    options.clone(),
+                    token,
+                    |_, _| progress(index as u32, n),
+                )
+            } else {
+                Err("自动平移配准不可靠；需要人工对齐。".into())
+            };
+            let item = match result {
+                Ok(r) => {
+                    region_total += r.regions.len();
+                    if region_total > 50000 {
+                        self.last = None;
+                        return Err("批量差异超过 50000 个区域总预算。".into());
+                    }
+                    regions.push(r.regions.clone());
+                    BatchItem {
+                        index: index as u32,
+                        options,
+                        status: "complete".into(),
+                        changed_pixels: Some(r.changed_pixels),
+                        region_count: Some(r.regions.len() as u32),
+                        ignored_pixels: r.ignored_pixels,
+                        uncovered: r.uncovered,
+                        error: None,
+                        alignment,
+                    }
+                }
+                Err(e) if e == "COMPARE_CANCELLED" => {
+                    self.last = None;
+                    return Err(e);
+                }
+                Err(e) => {
+                    regions.push(vec![]);
+                    BatchItem {
+                        index: index as u32,
+                        options,
+                        status: "failed".into(),
+                        changed_pixels: None,
+                        region_count: None,
+                        ignored_pixels: 0,
+                        uncovered: false,
+                        error: Some(e),
+                        alignment,
+                    }
+                }
+            };
+            items.push(item);
+            progress(index as u32 + 1, n);
+        }
+        self.last = None;
+        let selected_a = items
+            .iter()
+            .map(|v| v.options.page_a)
+            .collect::<std::collections::HashSet<_>>();
+        let selected_b = items
+            .iter()
+            .map(|v| v.options.page_b)
+            .collect::<std::collections::HashSet<_>>();
+        let summary = BatchSummary {
+            job_id,
+            all_analyzed: items.iter().all(|v| v.status == "complete"),
+            unpaired_a: (0..self.a.as_ref().unwrap().document.pages().len() as u32)
+                .filter(|v| !selected_a.contains(v))
+                .collect(),
+            unpaired_b: (0..self.b.as_ref().unwrap().document.pages().len() as u32)
+                .filter(|v| !selected_b.contains(v))
+                .collect(),
+            items,
+        };
+        self.batch = Some((summary.clone(), regions));
+        Ok(summary)
+    }
+    pub fn export_batch(&self, job_id: &str, path: &str) -> Result<Value, String> {
+        let (summary, regions) = self
+            .batch
+            .as_ref()
+            .filter(|(s, _)| s.job_id == job_id)
+            .ok_or("没有该批量任务的完整处理记录。")?;
+        let mut csv=String::from("\u{feff}pair,page_a,page_b,status,dpi,tolerance,offset_x_mm,offset_y_mm,regions,changed_pixels,ignored_pixels,coverage_differs,all_analyzed,unpaired_a,unpaired_b\r\n");
+        for item in &summary.items {
+            csv.push_str(&format!(
+                "{},{},{},{},{},{},{:.5},{:.5},{},{},{},{},{},\"{}\",\"{}\"\r\n",
+                item.index + 1,
+                item.options.page_a + 1,
+                item.options.page_b + 1,
+                item.status,
+                item.options.dpi,
+                item.options.threshold,
+                item.options.offset_x_mm,
+                item.options.offset_y_mm,
+                item.region_count.map(|v| v.to_string()).unwrap_or_default(),
+                item.changed_pixels
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                item.ignored_pixels,
+                item.uncovered,
+                summary.all_analyzed,
+                summary
+                    .unpaired_a
+                    .iter()
+                    .map(|v| (v + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                summary
+                    .unpaired_b
+                    .iter()
+                    .map(|v| (v + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ));
+        }
+        csv.push_str("\r\npair,region,x_normalized,y_normalized,width_normalized,height_normalized,pixels,added,removed,changed\r\n");
+        for (item, list) in summary.items.iter().zip(regions) {
+            for r in list {
+                csv.push_str(&format!(
+                    "{},{},{:.7},{:.7},{:.7},{:.7},{},{},{},{}\r\n",
+                    item.index + 1,
+                    r.id,
+                    r.bounds.x,
+                    r.bounds.y,
+                    r.bounds.width,
+                    r.bounds.height,
+                    r.pixels,
+                    r.added,
+                    r.removed,
+                    r.changed
+                ));
+            }
+        }
+        let requested = Path::new(path);
+        if !requested.is_absolute() {
+            return Err("请选择绝对路径的本地文件。".into());
+        }
+        local_location(requested)?;
+        if !requested
+            .extension()
+            .is_some_and(|v| v.eq_ignore_ascii_case("csv"))
+        {
+            return Err("请选择 CSV 输出文件。".into());
+        }
+        let parent = requested
+            .parent()
+            .ok_or("输出目录无效。")?
+            .canonicalize()
+            .map_err(|_| "输出目录不存在。")?;
+        local_location(&parent)?;
+        let target = parent.join(requested.file_name().ok_or("文件名无效。")?);
+        for source in [&self.a, &self.b].into_iter().flatten() {
+            if same_file::is_same_file(&target, &source.path).unwrap_or(false) {
+                return Err("不能覆盖来源文件。".into());
+            }
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|_| "请选择新的本地 CSV 文件名。")?;
+        if file
+            .write_all(csv.as_bytes())
+            .and_then(|_| file.sync_all())
+            .is_err()
+        {
+            drop(file);
+            let _ = fs::remove_file(target);
+            return Err("批量报告写入失败。".into());
+        }
+        Ok(json!({"pairs":summary.items.len(),"bytes":csv.len()}))
     }
 }

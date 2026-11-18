@@ -5,7 +5,7 @@ import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { usePageLayers } from '../usePageLayers';
 import { LivePageImage } from './LivePageImage';
 import { useI18n } from '../i18n';
-import { buildDocumentLayout, captureViewAnchor, pageAtPosition, rasterTargetWidth, restoreViewAnchor, visiblePageSize, visibleRows, wheelZoom } from '../viewerGeometry';
+import { buildDocumentLayout, captureViewAnchor, pageAtPosition, rasterTargetWidth, restoreViewAnchor, visibleRows, wheelZoom, relativeViewerZoom } from '../viewerGeometry';
 import type { ViewAnchor, ViewerZoom, ViewportSize } from '../viewerGeometry';
 import type { PageOverlay, WorkspacePage } from '../types';
 import type { ReaderViewState } from '../documentTabs';
@@ -144,12 +144,11 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
       const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       const anchor = captureViewAnchor(latest.current.layout, { left: surface.scrollLeft, top: surface.scrollTop }, point);
       if (!anchor) return;
-      const row = latest.current.layout.pages.find(page => page.id === anchor.id)!;
       const source = latest.current.pages.find(page => page.id === anchor.id);
       if (!source) return;
-      const current = typeof latest.current.zoom === 'number' ? latest.current.zoom : row.width / visiblePageSize(source).width * 100;
+      const current = relativeViewerZoom(source,previous.current.size,latest.current.zoom);
       const next = wheelZoom(current, event.deltaY, event.deltaMode);
-      if (next !== latest.current.zoom) { zoomAnchor.current = anchor; latest.current.zoom = next; latest.current.onZoom(next); }
+      if (next !== current) { const value={fitPercent:next};zoomAnchor.current = anchor; latest.current.zoom = value; latest.current.onZoom(value); }
     };
     surface.addEventListener('wheel', handleWheel, { passive: false });
     return () => surface.removeEventListener('wheel', handleWheel);

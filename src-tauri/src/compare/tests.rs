@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use pdfium_render::prelude::*;
 use std::fs;
 use std::sync::atomic::AtomicBool;
 
-fn pdf(stream: &str, width: u32, height: u32, rotate: u32) -> Vec<u8> {
+pub(super) fn pdf(stream: &str, width: u32, height: u32, rotate: u32) -> Vec<u8> {
     let objects=vec!["<< /Type /Catalog /Pages 2 0 R >>".to_owned(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Rotate {rotate} /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"),"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),format!("<< /Length {} >>\nstream\n{stream}\nendstream",stream.len())];
     let mut data = b"%PDF-1.7\n".to_vec();
     let mut offsets = vec![0];
@@ -65,8 +64,8 @@ fn request_guard_only_local_origins() {
 }
 #[test]
 fn tiles_equal_full_render_with_rotation() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/pdfium/bin/pdfium.dll");
-    let pdfium = Pdfium::new(Pdfium::bind_to_library(path.canonicalize().unwrap()).unwrap());
+    let _guard = crate::engine::tests::NATIVE_TEST_LOCK.lock().unwrap();
+    let pdfium = crate::engine::tests::native_pdfium();
     for rotation in [0, 90, 180, 270] {
         let bytes=pdf("0 0 0 RG .35 w 2 2 m 590 585 l S 20 400 540 25 re S BT /F1 23 Tf 38 230 Td (M8 +0.02) Tj ET",600,600,rotation);
         let doc = pdfium.load_pdf_from_byte_vec(bytes, None).unwrap();
@@ -116,8 +115,8 @@ fn tiles_equal_full_render_with_rotation() {
 #[test]
 fn actual_native_tiles_differences_alignment_and_exports() {
     // Separate PDFium instance is guarded by the crate's thread_safe binding.
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/pdfium/bin/pdfium.dll");
-    let pdfium = Pdfium::new(Pdfium::bind_to_library(path.canonicalize().unwrap()).unwrap());
+    let _guard = crate::engine::tests::NATIVE_TEST_LOCK.lock().unwrap();
+    let pdfium = crate::engine::tests::native_pdfium();
     let mut e = engine::Engine::new(&pdfium);
     let temp = tempfile::tempdir().unwrap();
     let a = temp.path().join("old 中文.pdf");
