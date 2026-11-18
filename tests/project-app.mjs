@@ -27,7 +27,7 @@ async function fixture({ prepare } = {}) {
   const slots = [], effects = [], listeners = new Map(), nativeEvents = new Map(), pendingFiles = [], calls = [], timers = new Map(), dialogs = [], events = [], cachedImages = new Map();
   let cursor = 0, pending = [], needsRender = true, tree, nextId = 0, timerId = 0, resets = 0;
   let pickerPaths = ['C:\\input.pdf'], pickerDeferred, retainDeferred, savePath = 'C:\\draft.jvp', saveFailure, loadFailure, closeListener;
-  const staged = [];
+  const staged = [], directCalls = [];
   const source = { id: 'native-document', path: 'C:\\input.pdf', fileName: 'input.pdf', fileSize: 12000, pageCount: 2, warnings: [],
     pages: [{ index: 0, width: 595, height: 842, rotation: 0 }, { index: 1, width: 595, height: 842, rotation: 0 }] };
   const project = { title: 'Restored project', documents: [{ id: 'restored-source', path: 'memory://restored/source.pdf', fileName: 'source.pdf', fileSize: 3000,
@@ -83,6 +83,7 @@ async function fixture({ prepare } = {}) {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === './backend') return backend;
+    if (name === '@tauri-apps/api/core') return { async invoke(command, args) { assert.equal(command, 'open_compare_workspace'); directCalls.push({command,args}); } };
     if (name === './i18n') return i18n;
     if (name === './editableOverlays' && prepare) return { prepareEditableOverlays: prepare };
     if (name === '@tauri-apps/plugin-dialog') return {
@@ -128,7 +129,7 @@ async function fixture({ prepare } = {}) {
     return handles;
   }
   await settle();
-  return { render, settle, button, component, pages, isDirty, counts, calls, dialogs, events, cachedImages, staged, key, open, edit, overlayHandles, tabs, tab, activate,
+  return { render, settle, button, component, pages, isDirty, counts, calls, directCalls, dialogs, events, cachedImages, staged, key, open, edit, overlayHandles, tabs, tab, activate,
     get resets() { return resets; }, get project() { return project; },
     saveTo(path) { savePath = path; }, failSave(error) { saveFailure = error; }, failLoad(error) { loadFailure = error; },
     deferPicker() { let resolve; pickerDeferred = new Promise(done => resolve = done); return paths => resolve(paths); },
@@ -140,6 +141,16 @@ async function fixture({ prepare } = {}) {
     async external(paths) { pendingFiles.push(...paths); const callback = nativeEvents.get('jerrivell://open-files'); assert.ok(callback, 'The production listener is attached before an external request'); callback({ payload: null }); await settle(); },
     cleanup() { for (const effect of effects) effect?.cleanup?.(); },
   };
+}
+
+// Opening comparison is a separate native window operation. It cannot queue a
+// PDF worker request, reset the editor or change its unsaved page plan.
+{
+  const ui=await fixture();await ui.open();await ui.edit();const snapshot=clone(ui.pages());
+  ui.button('Compare').props.onClick();await ui.settle();
+  assert.equal(ui.directCalls.length,1);assert.equal(ui.directCalls[0].command,'open_compare_workspace');
+  assert.equal(ui.counts('open_compare_workspace'),0);assert.deepEqual(clone(ui.pages()),snapshot);
+  assert.equal(ui.isDirty(),true);assert.equal(ui.resets,0);ui.cleanup();
 }
 
 // A live inline draft is outside committed workspace history. The production

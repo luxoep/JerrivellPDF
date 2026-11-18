@@ -1,3 +1,4 @@
+mod compare;
 mod engine;
 #[cfg(windows)]
 mod font_source;
@@ -451,6 +452,7 @@ async fn load_editable_project(state: State<'_, Backend>, path: String) -> Resul
 }
 
 pub fn worker_entry(args: &[std::ffi::OsString]) -> Option<i32> {
+    if let Some(result) = compare::worker_entry(args) { return Some(result); }
     #[cfg(windows)]
     if let Some(result) = printing::worker_entry(args) {
         return Some(result);
@@ -485,11 +487,20 @@ pub fn run() {
             if app.state::<startup::OpenRequests>().append(files) {
                 let _ = app.emit(startup::OPEN_FILES_EVENT, ());
             }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            // WebView2 construction cannot run in a synchronous event callback.
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if app.get_webview_window("main").is_none() {
+                    if let Ok(window) = tauri::WebviewWindowBuilder::from_config(&app, &app.config().app.windows[0]).and_then(|builder| builder.build()) {
+                        #[cfg(windows)] window_style::match_app_titlebar(&window);
+                    }
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            });
         }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -511,12 +522,24 @@ pub fn run() {
             };
             #[cfg(not(debug_assertions))]
             let library_path = resource;
+            app.manage(compare::Backend::new(library_path.clone()));
             app.manage(Backend(Arc::new(Mutex::new(worker::WorkerClient::new(
                 library_path,
             )))));
             Ok(())
         })
+        .on_window_event(|window,event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                if window.label()=="compare" { window.state::<compare::Backend>().reset(); }
+                if window.label()=="main" { if let Ok(mut client)=window.state::<Backend>().0.lock() { client.reset(); } }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            compare::open_compare_workspace,
+            compare::compare_call,
+            compare::compare_poll,
+            compare::compare_reset,
+            compare::compare_close,
             get_startup_files,
             drain_open_requests,
             register_pdf_integration,
@@ -562,6 +585,7 @@ pub fn run() {
         .expect("无法启动 Jerrivell PDF 桌面应用");
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
+            if let Some(state)=app.try_state::<compare::Backend>() { state.reset(); }
             if let Some(state) = app.try_state::<Backend>() {
                 if let Ok(mut client) = state.0.lock() {
                     client.reset();

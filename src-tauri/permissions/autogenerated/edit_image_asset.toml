@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-image-asset"
+description = "Enables the edit_image_asset command without any pre-configured scope."
+commands.allow = ["edit_image_asset"]
+
+[[permission]]
+identifier = "deny-edit-image-asset"
+description = "Denies the edit_image_asset command without any pre-configured scope."
+commands.deny = ["edit_image_asset"]

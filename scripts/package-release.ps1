@@ -28,13 +28,13 @@ $taskZipStream = [IO.File]::Open($taskSourceZip, [IO.FileMode]::Create, [IO.File
 $taskArchive = [IO.Compression.ZipArchive]::new($taskZipStream, [IO.Compression.ZipArchiveMode]::Create)
 try {
     $taskFiles = @(
-        '.gitattributes', '.gitignore', 'index.html', 'LICENSE', 'package.json', 'package-lock.json',
+        '.gitattributes', '.gitignore', 'index.html', 'compare.html', 'LICENSE', 'package.json', 'package-lock.json',
         'README.md', 'rust-toolchain.toml', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'tsconfig.json', 'vite.config.ts',
         '启动Jerrivell.cmd', '启动页澜.cmd', '启动AuraPdf.cmd', '启动开发版.cmd', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock',
         'fixtures/README.md', 'fixtures/sample.pdf', 'fixtures/second.pdf', 'fixtures/manifest.json',
         'src-tauri/build.rs', 'src-tauri/tauri.conf.json', 'src-tauri/windows-hooks.nsh'
     )
-    foreach ($taskFolder in @('src', 'docs', 'licenses', 'scripts', 'tests', 'tools', 'src-tauri/src', 'src-tauri/icons', 'src-tauri/capabilities')) {
+    foreach ($taskFolder in @('src', 'docs', 'licenses', 'scripts', 'tests', 'tools', 'src-tauri/src', 'src-tauri/icons', 'src-tauri/permissions', 'src-tauri/capabilities')) {
         $taskFolderPath = Join-Path $taskRoot $taskFolder
         $taskFiles += Get-ChildItem -LiteralPath $taskFolderPath -File -Recurse | Where-Object {
             $_.FullName -notmatch '[\\/]__pycache__[\\/]' -and $_.Extension -notin @('.pyc', '.pdf', '.dll', '.exe', '.tgz', '.zip', '.ttf', '.ttc', '.otf', '.woff', '.woff2', '.pfx', '.p12', '.pem', '.key')

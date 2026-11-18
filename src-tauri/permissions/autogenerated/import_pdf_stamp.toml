@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-pdf-stamp"
+description = "Enables the import_pdf_stamp command without any pre-configured scope."
+commands.allow = ["import_pdf_stamp"]
+
+[[permission]]
+identifier = "deny-import-pdf-stamp"
+description = "Denies the import_pdf_stamp command without any pre-configured scope."
+commands.deny = ["import_pdf_stamp"]

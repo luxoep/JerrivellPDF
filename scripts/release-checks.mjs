@@ -16,7 +16,7 @@ export const digest = path => readFile(path).then(data => createHash('sha256').u
 // Includes shipped resources and all code/checks that establish the gate.
 // Documentation and generated build/test outputs do not affect executable behavior.
 export async function sourceDigest() {
-  const files = ['package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.ts',
+  const files = ['package.json', 'package-lock.json', 'index.html', 'compare.html', 'tsconfig.json', 'vite.config.ts',
     'rust-toolchain.toml', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'src-tauri/build.rs',
     'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json', 'src-tauri/windows-hooks.nsh'];
   async function walk(folder) {
@@ -28,7 +28,7 @@ export async function sourceDigest() {
       else throw new Error(`Unexpected release input: ${path}`);
     }
   }
-  for (const folder of ['src', 'src-tauri/src', 'src-tauri/capabilities', 'src-tauri/icons',
+  for (const folder of ['src', 'src-tauri/src', 'src-tauri/permissions', 'src-tauri/capabilities', 'src-tauri/icons',
     'src-tauri/resources/pdfium', 'licenses', 'tests', 'scripts', 'fixtures', 'tools']) await walk(folder);
   const hash = createHash('sha256');
   for (const path of files.sort()) hash.update(`${path}\0${await digest(join(root, path))}\n`);
@@ -44,18 +44,19 @@ export function run(command, args) {
 }
 
 export async function frontendChecks() {
+  await run(process.execPath, ['tests/drawing-compare.mjs']);
   const names = ['frontend-queue', 'frontend-pages-i18n', 'local-font-canvas', 'overlay-geometry',
     'original-content', 'pdf-stamp-editor', 'pdf-fragments', 'precise-editor', 'printing', 'text-selection', 'reader-experience',
     'stamp-library', 'document-tools', 'live-preview', 'workbench-experience', 'multi-region', 'performance', 'preview-zoom', 'preview-raster', 'overlay-text', 'overlay-text-editor', 'text-frame', 'number-draft', 'compact-text', 'mark-paths', 'editable-overlays', 'page-rotation-editable', 'editable-project', 'project-app', 'close-document', 'windows-ui'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`]);
-  return names;
+  return ['drawing-compare', ...names];
 }
 
 export async function integrationChecks(exe = executable, dll = library) {
   // Batch-export tests refuse overwrites; each run owns an unused output folder.
   const output = join(root, `test-results/${version}/integration-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   await mkdir(output, { recursive: true });
-  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker'];
+  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker', 'compare-worker'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`, exe, dll, join(output, name)]);
   const result = { status: 'PASS', executable: exe, output, tests: names };
   await writeFile(join(output, 'results.json'), JSON.stringify(result, null, 2));

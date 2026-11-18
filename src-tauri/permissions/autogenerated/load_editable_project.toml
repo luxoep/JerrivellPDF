@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-editable-project"
+description = "Enables the load_editable_project command without any pre-configured scope."
+commands.allow = ["load_editable_project"]
+
+[[permission]]
+identifier = "deny-load-editable-project"
+description = "Denies the load_editable_project command without any pre-configured scope."
+commands.deny = ["load_editable_project"]

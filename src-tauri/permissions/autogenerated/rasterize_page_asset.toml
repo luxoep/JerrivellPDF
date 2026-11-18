@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rasterize-page-asset"
+description = "Enables the rasterize_page_asset command without any pre-configured scope."
+commands.allow = ["rasterize_page_asset"]
+
+[[permission]]
+identifier = "deny-rasterize-page-asset"
+description = "Denies the rasterize_page_asset command without any pre-configured scope."
+commands.deny = ["rasterize_page_asset"]

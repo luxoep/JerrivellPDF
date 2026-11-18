@@ -83,6 +83,7 @@ async function fixture() {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === './backend') return backend;
+    if (name === '@tauri-apps/api/core') return { async invoke(command) { assert.equal(command, 'open_compare_workspace'); } };
     if (name === './i18n') return i18n;
     if (name === '@tauri-apps/plugin-dialog') return { open: async () => pickerPaths };
     if (name === '@tauri-apps/api/webviewWindow') return { getCurrentWebviewWindow: () => nativeWindow };

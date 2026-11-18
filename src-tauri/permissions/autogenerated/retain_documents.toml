@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-retain-documents"
+description = "Enables the retain_documents command without any pre-configured scope."
+commands.allow = ["retain_documents"]
+
+[[permission]]
+identifier = "deny-retain-documents"
+description = "Denies the retain_documents command without any pre-configured scope."
+commands.deny = ["retain_documents"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-editable-project"
+description = "Enables the save_editable_project command without any pre-configured scope."
+commands.allow = ["save_editable_project"]
+
+[[permission]]
+identifier = "deny-save-editable-project"
+description = "Denies the save_editable_project command without any pre-configured scope."
+commands.deny = ["save_editable_project"]

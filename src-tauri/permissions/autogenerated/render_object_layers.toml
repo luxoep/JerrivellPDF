@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-render-object-layers"
+description = "Enables the render_object_layers command without any pre-configured scope."
+commands.allow = ["render_object_layers"]
+
+[[permission]]
+identifier = "deny-render-object-layers"
+description = "Denies the render_object_layers command without any pre-configured scope."
+commands.deny = ["render_object_layers"]

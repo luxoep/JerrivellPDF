@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-page-content"
+description = "Enables the inspect_page_content command without any pre-configured scope."
+commands.allow = ["inspect_page_content"]
+
+[[permission]]
+identifier = "deny-inspect-page-content"
+description = "Denies the inspect_page_content command without any pre-configured scope."
+commands.deny = ["inspect_page_content"]

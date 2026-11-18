@@ -1,9 +1,9 @@
-# Public source publication — 0.9.0
+# Public source publication — 0.10.0
 
-This is a public documentation/packaging edition of the original local 0.9.0 source archive. Runtime source, manifests/lockfiles, build scripts, tests, original fixtures, icons and all licenses/** files are preserved byte-for-byte. Developer-local documentation/history was replaced with public guides; the project's third-party overview only updates source-archive/link references, without changing upstream originals. .gitignore/.gitattributes keep local caches excluded and preserve archived bytes. This public archive therefore has a newly calculated SHA-256.
+This is a public documentation/packaging edition of the original local 0.10.0 source archive. Runtime source, manifests/lockfiles, build scripts, tests, original fixtures, icons and all licenses/** files are preserved byte-for-byte. Developer-local documentation/history was replaced with public guides; the project's third-party overview only updates source-archive/link references, without changing upstream originals. .gitignore/.gitattributes keep local caches excluded and preserve archived bytes. This public archive therefore has a newly calculated SHA-256.
 
 - Repository: https://github.com/luxoep/JerrivellPDF
-- Original archive SHA-256: ac540b436f06cbd83ecd0f4860b4ec36798941713b5b199209fbd3b0308448f6
+- Original archive SHA-256: 4c739354d6ca1441383c73c1b8a5dead68a849b47719762c32806132cece111e
 - Installer and exact third-party source supplement are unchanged original artifacts.
 - Original code license of this version: **MIT OR Apache-2.0**. See LICENSE and source headers; later license choices do not overwrite earlier archive terms.
 

@@ -1,0 +1,17 @@
+{
+  "identifier": "compare-window",
+  "description": "Isolated local drawing comparison; no main-editor commands.",
+  "windows": [
+    "compare"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "allow-compare-call",
+    "allow-compare-poll",
+    "allow-compare-reset",
+    "allow-compare-close"
+  ]
+}
