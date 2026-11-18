@@ -16,7 +16,7 @@
 /* The frame is outside the paper coordinate space. A border inside the paper
    shrank the bitmap separately from the crop overlay at the fitted size. */
 .tool-preview-stage .preview-zoom-paper>.dt-tool-page{border:0;outline:1px solid #e7e3eb}
-.tool-preview-raster{display:block;width:100%;height:100%;pointer-events:none;user-select:none;background:#fff}
+.tool-preview-raster{position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;pointer-events:none;user-select:none;background:#fff}
 .region-selection.is-zoomable>.region-selection-controls{position:static;flex:none;min-height:32px;margin:0;max-width:100%;border-radius:0;border-width:0 0 1px;z-index:auto}
 .region-selection.is-zoomable>.region-polygon-actions{position:static;flex:none;min-height:36px;z-index:auto}
 .region-selection.is-zoomable>.preview-zoom{min-height:0}

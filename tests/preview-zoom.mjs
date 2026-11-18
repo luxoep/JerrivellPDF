@@ -47,6 +47,7 @@ const outsideWindow = {
   removeEventListener(type, listener) { releaseListeners.get(type)?.delete(listener); },
 };
 const viewport = {
+  style: {},
   ownerDocument: { defaultView: outsideWindow },
   clientWidth:620, clientHeight:450, clientLeft:0, clientTop:0, scrollLeft:0, scrollTop:0,
   addEventListener(type, listener, options) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); if (type === 'wheel') assert.equal(options.passive, false); },
@@ -118,3 +119,84 @@ emit('wheel',{ctrlKey:true,deltaY:-30});assert.equal(frames.size,1);controller.d
 assert.equal([...listeners.values()].reduce((sum,list)=>sum+list.size,0),0,'Every native input listener is removed');
 assert.equal([...releaseListeners.values()].reduce((sum,list)=>sum+list.size,0),0,'Window release listeners are removed');
 console.log('PASS: all aspect ratios, pointer-anchored zoom, wheel unit normalization, 25–800% bounds, one paint per frame, ordinary scrolling, drawing/resize locks, disabled updates without reset, unchanged raster, production crop coordinates at 1×/2.5×/8×, and listener/frame cleanup');
+
+
+// Replay the measured Windows scrollport sizes from the sustained fit loop.
+// The border box stays fractional and constant while native gutters change.
+let outer = { width: 951.515625, height: 427.34375 };
+let writes = 0;
+const trackedStyle = () => new Proxy({}, { set(target, key, value) { writes++; target[key] = value; return true; } });
+const fractionalViewport = {
+  ...viewport, style: trackedStyle(), clientWidth: 945, clientHeight: 420,
+  scrollLeft: 0, scrollTop: 0,
+  getBoundingClientRect() { return { left: 100, top: 50, ...outer }; },
+};
+const fractionalExtent = { style: trackedStyle() }, fractionalPaper = { style: trackedStyle() }, fractionalScales = [];
+const fractionalController = zoom.createPreviewZoomController(fractionalViewport, fractionalExtent, fractionalPaper, 841.89, 595.28, value => fractionalScales.push(value));
+flush();
+assert.equal(fractionalViewport.style.overflow, 'hidden');
+assert.equal(fractionalExtent.style.width, '100%'); assert.equal(fractionalExtent.style.height, '100%');
+const fixedPaper = { width: Number.parseFloat(fractionalPaper.style.width), height: Number.parseFloat(fractionalPaper.style.height) };
+assert.ok(fixedPaper.width + 24 <= Math.floor(outer.width) + 1e-8);
+assert.ok(fixedPaper.height + 24 <= Math.floor(outer.height) + 1e-8);
+fractionalViewport.clientWidth = 952; fractionalViewport.clientHeight = 427;
+observer.callback(); flush();
+near(Number.parseFloat(fractionalPaper.style.width), fixedPaper.width);
+near(Number.parseFloat(fractionalPaper.style.height), fixedPaper.height);
+assert.deepEqual(fractionalScales, [1], 'Scrollbar removal must not report another scale');
+const settledWrites = writes;
+for (let n = 0; n < 100; n++) observer.callback();
+assert.equal(frames.size, 0, 'Identical geometry observations must not schedule an idle frame');
+assert.equal(writes, settledWrites);
+
+fractionalController.zoomBy(3); flush();
+assert.equal(fractionalViewport.style.overflow, 'auto');
+near(Number.parseFloat(fractionalPaper.style.width), fixedPaper.width * 3);
+near(Number.parseFloat(fractionalPaper.style.height), fixedPaper.height * 3);
+const zoomedWrites = writes;
+fractionalViewport.clientWidth = 945; fractionalViewport.clientHeight = 420;
+observer.callback(); flush();
+near(Number.parseFloat(fractionalPaper.style.width), fixedPaper.width * 3);
+near(Number.parseFloat(fractionalPaper.style.height), fixedPaper.height * 3);
+assert.equal(writes, zoomedWrites, 'A gutter-only notification must not rewrite unchanged paper styles');
+assert.deepEqual(fractionalScales, [1, 3]);
+
+fractionalViewport.scrollLeft = 400; fractionalViewport.scrollTop = 200;
+let fractionalBefore = zoom.previewLayout(841.89, 595.28, 945, 420, 3, 951, 427);
+fractionalBefore.scrollLeft = 400; fractionalBefore.scrollTop = 200;
+const fractionalAnchor = anchor(fractionalBefore, 350, 200);
+emit('wheel', { ctrlKey: true, deltaY: -50, clientX: 450, clientY: 250 }); flush();
+let fractionalAfter = zoom.previewLayout(841.89, 595.28, 945, 420, fractionalScales.at(-1), 951, 427);
+fractionalAfter.scrollLeft = fractionalViewport.scrollLeft; fractionalAfter.scrollTop = fractionalViewport.scrollTop;
+near(anchor(fractionalAfter, 350, 200).x, fractionalAnchor.x);
+near(anchor(fractionalAfter, 350, 200).y, fractionalAnchor.y);
+
+// A real outer resize changes fit geometry without changing the selected zoom.
+outer = { width: 1004.3, height: 500.1 };
+fractionalViewport.clientWidth = 997; fractionalViewport.clientHeight = 493;
+const scaleBeforeResize = fractionalScales.at(-1), reportsBeforeResize = fractionalScales.length;
+observer.callback(); flush();
+const resized = zoom.previewLayout(841.89, 595.28, 997, 493, scaleBeforeResize, 1004, 500);
+near(Number.parseFloat(fractionalPaper.style.width), resized.paperWidth);
+near(Number.parseFloat(fractionalPaper.style.height), resized.paperHeight);
+assert.equal(fractionalScales.length, reportsBeforeResize, 'Window resizing must not masquerade as a zoom change');
+fractionalController.reset(); flush();
+const resetWidth = Number.parseFloat(fractionalPaper.style.width), resetHeight = Number.parseFloat(fractionalPaper.style.height);
+assert.equal(fractionalScales.at(-1), 1); assert.equal(fractionalViewport.style.overflow, 'hidden');
+assert.equal(fractionalViewport.scrollLeft, 0); assert.equal(fractionalViewport.scrollTop, 0);
+fractionalViewport.clientWidth = 1004; fractionalViewport.clientHeight = 500;
+observer.callback(); flush();
+near(Number.parseFloat(fractionalPaper.style.width), resetWidth);
+near(Number.parseFloat(fractionalPaper.style.height), resetHeight);
+for (let n = 0; n < 100; n++) observer.callback();
+assert.equal(frames.size, 0);
+fractionalController.zoomBy(1e20); flush(); assert.equal(fractionalScales.at(-1), 8);
+fractionalController.zoomBy(1e-20); flush(); assert.equal(fractionalScales.at(-1), .25);
+assert.equal(fractionalViewport.style.overflow, 'hidden');
+fractionalController.reset(); flush();
+fractionalController.zoomBy(1.2); assert.equal(frames.size, 1);
+fractionalController.destroy(); assert.equal(frames.size, 0);
+observer.callback(); assert.equal(frames.size, 0);
+assert.equal([...listeners.values()].reduce((sum, list) => sum + list.size, 0), 0);
+assert.equal([...releaseListeners.values()].reduce((sum, list) => sum + list.size, 0), 0);
+console.log('PASS: measured fractional viewport/gutter replay, fixed outer-box fit, no idle frames/styles/scale notifications, gutter-stable pointer anchors, actual resize, fit reset, bounds and disposal');

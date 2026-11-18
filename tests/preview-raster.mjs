@@ -49,6 +49,32 @@ assert.deepEqual(calls.map(call => call[0]), ['transform', 'clear', 'fill', 'dra
 assert.equal(calls.at(-1)[1], first);
 assert.equal(context.imageSmoothingQuality, 'high');
 assert.equal(context.imageSmoothingEnabled, true);
+const initiallyPainted = calls.length;
+for (let n = 0; n < 100; n++) { observers.at(-1).callback(); flush(); }
+assert.equal(calls.length, initiallyPainted, 'Settled RO notifications do not clear or redraw the same image target');
+for (const callback of resizeListeners) callback(); flush();
+assert.equal(calls.length, initiallyPainted, 'An unchanged window/DPR notification does not repaint');
+const originalBounds = { ...bounds };
+for (let n = 0; n < 40; n++) {
+  const noise = n % 2 ? .0001 : -.0001;
+  bounds = { width: originalBounds.width + noise, height: originalBounds.height - noise };
+  host.devicePixelRatio = n % 2 ? 1.250001 : 1.25;
+  observers.at(-1).callback(); for (const callback of resizeListeners) callback(); flush();
+}
+assert.equal(canvas.width, 498); assert.equal(canvas.height, 704);
+assert.equal(calls.length, initiallyPainted, 'Subpixel bounds/DPR noise with the same backing target must not clear or draw');
+bounds = originalBounds; host.devicePixelRatio = 1.25;
+canvas.width = 1;
+observers.at(-1).callback(); flush();
+assert.equal(canvas.width, 498); assert.equal(canvas.height, 704);
+assert.equal(calls.length, initiallyPainted + 4, 'An externally reset canvas backing width must be restored and repainted');
+assert.deepEqual(calls.at(-3), ['clear', 0, 0, 498, 704]);
+canvas.height = 1;
+for (const callback of resizeListeners) callback(); flush();
+assert.equal(canvas.width, 498); assert.equal(canvas.height, 704);
+assert.equal(calls.length, initiallyPainted + 8, 'External backing height changes must not leave a blank canvas');
+
+
 
 // The same canvas is reused. A changed page clears old content even when its
 // backing dimensions did not change, and never leaves two raster DOM layers.
@@ -90,7 +116,7 @@ ref.current = canvas;
 const cleanup = effects[0](); assert.equal(frames.size, 1); flush();
 assert.equal(calls.at(-1)[1], second); cleanup();
 assert.equal(frames.size, 0); assert.equal(resizeListeners.size, 0);
-console.log('PASS: production canvas mount, a single raster layer, exact displayed device resolution, high-quality local scaling, clear-before-replace, one frame per burst, DPR changes, bounded zoom memory, and full cleanup');
+console.log('PASS: production canvas mount, one raster layer, device-resolution target caching, subpixel/DPR noise suppression, external backing reset recovery, same-size source replacement, burst coalescing, bounded zoom memory and cleanup');
 
 // Opening animations must not make the PDF surface translucent or move it.
 const polish = readFileSync(new URL('../src/ui-polish.css', import.meta.url), 'utf8');
