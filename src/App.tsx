@@ -1,3 +1,13 @@
+import { PdfViewer } from './components/PdfViewer';
+import type { PageNavigation } from './components/PdfViewer';
+import { PageThumbnails } from './components/PageThumbnails';
+import { MarkToolbar } from './components/MarkToolbar';
+import { MarkLayer } from './components/MarkLayer';
+import { createMarkPng, DEFAULT_MARK } from './markGeometry';
+import type { MarkGeometry, MarkSettings } from './markGeometry';
+import { clampZoom, fittedPageWidth, reorderPages, visiblePageSize } from './viewerGeometry';
+import type { ViewerZoom, ViewportSize } from './viewerGeometry';
+import { duplicatedOverlay } from './overlayGeometry';
 import brandIcon from './brand/jerrivell-icon.svg';
 import { I18nProvider, useI18n, translate as t } from './i18n';
 import { PageRangeError, parsePageRange } from './pageRanges';
@@ -9,12 +19,12 @@ import { OriginalContentEditor } from './components/OriginalContentEditor';
 import { OriginalContentHandles } from './components/OriginalContentHandles';
 import type { ContentEdit, ContentInspection } from './originalContent';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, FilePlus2, FileText, FolderOpen, GripVertical, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, X, } from 'lucide-react';
-import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, renderPage, resetBackendQueue, sessionInvalidatedEvent } from './backend';
-import type { BackendStatus, DocumentInfo, PageOverlay, RenderedPage, SearchMatch, WorkspaceMatch, WorkspacePage } from './types';
+import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronLeft, ChevronRight, CircleAlert, FilePlus2, FileText, FolderOpen, GripVertical, Highlighter, ImageDown, Keyboard, Layers3, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Printer, Redo2, RotateCw, Save, Search, ShieldCheck, Trash2, Undo2, Upload, X, } from 'lucide-react';
+import { backend, cancelledRequest, errorMessage, isDesktop, pageReference, resetBackendQueue, sessionInvalidatedEvent } from './backend';
+import type { BackendStatus, DocumentInfo, PageOverlay, SearchMatch, WorkspaceMatch, WorkspacePage } from './types';
 type Panel = 'pages' | 'search';
 type ImportRequest = { paths: string[]; range: string; position: 'after' | 'end' | 'before'; targetPage: string };
 type ImportOptions = { range?: string; insertAt?: number };
@@ -50,72 +60,6 @@ const normalizePath = (path: string) => {
 const nextId = () => crypto.randomUUID();
 const sizeLabel = (bytes: number) => bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const pdfName = (name: string) => name.replace(/\.pdf$/i, '');
-function usePageImage(page: WorkspacePage | undefined, width: number, enabled: boolean, thumbnail = false) {
-    const [image, setImage] = useState<RenderedPage | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    useEffect(() => {
-        if (!page || !enabled || !isDesktop())
-            return;
-        let disposed = false;
-        setImage(null);
-        setLoading(true);
-        setError('');
-        const timeout = window.setTimeout(() => {
-            void renderPage(page, width, thumbnail)
-                .then((result) => { if (!disposed)
-                setImage(result); })
-                .catch((reason) => { if (!disposed)
-                setError(errorMessage(reason)); })
-                .finally(() => { if (!disposed)
-                setLoading(false); });
-        }, thumbnail ? 0 : 90);
-        return () => { disposed = true; window.clearTimeout(timeout); };
-    }, [page?.documentId, page?.pageIndex, page?.rotation, JSON.stringify(page?.overlays ?? []), JSON.stringify(page?.contentEdits ?? []), width, enabled, thumbnail]);
-    return { image, loading, error };
-}
-function Thumbnail({ page, index, active, checked, busy, onSelect, onToggle, onDropPage, onDragBegin, draggingId }: {
-    page: WorkspacePage;
-    index: number;
-    active: boolean;
-    checked: boolean;
-    busy: boolean;
-    onSelect: (event: React.MouseEvent) => void;
-    onToggle: () => void;
-    onDropPage: (source: string, target: string) => void;
-    onDragBegin: (id: string | null) => void;
-    draggingId: string | null;
-}) {
-    const root = useRef<HTMLDivElement>(null);
-    const [visible, setVisible] = useState(false);
-    const [dropTarget, setDropTarget] = useState(false);
-    useEffect(() => {
-        const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) {
-            setVisible(true);
-            observer.disconnect();
-        } }, { rootMargin: '240px' });
-        if (root.current)
-            observer.observe(root.current);
-        return () => observer.disconnect();
-    }, []);
-    const { image, loading, error } = usePageImage(page, 154, visible, true);
-    const landscape = page.rotation % 180 === 90 ? page.height > page.width : page.width > page.height;
-    return (<div ref={root} className={`thumbnail-item ${active ? 'is-active' : ''} ${checked ? 'is-selected' : ''} ${dropTarget ? 'is-drop-target' : ''}`} draggable={!busy} onDragStart={(event) => { event.dataTransfer.setData('application/x-rivuleaf-page', page.id); event.dataTransfer.effectAllowed = 'move'; onDragBegin(page.id); }} onDragEnd={() => { onDragBegin(null); setDropTarget(false); }} onDragOver={(event) => { if (draggingId && draggingId !== page.id && !busy) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        setDropTarget(true);
-    } }} onDragLeave={() => setDropTarget(false)} onDrop={(event: DragEvent) => { event.preventDefault(); const source = event.dataTransfer.getData('application/x-rivuleaf-page'); setDropTarget(false); onDragBegin(null); if (source && !busy)
-        onDropPage(source, page.id); }}>
-      <button className={`thumbnail-check ${checked ? 'checked' : ''}`} title={checked ? t(`取消选择第 ${index + 1} 页`) : t(`选择第 ${index + 1} 页`)} aria-label={checked ? t(`取消选择第 ${index + 1} 页`) : t(`选择第 ${index + 1} 页`)} aria-pressed={checked} onClick={onToggle} disabled={busy}>{checked && <Check size={11} strokeWidth={3}/>}</button>
-      <button className="thumbnail-button" onClick={onSelect} aria-label={t(`转到第 ${index + 1} 页`)} aria-current={active ? 'page' : undefined}>
-        <div className={`thumbnail-sheet ${landscape ? 'landscape' : ''}`}>
-          {image ? <img src={image.dataUrl} alt={t(`第 ${index + 1} 页缩略图`)} draggable={false}/> : error ? <CircleAlert size={18}/> : loading ? <LoaderCircle className="spin" size={18}/> : <FileText size={22} strokeWidth={1}/>}
-        </div>
-        <span className="thumbnail-number">{String(index + 1).padStart(2, '0')}<span className="thumbnail-current-dot"/></span>
-      </button>
-      <span className="thumbnail-grip"><GripVertical size={14}/></span>
-    </div>);
-}
 function PasswordDialog({ request, onAnswer }: {
     request: PasswordRequest;
     onAnswer: (value: string | null) => void;
@@ -167,8 +111,17 @@ function AppWorkspace() {
     const [title, setTitle] = useState('');
     const [savedSignature, setSavedSignature] = useState('');
     const [savedPath, setSavedPath] = useState('');
-    const [zoom, setZoom] = useState<number | 'fit'>('fit');
-    const [viewerWidth, setViewerWidth] = useState(900);
+    const [zoom, setZoom] = useState<ViewerZoom>('fit');
+    const [viewerSize, setViewerSize] = useState<ViewportSize>({ width: 900, height: 600 });
+    const [navigation, setNavigation] = useState<PageNavigation | null>(null);
+    const navigationSequence = useRef(0);
+    const navigateToId = useCallback((id: string) => {
+        setActiveId(id);
+        setNavigation({ id, sequence: ++navigationSequence.current });
+    }, []);
+    const [markOpen, setMarkOpen] = useState(false);
+    const [markSettings, setMarkSettings] = useState<MarkSettings>(DEFAULT_MARK);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [pageInput, setPageInput] = useState('1');
     const [query, setQuery] = useState('');
     const [searching, setSearching] = useState(false);
@@ -176,13 +129,11 @@ function AppWorkspace() {
     const [searchError, setSearchError] = useState('');
     const [searchedQuery, setSearchedQuery] = useState('');
     const [draggingFile, setDraggingFile] = useState(false);
-    const [draggingPageId, setDraggingPageId] = useState<string | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [replaceRequest, setReplaceRequest] = useState<string[] | null>(null);
     const [closeRequest, setCloseRequest] = useState(false);
     const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
-    const viewer = useRef<HTMLDivElement>(null);
     const searchField = useRef<HTMLInputElement>(null);
     const busyRef = useRef(false);
     const editorBusyRef = useRef(false);
@@ -202,6 +153,7 @@ function AppWorkspace() {
         setImportError('');
         setEditorOpen(false);
         setOriginalOpen(false);
+        setMarkOpen(false);
         setOriginalSelected('');
         setOriginalInspection(null);
         originalInspectionRef.current = null;
@@ -212,7 +164,7 @@ function AppWorkspace() {
         setTitle('');
         setSavedPath('');
         setSavedSignature('');
-        setActiveId('');
+        navigateToId('');
         setSelection(new Set());
         setQuery('');
         setSearchResults([]);
@@ -300,21 +252,11 @@ function AppWorkspace() {
             notify(t(`未能退出应用：${errorMessage(error)}`), 'error');
         }
     };
-    useEffect(() => {
-        if (!viewer.current)
-            return;
-        const observer = new ResizeObserver(([entry]) => setViewerWidth(entry.contentRect.width));
-        observer.observe(viewer.current);
-        return () => observer.disconnect();
-    }, [pages.length > 0]);
     useEffect(() => { setPageInput(String(activeIndex + 1)); }, [activeIndex]);
-    useEffect(() => { setActiveOverlayId(''); }, [activeId]);
     useEffect(() => { setOriginalSelected(''); }, [activeId]);
-    useEffect(() => { if (viewer.current)
-        viewer.current.scrollTop = 0; }, [activeId]);
     useEffect(() => {
         if (!pages.some((page) => page.id === activeId) && pages.length)
-            setActiveId(pages[Math.min(activeIndex, pages.length - 1)].id);
+            navigateToId(pages[Math.min(activeIndex, pages.length - 1)].id);
         setSelection((existing) => new Set([...existing].filter((id) => pages.some((page) => page.id === id))));
     }, [pages]);
     const commit = useCallback((next: WorkspacePage[]) => {
@@ -323,12 +265,15 @@ function AppWorkspace() {
             return { entries, cursor: entries.length - 1 };
         });
     }, []);
-    const updateOverlays = useCallback((overlays: PageOverlay[]) => {
+    const updatePageOverlays = useCallback((pageId: string, overlays: PageOverlay[]) => {
         const snapshot = live.current.pages;
-        const target = snapshot.find(page => page.id === currentPage?.id);
+        const target = snapshot.find(page => page.id === pageId);
         if (!target || JSON.stringify(target.overlays ?? []) === JSON.stringify(overlays)) return;
         commit(snapshot.map(page => page.id === target.id ? { ...page, overlays } : page));
-    }, [currentPage?.id, commit]);
+    }, [commit]);
+    const updateOverlays = useCallback((overlays: PageOverlay[]) => {
+        if (currentPage) updatePageOverlays(currentPage.id, overlays);
+    }, [currentPage?.id, updatePageOverlays]);
     const editorBusyChanged = useCallback((working: boolean) => {
         if (working) {
             editorBusyRef.current = true;
@@ -367,7 +312,7 @@ function AppWorkspace() {
         finally { contentApplyRef.current = false; if (ownedBusy) originalBusyChanged(false); }
     }, [currentPage?.id, commit, notify, originalBusyChanged]);
     const openPrint = useCallback(() => {
-        if (!busyRef.current && pages.length) { setEditorOpen(false); setOriginalOpen(false); setPrintOpen(true); }
+        if (!busyRef.current && pages.length) { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPrintOpen(true); }
     }, [pages.length]);
     const printingBusyChanged = useCallback((working: boolean) => {
         busyRef.current = working;
@@ -443,7 +388,7 @@ function AppWorkspace() {
                 const insertAt = Math.max(0, Math.min(options.insertAt ?? live.current.pages.length, live.current.pages.length));
                 commit([...live.current.pages.slice(0, insertAt), ...newPages, ...live.current.pages.slice(insertAt)]);
                 setSources((previous) => [...previous, ...added.filter(doc => !previous.some(old => old.id === doc.id))]);
-                setActiveId(newPages[0].id);
+                navigateToId(newPages[0].id);
                 notify(t(`已添加 ${newPages.length} 页，保存副本后合并为一个 PDF。`), 'success');
             }
             else {
@@ -452,7 +397,7 @@ function AppWorkspace() {
                 setTitle(added[0].fileName);
                 setSavedPath('');
                 setSavedSignature(added.length > 1 ? '' : signature(newPages));
-                setActiveId(newPages[0].id);
+                navigateToId(newPages[0].id);
                 setZoom('fit');
                 setQuery('');
                 setSearchResults([]);
@@ -572,7 +517,7 @@ function AppWorkspace() {
         try {
             const indices = parsePageRange(rangeInput, pages.length);
             setSelection(new Set(indices.map(index => pages[index].id)));
-            if (indices.length) setActiveId(pages[indices[0]].id);
+            if (indices.length) navigateToId(pages[indices[0]].id);
         } catch (error) { notify(rangeErrorMessage(error, pages.length), 'error'); }
     }, [rangeInput, pages, notify]);
     const extractSelectedPages = useCallback(async () => {
@@ -614,7 +559,7 @@ function AppWorkspace() {
         const next = pages.filter((page) => !affectedIds.has(page.id));
         commit(next);
         if (affectedIds.has(activeId))
-            setActiveId(next[Math.min(activeIndex, next.length - 1)].id);
+            navigateToId(next[Math.min(activeIndex, next.length - 1)].id);
         setSelection(new Set());
         notify(t(`已删除 ${pages.length - next.length} 页，可撤销。`));
     }, [pages, affectedIds, commit, activeId, activeIndex, notify]);
@@ -635,21 +580,17 @@ function AppWorkspace() {
         if (next.some((page, index) => page.id !== pages[index].id))
             commit(next);
     }, [affectedIds, pages, commit]);
-    const reorderPage = useCallback((source: string, target: string) => {
-        if (source === target || busyRef.current)
-            return;
-        const from = pages.findIndex((page) => page.id === source);
-        const to = pages.findIndex((page) => page.id === target);
-        if (from < 0 || to < 0)
-            return;
-        const next = [...pages];
-        const [moved] = next.splice(from, 1);
-        next.splice(to, 0, moved);
+    const reorderPage = useCallback((source: string, target: string, side: 'before' | 'after') => {
+        if (busyRef.current) return;
+        const snapshot = live.current.pages;
+        const next = reorderPages(snapshot, source, target, side, selection);
+        if (next === snapshot) return;
         commit(next);
-        setActiveId(moved.id);
-    }, [pages, commit]);
+        navigateToId(source);
+        notify(t('页序已更新，可撤销。', 'Page order updated. You can undo this move.'));
+    }, [selection, commit, navigateToId, notify]);
     const goToPage = useCallback((index: number) => { if (!busyRef.current && pages.length)
-        setActiveId(pages[Math.max(0, Math.min(index, pages.length - 1))].id); }, [pages]);
+        navigateToId(pages[Math.max(0, Math.min(index, pages.length - 1))].id); }, [pages]);
     const applyPageInput = () => {
         const value = Number(pageInput);
         if (Number.isInteger(value) && value > 0) {
@@ -660,13 +601,35 @@ function AppWorkspace() {
         else
             setPageInput(String(activeIndex + 1));
     };
-    const pageDimensions = currentPage ? currentPage.rotation % 180 === 90 ? { width: currentPage.height, height: currentPage.width } : { width: currentPage.width, height: currentPage.height } : { width: 595, height: 842 };
-    const availableWidth = Math.max(160, viewerWidth - 100);
-    const displayedWidth = zoom === 'fit' ? Math.min(availableWidth, 1450) : pageDimensions.width * zoom / 100;
+    const pageDimensions = currentPage ? visiblePageSize(currentPage) : { width: 595, height: 842 };
+    const displayedWidth = currentPage ? fittedPageWidth(currentPage, viewerSize, zoom) : 595;
     const zoomPercent = Math.round(displayedWidth / pageDimensions.width * 100);
-    const changeZoom = useCallback((delta: number) => setZoom(Math.max(25, Math.min(400, Math.round((zoomPercent + delta) / 10) * 10))), [zoomPercent]);
-    const renderWidth = Math.min(2400, Math.round(displayedWidth * Math.min(window.devicePixelRatio || 1, 1.5)));
-    const { image: pageImage, loading: pageLoading, error: pageError } = usePageImage(currentPage, renderWidth, !!currentPage);
+    const changeZoom = useCallback((delta: number) => setZoom(clampZoom(Math.round((zoomPercent + delta) / 10) * 10)), [zoomPercent]);
+    const addDrawnMark = async (pageId: string, mark: MarkGeometry, settings: MarkSettings) => {
+        if (busyRef.current) return;
+        const page = live.current.pages.find(item => item.id === pageId);
+        if (!page) return;
+        if ((page.overlays?.length ?? 0) >= 30) { notify(t('当前页面最多添加 30 个内容对象。', 'A page can contain up to 30 added objects.'), 'error'); return; }
+        busyRef.current = true;
+        setBusy(t('正在添加标记…', 'Adding mark…'));
+        try {
+            const asset = await backend<{ id: string }>('register_image', { dataUrl: createMarkPng(mark, settings.color) }, 3);
+            const target = live.current.pages.find(item => item.id === pageId);
+            if (!target) return;
+            const overlay: PageOverlay = { id: nextId(), assetId: asset.id, ...mark.bounds, opacity: settings.opacity, rotation: 0, blendMode: settings.tool === 'highlight' ? 'multiply' : 'normal' };
+            updatePageOverlays(pageId, [...(target.overlays ?? []), overlay]);
+            setActiveOverlayId(overlay.id);
+        } catch (error) { notify(errorMessage(error), 'error'); }
+        finally { busyRef.current = false; setBusy(''); }
+    };
+    const duplicateMark = () => {
+        if (busyRef.current || !currentPage) return;
+        const overlays = currentPage.overlays ?? [];
+        const selected = overlays.find(item => item.id === activeOverlayId);
+        if (!selected || overlays.length >= 30) return;
+        const copy = duplicatedOverlay(selected, nextId(), pageDimensions.width, pageDimensions.height);
+        updateOverlays([...overlays, copy]); setActiveOverlayId(copy.id);
+    };
     const originalPlanKey = currentPage ? `${currentPage.id}:${JSON.stringify(pageReference(currentPage))}` : '';
     const visibleOriginal = originalInspection?.key === originalPlanKey ? originalInspection.data : undefined;
     useEffect(() => {
@@ -750,7 +713,7 @@ function AppWorkspace() {
             }
             else if (modifier && event.key.toLowerCase() === 'f' && pages.length) {
                 event.preventDefault();
-                setPanel('search');
+                setPanel('search'); setSidebarCollapsed(false);
                 window.setTimeout(() => searchField.current?.focus(), 30);
             }
             else if (!editing && modifier && event.key.toLowerCase() === 'z') {
@@ -765,10 +728,14 @@ function AppWorkspace() {
                 event.preventDefault();
                 setSelection(new Set(pages.map((page) => page.id)));
             }
-            else if (!editing && !modifier && event.key === 'Delete') {
+            else if (!editing && !modifier && (event.key === 'Delete' || event.key === 'Backspace') && markOpen) {
                 event.preventDefault();
-                deletePages();
+                if (!busyRef.current && currentPage) updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked));
             }
+            else if (!editing && !modifier && event.key === 'Delete') {
+                event.preventDefault(); deletePages();
+            }
+            else if (!editing && modifier && event.key.toLowerCase() === 'd' && markOpen) { event.preventDefault(); duplicateMark(); }
             else if (!editing && !modifier && event.key.toLowerCase() === 'r') {
                 event.preventDefault();
                 rotatePages();
@@ -789,8 +756,13 @@ function AppWorkspace() {
                 event.preventDefault();
                 goToPage(activeIndex + 1);
             }
-            else if (!editing && event.key === 'Escape')
+            else if (!editing && event.key === 'Escape') {
                 setSelection(new Set());
+                if (markOpen) setMarkSettings(value => ({ ...value, tool: 'select' }));
+            }
+            else if (!editing && !modifier && event.key === 'Home') { event.preventDefault(); goToPage(0); }
+            else if (!editing && !modifier && event.key === 'End') { event.preventDefault(); goToPage(pages.length - 1); }
+            else if (!editing && modifier && event.key === '1') { event.preventDefault(); setZoom('page'); }
             else if (!editing && modifier && (event.key === '+' || event.key === '=')) {
                 event.preventDefault();
                 changeZoom(10);
@@ -806,7 +778,7 @@ function AppWorkspace() {
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
+    }, [currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
     const selectThumbnail = (event: React.MouseEvent, page: WorkspacePage, index: number) => {
         if (busyRef.current) return;
         if (event.shiftKey) {
@@ -818,7 +790,7 @@ function AppWorkspace() {
             setSelection((previous) => { const next = new Set(previous); next.has(page.id) ? next.delete(page.id) : next.add(page.id); return next; });
         }
         else {
-            setActiveId(page.id);
+            navigateToId(page.id);
             setSelection(new Set());
         }
     };
@@ -828,9 +800,9 @@ function AppWorkspace() {
         void chooseFiles(); }} aria-label={t("Jerrivell PDF")}><img className="brand-icon" src={brandIcon} alt=""/></a>
       <div className="rail-separator"/>
       <button className="rail-button rail-open" onClick={() => void chooseFiles()} disabled={!!busy || !status?.engineReady} title={t("打开 PDF \u00B7 Ctrl+O")}><FolderOpen size={21}/><span>{t("打开")}</span></button>
-      <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => setPanel('pages')} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
-      <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
-      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.4.1</div></div>
+      <button className={`rail-button ${panel === 'pages' ? 'active' : ''}`} onClick={() => { setPanel('pages'); setSidebarCollapsed(false); }} title={t("页面工作台")}><Layers3 size={21}/><span>{t("页面")}</span></button>
+      <button className={`rail-button ${panel === 'search' ? 'active' : ''}`} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 50); }} disabled={!pages.length} title={t("查找文字 \u00B7 Ctrl+F")}><Search size={21}/><span>{t("查找")}</span></button>
+      <div className="rail-bottom"><button className="rail-button" onClick={() => setShowShortcuts(true)} title={t("键盘快捷键")}><Keyboard size={20}/><span>{t("快捷键")}</span></button><div className="rail-version">0.5.0</div></div>
     </aside>
 
     <div className="app-main">
@@ -850,25 +822,34 @@ function AppWorkspace() {
         <section className="welcome-features" aria-label={t("工作台能力")}><div className="feature-card"><span className="feature-icon violet"><Layers3 size={20}/></span><div><h3>{t("页面\uFF0C自由组合")}</h3><p>{t("拖动排序\u3001旋转与删除\uFF0C多份文档轻松合一\u3002")}</p></div><span className="feature-number">01</span></div><div className="feature-card"><span className="feature-icon blue"><Search size={20}/></span><div><h3>{t("阅读\uFF0C找到重点")}</h3><p>{t("清晰预览\u3001文字搜索\uFF0C一步跳转到目标页面\u3002")}</p></div><span className="feature-number">02</span></div><div className="feature-card"><span className="feature-icon mint"><ShieldCheck size={20}/></span><div><h3>{t("文件\uFF0C留在本地")}</h3><p>{t("离线处理并保存副本\uFF0C让原始文件安心保留\u3002")}</p></div><span className="feature-number">03</span></div></section>
         <footer className="welcome-footer"><span><span className={`status-dot ${status?.engineReady ? '' : 'muted'}`}/>{checkingEngine ? t("正在准备工作台\u2026") : status?.engineReady ? t("工作台已就绪") : t("等待桌面环境")}</span><span>OPEN SOURCE. OPEN POSSIBILITIES.</span></footer>
       </main> : <>
-        <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、标记、图章和签名', 'Add text, images, marks, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
-        <div className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''}`}>
-          <aside className="document-panel"><div className="panel-tabs"><button className={panel === 'pages' ? 'selected' : ''} onClick={() => setPanel('pages')}><Layers3 size={15}/>{t("页面")}<span>{pages.length}</span></button><button className={panel === 'search' ? 'selected' : ''} onClick={() => { setPanel('search'); window.setTimeout(() => searchField.current?.focus(), 30); }}><Search size={15}/>{t("查找")}</button></div>
+        <div className="workspace-toolbar"><div className="toolbar-group history-tools"><button className="icon-button" title={t("撤销 \u00B7 Ctrl+Z")} aria-label={t("撤销")} disabled={!!busy || history.cursor === 0} onClick={undo}><Undo2 size={17}/></button><button className="icon-button" title={t("重做 \u00B7 Ctrl+Shift+Z")} aria-label={t("重做")} disabled={!!busy || history.cursor === history.entries.length - 1} onClick={redo}><Redo2 size={17}/></button><span className="toolbar-divider"/><button className="tool-button" onClick={rotatePages} disabled={!!busy} title={t("顺时针旋转 \u00B7 R")}><RotateCw size={16}/><span>{t("旋转")}</span></button><button className="tool-button danger-tool" onClick={deletePages} disabled={!!busy || affectedIds.size === pages.length} title={t("删除选中页面 \u00B7 Delete")}><Trash2 size={16}/><span>{t("删除")}</span></button></div><div className="toolbar-center">{selection.size > 0 ? <span className="selection-pill">{t(`已选择 ${selection.size} 页`, `${selection.size} pages selected`)}<button onClick={() => setSelection(new Set())} title={t("清除选择")} aria-label={t("清除选择")}><X size={12}/></button></span> : <span className="toolbar-context">{t("页面工作台")}</span>}</div><div className="toolbar-group"><button className={`tool-button ${markOpen ? 'active' : ''}`} aria-pressed={markOpen} disabled={!!busy} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(value => !value); }} title={t('直接在页面上框选高亮、色块或绘制图形', 'Draw highlights, color blocks and shapes directly on the page')}><Highlighter size={16}/><span>{t('标记', 'Mark')}</span></button><button className={`tool-button content-edit-button ${editorOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={editorOpen} onClick={() => { setOriginalOpen(false); setMarkOpen(false); setEditorOpen(value => !value); }} title={t('添加文字、图片、标记、图章和签名', 'Add text, images, marks, stamps and signatures')}><PenLine size={16}/><span>{t('添加内容', 'Add content')}</span></button><button className={`tool-button ${originalOpen ? 'active' : ''}`} disabled={!!busy} aria-pressed={originalOpen} onClick={() => { setEditorOpen(false); setMarkOpen(false); setOriginalOpen(value => !value); }} title={t('编辑 PDF 原有文字与图片对象', 'Edit original PDF text and image objects')}><FileText size={16}/><span>{t('编辑原文', 'Edit original')}</span></button><button className="tool-button" disabled={!!busy} onClick={openPrint} title={t("打印 · Ctrl+P", "Print · Ctrl+P")}><Printer size={16}/><span>{t("打印", "Print")}</span></button><button className="tool-button export-button" disabled={!!busy} onClick={() => void exportCurrentPage()} title={t("将当前页面导出为 PNG 图片")}><ImageDown size={16}/><span>{t("导出本页")}</span></button>{warnings.length > 0 && <button className="warning-button" onClick={() => setShowWarnings(true)} title={t("查看文档提示")}><CircleAlert size={15}/><span>{warnings.length}</span></button>}</div></div>
+        <div className={`workspace-body ${(editorOpen || originalOpen) ? 'editor-open' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+          <aside className="document-panel"><div className="panel-tabs"><button className={panel === 'pages' ? 'selected' : ''} onClick={() => setPanel('pages')}><Layers3 size={15}/>{t("页面")}<span>{pages.length}</span></button><button className={panel === 'search' ? 'selected' : ''} onClick={() => { setPanel('search'); setSidebarCollapsed(false); window.setTimeout(() => searchField.current?.focus(), 30); }}><Search size={15}/>{t("查找")}</button></div>
             {panel === 'pages' ? <><div className="page-panel-tools"><button className="text-button" onClick={() => setSelection(selection.size === pages.length ? new Set() : new Set(pages.map((page) => page.id)))} disabled={!!busy}><CheckCheck size={14}/>{selection.size === pages.length ? t("取消全选") : t("选择全部")}</button><div><button className="icon-button small" onClick={() => movePages(-1)} disabled={!!busy} title={t("前移选中页 \u00B7 Alt+\u2191")} aria-label={t("前移选中页")}><ArrowUp size={14}/></button><button className="icon-button small" onClick={() => movePages(1)} disabled={!!busy} title={t("后移选中页 \u00B7 Alt+\u2193")} aria-label={t("后移选中页")}><ArrowDown size={14}/></button></div></div><div className="page-range-controls">
                 <label htmlFor="page-range">{t('按页码选择', 'Select by page range')}</label>
                 <div className="range-input-row"><input id="page-range" aria-label={t('页码范围', 'Page range')} value={rangeInput} placeholder="1-3,5" onChange={event => setRangeInput(event.target.value)} onKeyDown={event => { if(event.key === 'Enter') { event.preventDefault(); selectRange(); } }} disabled={!!busy}/><button className="range-apply" onClick={selectRange} disabled={!!busy}>{t('选择', 'Select')}</button></div>
                 <div className="range-actions"><button onClick={deletePages} disabled={!!busy || affectedIds.size >= pages.length}>{t('删除所选', 'Remove selected')}</button><button onClick={() => void extractSelectedPages()} disabled={!!busy}>{t('提取为 PDF', 'Extract PDF')}</button></div>
                 <small>{t('提取保留当前页序；未多选时使用当前页。', 'Extraction keeps page order. Without a selection, it uses the current page.')}</small>
-            </div><div className="thumbnail-list">{pages.map((page, index) => <Thumbnail key={page.id} page={page} index={index} active={page.id === currentPage?.id} checked={selection.has(page.id)} busy={!!busy} draggingId={draggingPageId} onDragBegin={setDraggingPageId} onDropPage={reorderPage} onSelect={(event) => selectThumbnail(event, page, index)} onToggle={() => setSelection((previous) => { const next = new Set(previous); next.has(page.id) ? next.delete(page.id) : next.add(page.id); return next; })}/>)}<button className="add-page-tile" onClick={() => void chooseFiles(true)} disabled={!!busy}><Plus size={19}/><span>{t("添加 PDF")}</span></button></div><div className="panel-footnote"><GripVertical size={12}/>{t("拖动页面调整顺序")}</div></> : <><div className="search-box"><Search size={16}/><input ref={searchField} aria-label={t("查找文档中的文字")} placeholder={t("查找文档中的文字")} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') {
+            </div><PageThumbnails pages={pages} activeId={currentPage?.id ?? ''} selection={selection} busy={!!busy} onSelect={selectThumbnail} onToggle={id => setSelection(previous => { const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next; })} onReorder={reorderPage} onAdd={() => void chooseFiles(true)}/>
+            <div className="panel-footnote"><GripVertical size={12}/>{t("拖动页面调整顺序")}</div></> : <><div className="search-box"><Search size={16}/><input ref={searchField} aria-label={t("查找文档中的文字")} placeholder={t("查找文档中的文字")} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') {
             setQuery('');
             event.currentTarget.blur();
-        } }}/>{query && <button aria-label={t("清空查找")} onClick={() => setQuery('')}><X size={14}/></button>}</div><div className="search-results">{searching ? <div className="panel-message"><LoaderCircle size={20} className="spin"/><p>{t("正在查找\u2026")}</p></div> : searchError ? <div className="panel-message error"><CircleAlert size={20}/><p>{t(searchError)}</p></div> : !query ? <div className="panel-message"><Search size={28} strokeWidth={1.3}/><h3>{t("找到你需要的内容")}</h3><p>{t("搜索文档内的文字\uFF0C点击结果跳转到对应页面\u3002")}</p><span>{t("扫描图片中的文字暂不支持识别")}</span></div> : searchResults.length ? <><div className="search-summary">{t(`在 ${searchResults.length} 页中找到 ${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} 处结果`, `${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} matches on ${searchResults.length} pages`)}</div>{searchResults.map((result) => <button className={`search-result ${currentPage?.id === result.id ? 'active' : ''}`} key={result.id} onClick={() => setActiveId(result.id)}><span className="result-page">{t(`第 ${result.workspaceIndex + 1} 页`, `Page ${result.workspaceIndex + 1}`)}<span>{t(`${result.matchCount} 处`, `${result.matchCount} matches`)}</span></span><span className="result-preview">{result.preview || searchedQuery}</span></button>)}</> : <div className="panel-message"><Search size={24}/><h3>{t("没有找到匹配文字")}</h3><p>{t("试试更短的关键词\uFF0C或检查文档是否为扫描图片\u3002")}</p></div>}</div></>}
+        } }}/>{query && <button aria-label={t("清空查找")} onClick={() => setQuery('')}><X size={14}/></button>}</div><div className="search-results">{searching ? <div className="panel-message"><LoaderCircle size={20} className="spin"/><p>{t("正在查找\u2026")}</p></div> : searchError ? <div className="panel-message error"><CircleAlert size={20}/><p>{t(searchError)}</p></div> : !query ? <div className="panel-message"><Search size={28} strokeWidth={1.3}/><h3>{t("找到你需要的内容")}</h3><p>{t("搜索文档内的文字\uFF0C点击结果跳转到对应页面\u3002")}</p><span>{t("扫描图片中的文字暂不支持识别")}</span></div> : searchResults.length ? <><div className="search-summary">{t(`在 ${searchResults.length} 页中找到 ${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} 处结果`, `${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} matches on ${searchResults.length} pages`)}</div>{searchResults.map((result) => <button className={`search-result ${currentPage?.id === result.id ? 'active' : ''}`} key={result.id} onClick={() => navigateToId(result.id)}><span className="result-page">{t(`第 ${result.workspaceIndex + 1} 页`, `Page ${result.workspaceIndex + 1}`)}<span>{t(`${result.matchCount} 处`, `${result.matchCount} matches`)}</span></span><span className="result-preview">{result.preview || searchedQuery}</span></button>)}</> : <div className="panel-message"><Search size={24}/><h3>{t("没有找到匹配文字")}</h3><p>{t("试试更短的关键词\uFF0C或检查文档是否为扫描图片\u3002")}</p></div>}</div></>}
           </aside>
-          <main className="reader"><div className="reader-top"><span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
-            <div className="page-viewport" ref={viewer}><div className="page-stage" style={{ minWidth: displayedWidth + 100 }}><div className={`pdf-sheet ${pageLoading ? 'is-loading' : ''}`} style={{ width: displayedWidth, aspectRatio: `${pageDimensions.width}/${pageDimensions.height}` } as CSSProperties}>{pageImage ? <img className="pdf-page-image" src={pageImage.dataUrl} alt={t(`文档第 ${activeIndex + 1} 页`)} draggable={false}/> : pageError ? <div className="page-placeholder error"><CircleAlert size={28}/><h3>{t("这一页未能加载")}</h3><p>{t(pageError)}</p></div> : <div className="page-placeholder"><LoaderCircle size={27} className="spin"/><p>{t(`正在呈现第 ${activeIndex + 1} 页`, `Rendering page ${activeIndex + 1}`)}</p></div>}{editorOpen && <OverlayHandles key={currentPage.id} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} onChange={updateOverlays} disabled={!!busy || !pageImage}/>}{originalOpen && <OriginalContentHandles key={currentPage.id} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !pageImage || pageLoading || originalLoading || !visibleOriginal}/>}</div><div className="under-page-label">{String(activeIndex + 1).padStart(2, '0')} <span>/</span> {String(pages.length).padStart(2, '0')}</div></div></div>
+          <main className="reader"><div className="reader-top"><button className="icon-button small sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')} title={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button><span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
+            {markOpen && <MarkToolbar settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
+            <PdfViewer pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading) => {
+                const dimensions = visiblePageSize(page);
+                return <>
+                    {(editorOpen || markOpen && markSettings.tool === 'select') && <OverlayHandles key={`overlay-${page.id}`} overlays={page.overlays ?? []} freeResize={markOpen} selectedId={page.id === activeId ? activeOverlayId : ''} onSelect={id => { setActiveId(page.id); setActiveOverlayId(id); }} pageWidth={dimensions.width} pageHeight={dimensions.height} onChange={next => updatePageOverlays(page.id, next)} disabled={!!busy || !ready || loading}/>}
+                    {markOpen && markSettings.tool !== 'select' && <MarkLayer key={`mark-${page.id}`} settings={markSettings} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={!!busy || !ready || loading} onBegin={() => { setActiveId(page.id); setActiveOverlayId(''); }} onComplete={(mark, settings) => void addDrawnMark(page.id, mark, settings)}/>}
+                    {originalOpen && page.id === currentPage.id && <OriginalContentHandles key={currentPage.id} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={dimensions.width} pageHeight={dimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !ready || loading || originalLoading || !visibleOriginal}/>}
+                </>;
+            }}/>
             <div className="reader-bottom"><div className="page-navigation"><button className="icon-button small" disabled={activeIndex === 0} onClick={() => goToPage(activeIndex - 1)} aria-label={t("上一页")} title={t("上一页 \u00B7 \u2190")}><ChevronLeft size={17}/></button><input aria-label={t("页码")} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageInput} onKeyDown={(event) => { if (event.key === 'Enter') {
             applyPageInput();
             event.currentTarget.blur();
-        } }}/><span>/ {pages.length}</span><button className="icon-button small" disabled={activeIndex === pages.length - 1} onClick={() => goToPage(activeIndex + 1)} aria-label={t("下一页")} title={t("下一页 \u00B7 \u2192")}><ChevronRight size={17}/></button></div><div className="zoom-controls"><button className="icon-button small" aria-label={t("缩小")} title={t("缩小 \u00B7 Ctrl+-")} onClick={() => changeZoom(-10)} disabled={zoomPercent <= 25}><Minus size={16}/></button><button className="zoom-label" onClick={() => setZoom(100)} title={t("恢复 100%")}>{zoomPercent}%</button><button className="icon-button small" aria-label={t("放大")} title={t("放大 \u00B7 Ctrl++")} onClick={() => changeZoom(10)} disabled={zoomPercent >= 400}><Plus size={16}/></button><span className="toolbar-divider"/><button className={`fit-button ${zoom === 'fit' ? 'active' : ''}`} onClick={() => setZoom('fit')} title={t("适合宽度 \u00B7 Ctrl+0")}><Maximize2 size={14}/><span>{t("适宽")}</span></button></div></div>
+        } }}/><span>/ {pages.length}</span><button className="icon-button small" disabled={activeIndex === pages.length - 1} onClick={() => goToPage(activeIndex + 1)} aria-label={t("下一页")} title={t("下一页 \u00B7 \u2192")}><ChevronRight size={17}/></button></div><div className="zoom-controls"><button className="icon-button small" aria-label={t("缩小")} title={t("缩小 \u00B7 Ctrl+-")} onClick={() => changeZoom(-10)} disabled={zoomPercent <= 25}><Minus size={16}/></button><button className="zoom-label" onClick={() => setZoom(100)} title={t("恢复 100%")}>{zoomPercent}%</button><button className="icon-button small" aria-label={t("放大")} title={t("放大 \u00B7 Ctrl++")} onClick={() => changeZoom(10)} disabled={zoomPercent >= 400}><Plus size={16}/></button><span className="toolbar-divider"/><button className={`fit-button ${zoom === 'fit' ? 'active' : ''}`} onClick={() => setZoom('fit')} title={t("适合宽度 \u00B7 Ctrl+0")}><Maximize2 size={14}/><span>{t("适宽")}</span></button><button className={`fit-button ${zoom === 'page' ? 'active' : ''}`} onClick={() => setZoom('page')} title={t('适合整页 · Ctrl+1', 'Fit whole page · Ctrl+1')}><FileText size={14}/><span>{t('整页', 'Page')}</span></button></div></div>
           </main>
         </div>
         <footer className="status-bar"><span><ShieldCheck size={12}/>{t("本地处理")}<span className="footer-dot">·</span>{sizeLabel(totalBytes)}<span className="footer-dot">·</span>{busy ? <><LoaderCircle size={12} className="spin"/>{busy}</> : dirty ? t("修改尚未保存") : t("就绪")}</span><span>{selection.size ? t(`${selection.size} 页已选中`) : t("R 旋转 \u00B7 Delete 删除 \u00B7 Ctrl+S 保存副本")}</span></footer>
@@ -897,7 +878,7 @@ function AppWorkspace() {
     </form></div>}
     {closeRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{t("退出前保存这次修改\uFF1F")}</h2><p className="modal-description">{t("未保存的页面调整将在退出后丢失\u3002原始 PDF 文件始终保留\uFF0C你也可以先把调整保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" onClick={async () => { if (await saveCopy())
         await closeApplication(); }} disabled={!!busy}>{t("保存副本并退出")}</button><button className="button secondary" onClick={() => void closeApplication()} disabled={!!busy}>{t("不保存\uFF0C退出")}</button><button className="text-button" onClick={() => setCloseRequest(false)} disabled={!!busy}>{t("继续编辑")}</button></div></div></div>}
-    {editorOpen && currentPage && <OverlayEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); }} onBusyChange={editorBusyChanged}/>}
+    {editorOpen && currentPage && <OverlayEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); }} onBusyChange={editorBusyChanged} onDrawMarks={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(true); }}/>}
     {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current}/>}
     {printOpen && pages.length > 0 && <PrintDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => { if (!busyRef.current) setPrintOpen(false); }} onBusyChange={printingBusyChanged} onNotify={notify}/>}
     {passwordRequest && <PasswordDialog request={passwordRequest} onAnswer={answerPassword}/>}
@@ -906,7 +887,7 @@ function AppWorkspace() {
         void loadPaths(paths, false);
     } }} disabled={!!busy}>{t("保存副本并打开")}</button><button className="button secondary" onClick={() => { const paths = replaceRequest; setReplaceRequest(null); void loadPaths(paths, false); }} disabled={!!busy}>{t("不保存\uFF0C继续打开")}</button><button className="text-button" onClick={() => setReplaceRequest(null)}>{t("返回文档")}</button></div></div></div>}
     {showShortcuts && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
-        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list">{[[t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0']].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
+        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list">{[[t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0'], [t('适合整页', 'Fit whole page'), 'Ctrl + 1'], [t('鼠标位置缩放', 'Zoom at pointer'), t('Ctrl + 滚轮', 'Ctrl + wheel')], [t('连续阅读', 'Continuous reading'), t('滚轮 / 空格', 'Wheel / Space')]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
     {showWarnings && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
         setShowWarnings(false); }}><div className="modal warnings-modal" role="dialog" aria-modal="true" aria-labelledby="warnings-title"><button className="icon-button modal-close" aria-label={t("关闭文档提示")} onClick={() => setShowWarnings(false)}><X size={18}/></button><div className="modal-symbol amber"><CircleAlert size={26}/></div><h2 id="warnings-title">{t("文档处理提示")}</h2><p className="modal-description">{t("保存副本前\uFF0C请确认这些提示符合你的使用需求\u3002")}</p><div className="warnings-list">{warnings.map((warning, index) => <div key={index}><strong>{warning.source}</strong><p>{t(warning.message)}</p></div>)}</div><button className="button primary" onClick={() => setShowWarnings(false)}>{t("我知道了")}</button></div></div>}
   </div>;

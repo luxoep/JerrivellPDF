@@ -20,7 +20,7 @@ type Gesture = { id: string; kind: 'move' | 'resize'; startX: number; startY: nu
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /** Placement gestures commit once on release so one drag is one undo action. */
-export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth, pageHeight, selectedId, onSelect }: {
+export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth, pageHeight, selectedId, onSelect, freeResize = false }: {
   overlays: Placement[];
   onChange: (next: Placement[]) => void;
   disabled?: boolean;
@@ -28,6 +28,8 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
   pageHeight?: number;
   selectedId?: string;
   onSelect?: (id: string) => void;
+  /** Directly drawn marks can be stretched; Shift retains their proportions. */
+  freeResize?: boolean;
 }) {
   const { t } = useI18n();
   const root = useRef<HTMLDivElement>(null);
@@ -59,6 +61,8 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
     let next: Placement;
     if (current.kind === 'move') {
       next = { ...item, x: clamp(item.x + dx, 0, 1 - item.width), y: clamp(item.y + dy, 0, 1 - item.height) };
+    } else if (freeResize && !event.shiftKey) {
+      next = { ...item, width: clamp(item.width + dx, 0.001, 1 - item.x), height: clamp(item.height + dy, 0.001, 1 - item.y) };
     } else {
       const scaleX = (item.width + dx) / item.width;
       const scaleY = (item.height + dy) / item.height;
@@ -111,7 +115,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
           }
         }}>
         <span className="overlay-item-number">{index + 1}</span>
-        {!disabled && !item.locked && <div className="overlay-resize-handle" title={t('拖动等比调整大小', 'Drag to resize proportionally')}
+        {!disabled && !item.locked && <div className="overlay-resize-handle" title={freeResize ? t('拖动调整宽高，Shift 保持比例', 'Drag to resize; Shift keeps proportions') : t('拖动等比调整大小', 'Drag to resize proportionally')}
           onPointerDown={event => begin(event, item, 'resize')} onPointerMove={move}
           onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} />}
       </div>;

@@ -1,0 +1,42 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+.continuous-viewport{position:relative;overflow-anchor:none;overscroll-behavior:contain;outline:none;scroll-behavior:auto;touch-action:pan-x pan-y}
+.continuous-viewport:focus-visible{box-shadow:inset 0 0 0 2px #c7bedf}
+.continuous-stage{position:relative;min-width:100%;min-height:100%}
+.continuous-page{position:absolute;contain:layout style}
+.continuous-page>.pdf-sheet{width:100%;height:100%;user-select:none}
+.continuous-page>.under-page-label{height:24px;line-height:24px;margin:6px 0 0;text-align:center;font-size:10px;pointer-events:none}
+.pdf-page-image{pointer-events:none}
+.mark-toolbar{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:7px 14px;padding:9px 39px 7px 14px;background:#fff;border-bottom:1px solid #e3e4ed;flex:none;color:#696378;font-size:11px}
+.mark-tool-buttons,.mark-style-controls{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.mark-tool{height:29px;min-width:29px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid transparent;border-radius:5px;color:#7d748d;font-size:10px;white-space:nowrap}
+.mark-tool:hover:not(:disabled){background:#f3f0f9;color:#6650ad}
+.mark-tool.active{background:#eee9fa;border-color:#d8cdef;color:#7055bc}
+.mark-tool:disabled{opacity:.4;cursor:default}
+.mark-style-controls>label{display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:10px;color:#92879e}
+.mark-color input{width:27px;height:25px;border:1px solid #e1dce9;background:#fff;border-radius:5px;padding:2px;cursor:pointer}
+.mark-style-controls select{height:26px;max-width:64px;border:1px solid #e5deeb;border-radius:5px;background:#fff;color:#7c6f8f;font-size:10px}
+.mark-opacity input{width:67px;accent-color:#8e72c7}
+.mark-opacity b{font-size:9px;font-weight:500;min-width:28px}
+.mark-close{position:absolute;right:7px;top:9px}
+.mark-hint{flex:0 0 100%;margin:0;padding-top:2px;color:#a399af;font-size:9px;line-height:1.5}
+.mark-drawing-layer{position:absolute;inset:0;z-index:4;cursor:crosshair;touch-action:none;user-select:none}
+.mark-drawing-layer.disabled{pointer-events:none;cursor:wait}
+.mark-preview{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.sortable-thumbnail-list{position:relative;overflow-x:hidden;overscroll-behavior:contain}
+.sortable-thumbnail-list .thumbnail-button,.sortable-thumbnail-list .thumbnail-grip{touch-action:none;user-select:none;-webkit-user-drag:none}
+.sortable-thumbnail-list .thumbnail-grip{border:0;background:transparent;cursor:grab;padding:0;display:flex;align-items:center;justify-content:center}
+.sortable-thumbnail-list.is-sorting,.sortable-thumbnail-list.is-sorting *{cursor:grabbing!important}
+.sortable-thumbnail-list .is-being-dragged{opacity:.42}
+.page-insertion-line{position:absolute;left:13px;right:13px;height:3px;transform:translateY(-2px);border-radius:3px;background:#8a71ce;pointer-events:none;z-index:6;box-shadow:0 0 0 2px #fff}
+.page-insertion-line:before{content:'';position:absolute;left:-3px;top:-2px;width:7px;height:7px;border-radius:50%;background:#8a71ce}
+.page-insertion-line span{position:absolute;right:0;bottom:5px;background:#8a71ce;color:#fff;padding:3px 5px;border-radius:3px;font-size:9px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.workspace-body.sidebar-collapsed .document-panel{display:none}
+.sidebar-toggle{flex:none;margin-right:-8px}
+.reader-breadcrumb{flex:1}
+.reader-bottom .zoom-controls{gap:3px}
+.reader-bottom .fit-button{padding-left:7px;padding-right:7px;white-space:nowrap}
+.workspace-toolbar{height:auto;min-height:51px;flex-wrap:wrap;padding-top:7px;padding-bottom:7px}
+.workspace-toolbar>.toolbar-group{flex-wrap:wrap;gap:5px}
+.editor-open .reader-bottom{flex-wrap:wrap;gap:4px;height:auto;min-height:46px;padding-top:5px;padding-bottom:5px}
+@media(max-width:1120px){.reader-bottom{padding-left:9px;padding-right:9px;gap:6px}.reader-bottom .zoom-controls{gap:1px}.reader-bottom .fit-button{padding-left:4px;padding-right:4px}.reader-bottom .fit-button svg{display:none}.mark-toolbar{gap:5px 8px}.reader-top{padding-left:12px;padding-right:12px;gap:10px}}

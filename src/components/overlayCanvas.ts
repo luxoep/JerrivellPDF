@@ -94,9 +94,10 @@ export function createStampPng(title: string, subtitle: string, color: string, s
   return { dataUrl: canvas.toDataURL('image/png'), width, height };
 }
 
-export function createShapePng(color: string, style: 'highlight' | 'rectangle') {
+export function createShapePng(color: string, style: 'highlight' | 'rectangle' | 'block') {
   const [canvas, context] = surface(1000, style === 'highlight' ? 170 : 600);
   if (style === 'highlight') { context.globalAlpha = 0.30; context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height); }
+  else if (style === 'block') { context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height); }
   else { context.strokeStyle = color; context.lineWidth = 10; context.strokeRect(7, 7, canvas.width - 14, canvas.height - 14); }
   return { dataUrl: canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height };
 }

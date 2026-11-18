@@ -6,7 +6,7 @@ Jerrivell PDF 自有代码、文档与原创合成样本采用 `GPL-3.0-or-later
 
 本文件与 `licenses/` 保存的原文一同交付。精确版本以 `src-tauri/Cargo.lock`、`package-lock.json`、PDFium 来源清单及实际随包内容为准。`licenses/inventory.json` 记录从当前本地依赖取得的许可文件、元数据和 SHA-256；清单也包含部分构建/开发依赖，不代表每个包都进入最终二进制。安装后本文件位于 `legal/`，对应原文位于 `legal/licenses/`。
 
-0.4.1 根据用户 Jerry 的名字将产品更名为 **Jerrivell PDF**。旧名 Rivuleaf PDF（页澜）在历史源码包和验证记录中保留。新应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.4.1-source.zip`，第三方源码补充包为 `JerrivellPDF-0.4.1-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.4.1/Jerrivell-PDF-0.4.1-manifest.json)。下方保留的旧版本归档名是历史取得材料，不表示它们已经改名。
+0.4.1 根据用户 Jerry 的名字将产品更名为 **Jerrivell PDF**。旧名 Rivuleaf PDF（页澜）在历史源码包和验证记录中保留。新应用图标由项目几何路径与生成器创作，不采用第三方图标模板或字体轮廓；工具栏的 Lucide 图标及各第三方声明继续保留。当前主源码交付名为 `Jerrivell-PDF-0.5.0-source.zip`，第三方源码补充包为 `JerrivellPDF-0.5.0-third-party-sources.zip`；实际产物及核对结果见 [本版公开清单](https://github.com/luxoep/JerrivellPDF/releases/download/v0.5.0/Jerrivell-PDF-0.5.0-manifest.json)。下方保留的旧版本归档名是历史取得材料，不表示它们已经改名。
 
 ## 主要直接组件
 
@@ -68,7 +68,7 @@ npm 中 `lightningcss` 与 `lightningcss-win32-x64-msvc` 1.33.0 也采用 MPL-2.
 
 依赖更新后执行 `python scripts/collect-licenses.py`，检查原文清单与实际构建。该脚本不访问网络，补充文件由随源码保留的 `upstream-manifest.json` 校验。需要恢复这些文件时可运行 `python scripts/fetch-license-supplements.py`。
 
-对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.4.1) 与 `PUBLICATION.md`。
+对应源码、可复现构建说明、确切产物哈希和安装后资源检查应与每次分发一起记录。此项目目录已经提供 Jerrivell PDF 源码；公开源码与版本归档位于 [https://github.com/luxoep/JerrivellPDF](https://github.com/luxoep/JerrivellPDF)。公开发布时还需落实相应版本的源码取得方式、传递组件的适用义务及新增素材来源。本版分发材料见 [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.5.0) 与 `PUBLICATION.md`。
 
 ## 权威原文
 
