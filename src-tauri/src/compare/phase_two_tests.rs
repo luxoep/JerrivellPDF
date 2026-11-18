@@ -3,6 +3,7 @@ use super::{engine::Engine, tests::pdf, types::*};
 use std::{fs, sync::atomic::AtomicBool};
 fn opts() -> Options {
     Options {
+        scale_mode: ScaleMode::Physical,
         page_a: 0,
         page_b: 0,
         dpi: 300,

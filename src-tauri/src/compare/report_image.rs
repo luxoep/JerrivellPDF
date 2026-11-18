@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Small original bitmap labels for reports. No font program is embedded.
-use super::types::Report;
+use super::types::{Report, ScaleMode};
 use image::{Rgba, RgbaImage};
 
 fn glyph(c: char) -> [u8; 7] {
@@ -42,6 +42,7 @@ fn glyph(c: char) -> [u8; 7] {
         'Y' => [17, 17, 10, 4, 4, 4, 4],
         'Z' => [31, 1, 2, 4, 8, 16, 31],
         '-' => [0, 0, 0, 31, 0, 0, 0],
+        '.' => [0, 0, 0, 0, 0, 6, 6],
         ':' => [0, 4, 4, 0, 4, 4, 0],
         '/' => [1, 1, 2, 4, 8, 16, 16],
         _ => [0; 7],
@@ -66,7 +67,7 @@ fn text(image: &mut RgbaImage, value: &str, x: u32, y: u32, color: Rgba<u8>, sca
         }
     }
 }
-pub fn label(mut image: RgbaImage, report: &Report) -> RgbaImage {
+pub fn label(mut image: RgbaImage, report: &Report, scale_b: f64) -> RgbaImage {
     let blue = Rgba([40, 75, 94, 255]);
     for region in &report.regions {
         let b = region.bounds;
@@ -116,7 +117,18 @@ pub fn label(mut image: RgbaImage, report: &Report) -> RgbaImage {
     ] {
         text(&mut result, label, x, height + 33, color, 2);
     }
-    let note = if report.uncovered || report.ignored_pixels > 0 {
+    let normalized_note = format!(
+        "NORMALIZED TO A - B SCALE {:.5} - REFERENCE UNITS - {}",
+        scale_b,
+        if report.uncovered || report.ignored_pixels > 0 {
+            "QUALIFIED COVERAGE / EXCLUSIONS"
+        } else {
+            "REVIEW ORIGINALS"
+        }
+    );
+    let note = if report.options.scale_mode == ScaleMode::Normalized {
+        normalized_note.as_str()
+    } else if report.uncovered || report.ignored_pixels > 0 {
         "QUALIFIED COVERAGE - CHECK EXCLUDED AREAS AND ORIGINALS - IDS MATCH CSV"
     } else {
         "PIXEL RESULT - REVIEW ORIGINAL DRAWINGS - IDS MATCH CSV"

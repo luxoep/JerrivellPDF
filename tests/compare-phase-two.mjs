@@ -12,8 +12,20 @@ assert.equal(ga.width,gb.width);assert.equal(ga.height,gb.height);assert.ok(f.un
 assert.equal(g.sheetGeometry(f,'a',true,500,650,2).width,2*ga.width);
 assert.equal(g.pointInFrame(ga.rect,.5,.5).x,.125);
 const solo=g.comparisonFrame(null,b,0,0,-10,30);assert.equal(solo.widthPt,2400);assert.equal(solo.originXPt,0);
+const normalized=g.comparisonFrame(a,b,0,0,0,0,'normalized');
+assert.equal(normalized.widthPt,600);assert.equal(normalized.heightPt,800);assert.equal(normalized.scaleB,.25);assert.equal(normalized.uncovered,false);
+assert.equal(JSON.stringify(normalized.a),JSON.stringify(normalized.b),'Common-page matching must use analysis-space rectangles, not source paper size');
+assert.equal(g.pointInFrame(normalized.b,.5,.5).x,.5);
+const padded=g.comparisonFrame(a,source(1200,1200),0,0,0,0,'normalized');
+assert.equal(padded.scaleB,.5);assert.equal(padded.b.y,.125);assert.equal(padded.b.height,.75);assert.equal(padded.aspectMismatch,true);assert.equal(padded.uncovered,true);
+const translated=g.comparisonFrame(a,b,0,0,25.4,0,'normalized');assert.equal(translated.originXPt,0);assert.equal(translated.widthPt,672);
+assert.equal(translated.b.x,72/672);assert.equal(translated.b.width,600/672);
+assert.equal(g.comparisonFrame(null,b,0,0,-10,30,'normalized').scaleB,1,'One remaining side uses its own source dimensions');
 const options={pageA:0,pageB:0,dpi:300,threshold:0,offsetXmm:0,offsetYmm:0,ignored:[{x:0,y:0,width:1,height:1}]};
 assert.equal(g.pairOptions(options,2,4).ignored.length,0);
+assert.equal(g.pairOptions({...options,scaleMode:'normalized'},2,4).scaleMode,'normalized');
+assert.equal(types.optionsKey(options),types.optionsKey({...options,scaleMode:'physical'}),'Legacy omitted mode remains physical across Rust round trips');
+assert.notEqual(types.optionsKey(options),types.optionsKey({...options,scaleMode:'normalized'}),'Changing analysis scale invalidates previous findings');
 assert.equal(p.rangePairs('1-3','2-3',3,4).pairs.length,2);assert.equal(p.rangePairs('1-3','2-3',3,4).unmatchedA.length,1);
 assert.equal(p.validatePairs([{a:0,b:1},{a:0,b:1}],3,3),false);assert.equal(p.validatePairs([{a:NaN,b:1}],3,3),false);
 const item={index:0,options,status:'complete',changedPixels:0,regionCount:0,ignoredPixels:0,uncovered:false,error:null,alignment:null};
@@ -21,6 +33,7 @@ const batch={jobId:'batch',items:[item],allAnalyzed:true,unpairedA:[1],unpairedB
 assert.throws(()=>types.validateBatch({...batch,allAnalyzed:false},'batch'));
 assert.throws(()=>types.validateBatch({...batch,unpairedA:[0]},'batch'));
 assert.throws(()=>types.validateBatch({...batch,items:[{...item,status:'failed'}]},'batch'));
+assert.throws(()=>types.validateBatch({...batch,items:[{...item,options:{...options,scaleMode:'stretch'}}]},'batch'));
 assert.throws(()=>types.validateAlignment({options,offsetXmm:NaN}));
 assert.throws(()=>types.validateTextAssistance({status:'restricted',limited:false,changes:[{old:'M8',new:'M10',dimensionLike:true}]}));
 const viewport={width:1000,height:800},pg={width:600,height:800,rotation:0},large={...pg,width:2400,height:3200};

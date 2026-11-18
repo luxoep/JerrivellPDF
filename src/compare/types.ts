@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 export interface Rect { x:number; y:number; width:number; height:number }
-export interface Options { pageA:number; pageB:number; dpi:number; threshold:number; offsetXmm:number; offsetYmm:number; ignored:Rect[] }
+export type ScaleMode='normalized'|'physical';
+export interface Options { pageA:number; pageB:number; dpi:number; threshold:number; offsetXmm:number; offsetYmm:number; ignored:Rect[];scaleMode?:ScaleMode }
 export interface Picture { dataUrl:string; width:number; height:number }
 export interface Source { fileName:string; fileSize:number; pages:{width:number;height:number}[] }
 export interface Preview { a:Picture; b:Picture; widthPt:number;heightPt:number;originXPt:number;originYPt:number;uncovered:boolean }
@@ -12,11 +13,12 @@ export interface BatchSummary {jobId:string;items:BatchItem[];allAnalyzed:boolea
 export interface TextAssistance {status:'available'|'restricted'|'limited'|'visual-only';changes:{old:string;new:string;dimensionLike:boolean}[];limited:boolean}
 export interface Progress { jobId:string;status:'idle'|'running'|'complete'|'cancelled'|'failed';completed:number;total:number;report:Report|null;error:string|null;alignment?:Alignment|null;batch?:BatchSummary|null }
 // Rust IPC maps need not retain JavaScript property insertion order.
-export const optionsKey=(o:Options)=>JSON.stringify([o.pageA,o.pageB,o.dpi,o.threshold,o.offsetXmm,o.offsetYmm,o.ignored.map(r=>[r.x,r.y,r.width,r.height])]);
+export const optionsKey=(o:Options)=>JSON.stringify([o.pageA,o.pageB,o.dpi,o.threshold,o.offsetXmm,o.offsetYmm,o.ignored.map(r=>[r.x,r.y,r.width,r.height]),o.scaleMode??'physical']);
 export const validRect=(r:Rect)=>!!r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.x+r.width<=1.000001&&r.y+r.height<=1.000001;
 const count=(n:number)=>Number.isSafeInteger(n)&&n>=0;
 const validOptions=(o:Options)=>!!o&&[o.pageA,o.pageB].every(v=>count(v)&&v<5000)&&[150,300,600].includes(o.dpi)
   &&count(o.threshold)&&o.threshold<=255&&[o.offsetXmm,o.offsetYmm].every(v=>Number.isFinite(v)&&Math.abs(v)<=100)
+  &&(o.scaleMode===undefined||['normalized','physical'].includes(o.scaleMode))
   &&Array.isArray(o.ignored)&&o.ignored.length<=16&&o.ignored.every(validRect);
 export function validateReport(r:Report,jobId:string):Report {
   const ids=new Set<number>();

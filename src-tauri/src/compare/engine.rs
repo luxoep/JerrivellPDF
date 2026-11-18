@@ -30,6 +30,9 @@ struct Frame {
     x: f64,
     y: f64,
     uncovered: bool,
+    b_scale: f64,
+    b_x: f64,
+    b_y: f64,
 }
 pub struct Engine<'a> {
     pdfium: &'a Pdfium,
@@ -224,7 +227,21 @@ impl<'a> Engine<'a> {
             b.width().value as f64,
             b.height().value as f64,
         );
-        let (dx, dy) = (o.offset_x_mm * 72.0 / 25.4, o.offset_y_mm * 72.0 / 25.4);
+        let b_scale = if o.scale_mode == ScaleMode::Normalized {
+            (aw / bw).min(ah / bh)
+        } else {
+            1.0
+        };
+        let (bw, bh) = (bw * b_scale, bh * b_scale);
+        let (base_x, base_y) = if o.scale_mode == ScaleMode::Normalized {
+            ((aw - bw) / 2.0, (ah - bh) / 2.0)
+        } else {
+            (0.0, 0.0)
+        };
+        let (dx, dy) = (
+            base_x + o.offset_x_mm * 72.0 / 25.4,
+            base_y + o.offset_y_mm * 72.0 / 25.4,
+        );
         let (x, y) = (0.0_f64.min(dx), 0.0_f64.min(dy));
         let (w, h) = (aw.max(dx + bw) - x, ah.max(dy + bh) - y);
         Ok((
@@ -235,6 +252,9 @@ impl<'a> Engine<'a> {
                 height: h,
                 x,
                 y,
+                b_scale,
+                b_x: dx,
+                b_y: dy,
                 uncovered: (aw - bw).abs() > 0.001
                     || (ah - bh).abs() > 0.001
                     || dx.abs() > 0.001
@@ -287,6 +307,28 @@ impl<'a> Engine<'a> {
             .to_rgba8();
         Ok(image::imageops::crop_imm(&image, pad, pad, w, h).to_image())
     }
+    // render() expresses its origin in the source page's point units. B is
+    // rendered at an additional page scale, while the shared frame/manual
+    // translation remain in A/reference units, so convert the origin back.
+    fn render_b(
+        page: &PdfPage,
+        scale: f64,
+        f: Frame,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) -> Result<RgbaImage, String> {
+        Self::render(
+            page,
+            scale * f.b_scale,
+            [(f.b_x - f.x) / f.b_scale, (f.b_y - f.y) / f.b_scale],
+            x,
+            y,
+            w,
+            h,
+        )
+    }
     pub fn preview(&self, o: &Options, width: u32, rect: Option<Rect>) -> Result<Preview, String> {
         let (a, b, f) = self.pages(o)?;
         let rect = rect.unwrap_or(Rect {
@@ -310,18 +352,7 @@ impl<'a> Engine<'a> {
             (f.height * rect.y * scale).round() as u32,
         );
         let pa = png(Self::render(&a, scale, [-f.x, -f.y], x, y, w, h)?)?;
-        let pb = png(Self::render(
-            &b,
-            scale,
-            [
-                o.offset_x_mm * 72.0 / 25.4 - f.x,
-                o.offset_y_mm * 72.0 / 25.4 - f.y,
-            ],
-            x,
-            y,
-            w,
-            h,
-        )?)?;
+        let pb = png(Self::render_b(&b, scale, f, x, y, w, h)?)?;
         Ok(Preview {
             a: pa,
             b: pb,
@@ -376,18 +407,7 @@ impl<'a> Engine<'a> {
                 let tw = TILE.min(w - x);
                 let ia = Self::render(&a, scale, [-f.x, -f.y], x, y, tw, th)?;
                 cancelled(token)?;
-                let ib = Self::render(
-                    &b,
-                    scale,
-                    [
-                        o.offset_x_mm * 72.0 / 25.4 - f.x,
-                        o.offset_y_mm * 72.0 / 25.4 - f.y,
-                    ],
-                    x,
-                    y,
-                    tw,
-                    th,
-                )?;
+                let ib = Self::render_b(&b, scale, f, x, y, tw, th)?;
                 for ly in 0..th {
                     let row = &mut rows[ly as usize];
                     let mut pending: Option<Run> = None;
@@ -514,11 +534,14 @@ impl<'a> Engine<'a> {
             return Err("请另选新文件名，首版导出不覆盖已有文件。".into());
         }
         let data = if kind == "csv" {
-            let metadata=format!("# Jerrivell drawing comparison; DPI={}; threshold={}; pageA={}; pageB={}; offsetXmm={}; offsetYmm={}; ignoredZones={}; uncovered={}",report.options.dpi,report.options.threshold,report.options.page_a+1,report.options.page_b+1,report.options.offset_x_mm,report.options.offset_y_mm,serde_json::to_string(&report.options.ignored).unwrap(),report.uncovered);
+            let mut metadata=format!("# Jerrivell drawing comparison; DPI={}; threshold={}; pageA={}; pageB={}; offsetXmm={}; offsetYmm={}; ignoredZones={}; uncovered={}",report.options.dpi,report.options.threshold,report.options.page_a+1,report.options.page_b+1,report.options.offset_x_mm,report.options.offset_y_mm,serde_json::to_string(&report.options.ignored).unwrap(),report.uncovered);
+            if report.options.scale_mode == ScaleMode::Normalized {
+                metadata.push_str(&format!("; scaleMode=normalized; scaleB={:.9}; coordinateUnits=A-reference-mm-not-physical", self.pages(&report.options)?.2.b_scale));
+            }
             let mut csv = format!("\u{feff}\"{}\"\r\n", metadata.replace('"', "\"\""));
-            csv.push_str(
-                "id,x_mm,y_mm,width_mm,height_mm,pixels,added,removed,changed,reviewed\r\n",
-            );
+            csv.push_str(if report.options.scale_mode == ScaleMode::Normalized {
+                "id,x_ref_mm,y_ref_mm,width_ref_mm,height_ref_mm,pixels,added,removed,changed,reviewed\r\n"
+            } else { "id,x_mm,y_mm,width_mm,height_mm,pixels,added,removed,changed,reviewed\r\n" });
             for r in &report.regions {
                 let b = r.bounds;
                 csv.push_str(&format!(
@@ -589,7 +612,8 @@ impl<'a> Engine<'a> {
                     }
                 }
             }
-            let image = super::report_image::label(image, report);
+            let image =
+                super::report_image::label(image, report, self.pages(&report.options)?.2.b_scale);
             let mut bytes = Cursor::new(Vec::new());
             DynamicImage::ImageRgba8(image)
                 .write_to(&mut bytes, ImageFormat::Png)
@@ -683,18 +707,7 @@ impl<'a> Engine<'a> {
         );
         let ia = Self::render(&a, s, [-f.x, -f.y], 0, 0, w, h)?;
         cancelled(token)?;
-        let ib = Self::render(
-            &b,
-            s,
-            [
-                o.offset_x_mm * 72. / 25.4 - f.x,
-                o.offset_y_mm * 72. / 25.4 - f.y,
-            ],
-            0,
-            0,
-            w,
-            h,
-        )?;
+        let ib = Self::render_b(&b, s, f, 0, 0, w, h)?;
         let mut proposal = Alignment {
             options: o.clone(),
             offset_x_mm: o.offset_x_mm,
@@ -791,10 +804,14 @@ impl<'a> Engine<'a> {
                 (ty - th as f64 / 2.).max(0.).min((fh - th) as f64) as u32,
             );
             let pa = Self::render(&a, full, [-f.x, -f.y], l, t, tw, th)?;
-            let pb = Self::render(
+            let pb = Self::render_b(
                 &b,
                 full,
-                [x * 72. / 25.4 - f.x, y * 72. / 25.4 - f.y],
+                Frame {
+                    b_x: f.b_x + (x - o.offset_x_mm) * 72. / 25.4,
+                    b_y: f.b_y + (y - o.offset_y_mm) * 72. / 25.4,
+                    ..f
+                },
                 l,
                 t,
                 tw,
@@ -985,10 +1002,18 @@ impl<'a> Engine<'a> {
             .as_ref()
             .filter(|(s, _)| s.job_id == job_id)
             .ok_or("没有该批量任务的完整处理记录。")?;
-        let mut csv=String::from("\u{feff}pair,page_a,page_b,status,dpi,tolerance,offset_x_mm,offset_y_mm,regions,changed_pixels,ignored_pixels,coverage_differs,all_analyzed,unpaired_a,unpaired_b\r\n");
+        let normalized = summary
+            .items
+            .iter()
+            .any(|v| v.options.scale_mode == ScaleMode::Normalized);
+        let mut csv=String::from("\u{feff}pair,page_a,page_b,status,dpi,tolerance,offset_x_mm,offset_y_mm,regions,changed_pixels,ignored_pixels,coverage_differs,all_analyzed,unpaired_a,unpaired_b");
+        if normalized {
+            csv.push_str(",scale_mode,scale_b,coordinate_units");
+        }
+        csv.push_str("\r\n");
         for item in &summary.items {
             csv.push_str(&format!(
-                "{},{},{},{},{},{},{:.5},{:.5},{},{},{},{},{},\"{}\",\"{}\"\r\n",
+                "{},{},{},{},{},{},{:.5},{:.5},{},{},{},{},{},\"{}\",\"{}\"{}\r\n",
                 item.index + 1,
                 item.options.page_a + 1,
                 item.options.page_b + 1,
@@ -1015,7 +1040,21 @@ impl<'a> Engine<'a> {
                     .iter()
                     .map(|v| (v + 1).to_string())
                     .collect::<Vec<_>>()
-                    .join(" ")
+                    .join(" "),
+                if normalized {
+                    format!(
+                        ",{},{:.9},{}",
+                        item.options.scale_mode.as_str(),
+                        self.pages(&item.options)?.2.b_scale,
+                        if item.options.scale_mode == ScaleMode::Normalized {
+                            "A-reference-units-not-physical"
+                        } else {
+                            "physical"
+                        }
+                    )
+                } else {
+                    String::new()
+                }
             ));
         }
         csv.push_str("\r\npair,region,x_normalized,y_normalized,width_normalized,height_normalized,pixels,added,removed,changed\r\n");

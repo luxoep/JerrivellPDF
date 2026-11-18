@@ -23,9 +23,30 @@ impl Rect {
             && self.y + self.height <= 1.000001
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScaleMode {
+    Normalized,
+    #[default]
+    Physical,
+}
+impl ScaleMode {
+    pub fn is_physical(&self) -> bool {
+        *self == Self::Physical
+    }
+    pub fn as_str(&self) -> &'static str {
+        if self.is_physical() {
+            "physical"
+        } else {
+            "normalized"
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Options {
+    #[serde(default, skip_serializing_if = "ScaleMode::is_physical")]
+    pub scale_mode: ScaleMode,
     pub page_a: u32,
     pub page_b: u32,
     pub dpi: u32,

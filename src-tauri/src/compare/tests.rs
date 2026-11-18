@@ -27,6 +27,7 @@ pub(super) fn pdf(stream: &str, width: u32, height: u32, rotate: u32) -> Vec<u8>
 }
 fn options() -> types::Options {
     types::Options {
+        scale_mode: types::ScaleMode::Physical,
         page_a: 0,
         page_b: 0,
         dpi: 150,

@@ -56,7 +56,7 @@ export async function integrationChecks(exe = executable, dll = library) {
   // Batch-export tests refuse overwrites; each run owns an unused output folder.
   const output = join(root, `test-results/${version}/integration-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   await mkdir(output, { recursive: true });
-  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker', 'compare-worker', 'compare-phase-two-worker'];
+  const names = ['live-worker', 'pdf-fragment-workflow', 'image-edit-workflow', 'worker-smoke', 'original-worker', 'document-worker', 'project-worker', 'compare-worker', 'compare-phase-two-worker', 'compare-normalized-worker'];
   for (const name of names) await run(process.execPath, [`tests/${name}.mjs`, exe, dll, join(output, name)]);
   const result = { status: 'PASS', executable: exe, output, tests: names };
   await writeFile(join(output, 'results.json'), JSON.stringify(result, null, 2));

@@ -8,6 +8,7 @@ mod quality;
 #[cfg(test)]
 mod tests;
 #[cfg(test)] mod phase_two_tests;
+#[cfg(test)] mod normalized_tests;
 mod types;
 mod worker;
 

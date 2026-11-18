@@ -13,7 +13,8 @@ const canvas=document.createElement('canvas');canvas.width=600;canvas.height=800
 const mask=document.createElement('canvas');mask.width=600;mask.height=800;const mc=mask.getContext('2d');mc.fillStyle='#d22676';mc.fillRect(110,150,12,8);mc.fillStyle='#0b9d51';mc.fillRect(360,500,5,5);const overlay={dataUrl:mask.toDataURL(),width:600,height:800};
 let callbackId=0,listenerId=0,polls=0;const callbacks=new Map(),listeners=new Map();
 const region=(id,x,y,w,h,pixels)=>({id,bounds:{x,y,width:w,height:h},pixels,added:id===2?pixels:0,removed:id===1?pixels:0,changed:0,point:[x,y]});
-const report=()=>({jobId:stats.progress.jobId,options:Object.fromEntries(Object.entries(stats.options).reverse()),widthPt:600,heightPt:800,originXPt:0,originYPt:0,pixelWidth:2500,pixelHeight:3333,changedPixels:stats.options.ignored.length?0:25,ignoredPixels:stats.options.ignored.length?1000:0,uncovered:stats.options.offsetXmm!==0||stats.options.offsetYmm!==0,regions:stats.options.ignored.length?[]:[region(1,.18,.18,.025,.02,20),region(2,.6,.62,.006,.006,5)],mask:overlay,tileCount:12});
+const testFrame=o=>{const a=(stats.pages.a??[{width:600,height:800},{width:600,height:800}])[o.pageA],b=(stats.pages.b??[{width:600,height:800},{width:600,height:800}])[o.pageB];const k=o.scaleMode==='normalized'?Math.min(a.width/b.width,a.height/b.height):1;const dx=(o.scaleMode==='normalized'?(a.width-b.width*k)/2:0)+o.offsetXmm*72/25.4,dy=(o.scaleMode==='normalized'?(a.height-b.height*k)/2:0)+o.offsetYmm*72/25.4;const x=Math.min(0,dx),y=Math.min(0,dy);return{widthPt:Math.max(a.width,dx+b.width*k)-x,heightPt:Math.max(a.height,dy+b.height*k)-y,originXPt:x,originYPt:y,uncovered:Math.abs(a.width-b.width*k)>.001||Math.abs(a.height-b.height*k)>.001||Math.abs(dx)>.001||Math.abs(dy)>.001}};
+const report=()=>({jobId:stats.progress.jobId,options:Object.fromEntries(Object.entries(stats.options).reverse()),...testFrame(stats.options),pixelWidth:2500,pixelHeight:3333,changedPixels:stats.options.ignored.length?0:25,ignoredPixels:stats.options.ignored.length?1000:0,regions:stats.options.ignored.length?[]:[region(1,.18,.18,.025,.02,20),region(2,.6,.62,.006,.006,5)],mask:overlay,tileCount:12});
 window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'compare'},currentWebview:{label:'compare'}},transformCallback(fn){const id=++callbackId;callbacks.set(id,fn);return id;},unregisterCallback(id){callbacks.delete(id);},async invoke(command,args={}){
  stats.calls.push({command,args:JSON.parse(JSON.stringify(args))});
  if(command==='plugin:event|listen'){const id=++listenerId;listeners.set(id,{event:args.event,handler:args.handler});return id;}
@@ -38,7 +39,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'compare'},currentWeb
   if(kind==='clear')return{cleared:input.side};
   if(kind==='text_assist')return{status:stats.textStatus,limited:false,changes:stats.textStatus==='available'?[{old:'M8 +0.02',new:'M10 -0.02',dimensionLike:true}]:[]};
   if(kind==='export_batch'){stats.exports.push(input);return{bytes:100};}
-  if(kind==='preview')return{a:picture,b:picture,widthPt:600,heightPt:800,originXPt:0,originYPt:0,uncovered:input.options.offsetXmm!==0||input.options.offsetYmm!==0};
+  if(kind==='preview')return{a:picture,b:picture,...testFrame(input.options)};
   if(kind==='start'){polls=0;stats.task=input.task??'compare';stats.plan=input;stats.options=JSON.parse(JSON.stringify(input.options));stats.progress={jobId:input.jobId,status:'running',completed:0,total:12,report:null,error:null};return{jobId:input.jobId};}
   if(kind==='cancel'){stats.progress={...stats.progress,status:'cancelled',report:null};return{accepted:true};}
   if(kind==='export'){stats.exports.push(JSON.parse(JSON.stringify(input)));return{bytes:123,regions:2};}
@@ -183,6 +184,31 @@ def button_layout(p,url):
  count=len(snap(p)['calls']);p.wait_for_timeout(450);assert len(snap(p)['calls'])==count
  return {'layouts':samples,'expandedDetailBatchAlignmentAndConfirmationChecked':True,'idleRequests':0}
 
+def normalized_analysis(p,url):
+ fresh(p,url);selector=p.get_by_role('combobox',name='Analysis scale mode',exact=True);assert selector.input_value()=='normalized'
+ p.evaluate('stats.pages={a:[{width:600,height:800},{width:600,height:800}],b:[{width:2400,height:3200},{width:2400,height:3200}]}')
+ p.get_by_role('button',name='Choose A',exact=True).click();p.get_by_role('button',name='Choose B',exact=True).click();p.locator('.compare-paper-image').nth(1).wait_for()
+ p.get_by_role('button',name='Compare drawings',exact=True).click();p.get_by_text('2 difference regions',exact=True).wait_for();assert snap(p)['options']['scaleMode']=='normalized'
+ boxes=p.locator('.compare-hit-layer').evaluate_all('ns=>ns.map(n=>n.getAttribute("viewBox"))');assert boxes[0]==boxes[1],boxes
+ assert not p.get_by_role('button',name='Difference CSV',exact=True).is_disabled()
+ selector.select_option('physical');assert p.get_by_role('button',name='Difference CSV',exact=True).is_disabled();p.wait_for_timeout(200)
+ physical=p.locator('.compare-hit-layer').evaluate_all('ns=>ns.map(n=>n.getAttribute("viewBox"))');assert physical[0]!=physical[1],physical
+ p.get_by_role('button',name='Overlay',exact=True).click();p.wait_for_timeout(400);assert calls(p,'preview')[-1]['args']['args']['options']['scaleMode']=='physical'
+ selector.select_option('normalized');p.wait_for_timeout(400);assert calls(p,'preview')[-1]['args']['args']['options']['scaleMode']=='normalized'
+ p.get_by_role('button',name='Side by side',exact=True).click();p.get_by_role('button',name='Multi-page',exact=True).click();p.get_by_role('button',name='Generate pairs',exact=True).click();p.get_by_role('button',name='Start batch comparison',exact=True).click();p.get_by_text('All requested pairs analyzed',exact=True).wait_for()
+ assert all(o['scaleMode']=='normalized' for o in snap(p)['plan']['pairs']);selector.select_option('physical');p.locator('.compare-batch-row').first.click();p.get_by_text('2 difference regions',exact=True).wait_for()
+ assert selector.input_value()=='normalized' and snap(p)['options']['scaleMode']=='normalized'
+ p.get_by_role('button',name='Auto translation',exact=True).click();p.get_by_role('button',name='Apply translation',exact=True).wait_for();assert snap(p)['options']['scaleMode']=='normalized'
+ return {'defaultUnifiedAnalysis':True,'maskUsesNormalizedCoordinates':boxes,'physicalModeInvalidatesExport':True,'overlayModeUsesCurrentGeometry':True,'batchCarriesAndRestoresMode':True,'alignmentUsesNormalizedMode':True}
+
+def normalized_aspect_ratio(p,url):
+ fresh(p,url);p.evaluate('stats.pages={a:[{width:600,height:800}],b:[{width:1200,height:600}]}')
+ p.get_by_role('button',name='Choose A',exact=True).click();p.get_by_role('button',name='Choose B',exact=True).click();p.locator('.compare-paper-image').nth(1).wait_for();p.wait_for_timeout(250)
+ sizes=p.locator('.compare-sheet').evaluate_all('ns=>ns.map(n=>({w:parseFloat(n.style.width),h:parseFloat(n.style.height)}))');assert abs(sizes[0]['h']/sizes[0]['w']-800/600)<.001 and abs(sizes[1]['h']/sizes[1]['w']-.5)<.001,sizes
+ p.get_by_role('button',name='Compare drawings',exact=True).click();p.get_by_text('2 difference regions',exact=True).wait_for();assert snap(p)['progress']['report']['uncovered']
+ count=len(calls(p,'start'));p.get_by_role('checkbox',name='Fit each viewport',exact=True).uncheck();p.wait_for_timeout(400);assert len(calls(p,'start'))==count and p.get_by_role('combobox',name='Analysis scale mode',exact=True).input_value()=='normalized'
+ return {'aspectRatioRetained':sizes,'coverageDifferenceExplicit':True,'viewportFitDoesNotChangeAnalysisMode':True}
+
 def main():
  out=ROOT/f'test-results/{VERSION}';out.mkdir(parents=True,exist_ok=True);(out/'compare-harness.html').write_text(HTML,encoding='utf-8');(out/'compare-harness.tsx').write_text(HARNESS,encoding='utf-8')
  report={'sourceSha256':{s:hashlib.sha256((ROOT/s).read_bytes()).hexdigest()for s in SOURCES},'cases':[],'pageErrors':[]}
@@ -195,7 +221,7 @@ def main():
    except Exception:time.sleep(.1)
   with sync_playwright()as pw:
    browser=pw.chromium.launch(executable_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',headless=True);context=browser.new_context(viewport={'width':1480,'height':1000});page=context.new_page();page.set_default_timeout(9000);page.on('pageerror',lambda e:report['pageErrors'].append(str(e)))
-   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel),('translated-button-groups-and-export-spacing',button_layout)]:
+   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel),('translated-button-groups-and-export-spacing',button_layout),('normalized-analysis-mode-coordinates-and-batch',normalized_analysis),('normalized-aspect-and-view-only-fit',normalized_aspect_ratio)]:
     case={'name':name}
     try:case.update(status='PASS',result=run(page,url))
     except Exception as e:case.update(status='FAIL',error=str(e),traceback=traceback.format_exc(),body=page.locator('body').inner_text()[:2500])
