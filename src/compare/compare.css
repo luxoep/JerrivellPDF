@@ -26,6 +26,23 @@
 .compare-display-mode{display:flex;align-items:center;gap:5px;font-size:10px;color:#6c8290;white-space:nowrap}.compare-view-tools{flex-wrap:wrap;row-gap:5px}.compare-viewport>.compare-empty{margin:45px auto;max-width:330px}
 .compare-alignment-proposal{display:flex;align-items:center;gap:10px;flex:none;padding:8px 18px;background:#edf3ed;border-bottom:1px solid #cbd9c9;color:#547157;font-size:11px}.compare-alignment-proposal>span{flex:1}.compare-alignment-proposal .button{min-height:28px;height:28px;font-size:10px;padding:0 10px}
 .compare-results{overflow-y:auto}.compare-result-tabs{display:flex;gap:4px;padding:0 12px 9px;flex:none}.compare-result-tabs button{flex:1;padding:6px;border-radius:5px;color:#758c98;font-size:10px}.compare-result-tabs button[aria-pressed=true]{background:#e6eef2;color:#365e76}
+/* Keep sidebar actions in their own rows: the sidebar is narrower than the
+   combined intrinsic widths of the translated export labels. */
+.compare-export{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;flex:none;margin-top:auto;padding:12px;border-top:1px solid #e2dac8}
+.compare-export>.button{width:100%;min-width:0;min-height:36px;height:auto;padding:8px 12px;font-size:11px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.compare-app .button>svg{flex:none}
+.compare-source-card>.button,.compare-page-input,.compare-view-footer>button,.compare-detail-header>button{flex-shrink:0}
+.compare-view-footer>.compare-zoom{flex:none}
+.compare-detail-header{flex-wrap:wrap;column-gap:8px;row-gap:6px}
+.compare-detail-header>span{flex:1 1 180px;min-width:0}
+.compare-detail-dock>footer{flex-wrap:wrap;gap:8px 12px}
+.compare-alignment-proposal{flex-wrap:wrap;gap:8px 10px}
+.compare-alignment-proposal>span{flex:1 1 280px;min-width:0;overflow-wrap:anywhere}
+.compare-alignment-proposal>.button{flex:none}
+.compare-batch-dialog>footer{flex-wrap:wrap;gap:10px}
+.compare-batch-dialog>footer>.button{flex:none}
+.compare-app .modal-actions{flex-wrap:wrap;gap:10px}
+.compare-app .modal-actions>.button{min-width:0;height:auto;min-height:37px;padding:8px 12px;white-space:normal;overflow-wrap:anywhere}
 .compare-batch-results{padding:0 12px 12px;overflow-y:auto;flex:1;min-height:80px;font-size:11px}.compare-batch-results>p{margin:5px 0;color:#8a794f}.compare-batch-results>small{display:block;font-size:10px;color:#a06448;line-height:1.7;margin:6px 0 10px}.compare-batch-row{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left;border:1px solid #dfd7c6;background:#fbf8ef;border-radius:7px;padding:9px;margin:6px 0;color:#4a6c80}.compare-batch-row span,.compare-batch-row small{font-size:10px;color:#7b8f99}.compare-batch-results>.button{width:100%;margin-top:8px;min-height:32px;gap:7px;font-size:11px}
 .compare-text-assist{padding:8px 12px;border-top:1px solid #e2dac8;flex:none;font-size:10px;max-height:32vh;overflow-y:auto}.compare-text-assist>.button{width:100%;font-size:10px;min-height:30px;gap:5px}.compare-text-assist>small{display:block;margin:8px 0;color:#8c978f;line-height:1.6}.compare-text-changes>div{display:flex;flex-direction:column;gap:4px;padding:8px;margin-top:6px;background:#f4f1e6;border-radius:6px;overflow-wrap:anywhere;white-space:pre-wrap}.compare-text-changes b{font-weight:500;color:#8a7e58}.compare-text-changes del{color:#a44070;text-decoration:none}.compare-text-changes ins{color:#3d7c55;text-decoration:none}
 .compare-detail-dock{display:flex;flex-direction:column;flex:none;min-height:0;min-width:0;background:#fffdf6;border-top:1px solid #c7d2d4;position:relative;overflow:hidden}.compare-detail-header{display:flex;align-items:center;gap:9px;flex:none;min-height:37px;padding:5px 13px;border-bottom:1px solid #e0d8c4;color:#527288}.compare-detail-header strong{font-size:11px;font-weight:600;white-space:nowrap}.compare-detail-header>span{margin-right:auto;font-size:9px;color:#909b98}.compare-detail-header button{display:flex;align-items:center;justify-content:center;min-width:25px;height:26px;border:1px solid #d9d8c9;border-radius:5px;color:#5b7c8e;background:#fffefa;font-size:10px}.compare-detail-header button:hover{background:#e5eef1}

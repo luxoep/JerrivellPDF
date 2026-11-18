@@ -162,6 +162,27 @@ def text_and_batch_cancel(p,url):
  p.get_by_role('button',name='Multi-page',exact=True).click();p.get_by_role('button',name='Generate pairs',exact=True).click();p.evaluate('stats.hold=true');p.get_by_role('button',name='Start batch comparison',exact=True).click();p.get_by_role('button',name='Stop',exact=True).click();p.get_by_text('Analysis cancelled; no complete conclusion.',exact=True).wait_for();assert p.get_by_role('button',name='Export batch CSV',exact=True).count()==0
  return {'restrictedTextHasVisualFallback':True,'cancelledBatchCannotExport':True}
 
+def button_layout(p,url):
+ analyzed(p,url);p.get_by_alt_text('New drawing detail').wait_for();samples=[]
+ groups=['.compare-header','.compare-source-card','.compare-options','.compare-view-tools','.compare-segment','.compare-tool-toggles','.compare-view-footer','.compare-export','.compare-detail-header','.compare-detail-dock>footer','.compare-list-controls','.compare-result-tabs','.compare-batch-ranges','.compare-batch-dialog>footer','.compare-alignment-proposal','.compare-app .modal-actions']
+ def check():
+  data=p.evaluate('''selectors=>{const failures=[];let buttons=0,groups=0;for(const selector of selectors)for(const group of document.querySelectorAll(selector)){const g=group.getBoundingClientRect();if(!g.width||!g.height)continue;groups++;const children=[...group.children].filter(n=>{const b=n.getBoundingClientRect();return b.width&&b.height});for(let i=0;i<children.length;i++){const a=children[i],r=a.getBoundingClientRect();if(r.left<g.left-1||r.right>g.right+1)failures.push(selector+': child outside container');for(const b of children.slice(i+1)){const s=b.getBoundingClientRect();if(Math.min(r.right,s.right)-Math.max(r.left,s.left)>1&&Math.min(r.bottom,s.bottom)-Math.max(r.top,s.top)>1)failures.push(selector+': overlapping controls')}}for(const b of group.querySelectorAll('button')){buttons++;if(b.scrollWidth>b.clientWidth+2||b.scrollHeight>b.clientHeight+2)failures.push(selector+': clipped '+(b.ariaLabel||b.textContent))}}return{groups,buttons,failures}}''',groups)
+  assert not data['failures'],data
+  return data
+ for width,height in [(1100,740),(1280,800),(1480,940)]:
+  p.set_viewport_size({'width':width,'height':height})
+  for language in ['en-US','zh-CN']:
+   p.get_by_role('combobox').first.select_option(language);p.wait_for_timeout(350);data=check()
+   buttons=p.locator('.compare-export>.button').all();a,b=[v.bounding_box()for v in buttons];assert b['y']-(a['y']+a['height'])>=7.5,(a,b)
+   assert abs(a['width']-b['width'])<1 and a['width']>220
+   samples.append({'viewport':[width,height],'language':language,'exportGap':round(b['y']-a['y']-a['height'],2),**data})
+ p.get_by_role('combobox').first.select_option('en-US');p.get_by_role('button',name='Expand details',exact=True).click();check();p.keyboard.press('Escape')
+ p.get_by_role('button',name='Multi-page',exact=True).click();check();p.get_by_role('button',name='Generate pairs',exact=True).click();check();p.get_by_role('button',name='Close page pairing',exact=True).click()
+ p.get_by_role('button',name='Auto translation',exact=True).click();p.get_by_role('button',name='Apply translation',exact=True).wait_for();check()
+ p.get_by_label('Manually reviewed',exact=True).check();p.get_by_role('button',name='Clear A',exact=True).click();p.get_by_role('dialog').wait_for();check();p.get_by_role('button',name='Keep working',exact=True).click()
+ count=len(snap(p)['calls']);p.wait_for_timeout(450);assert len(snap(p)['calls'])==count
+ return {'layouts':samples,'expandedDetailBatchAlignmentAndConfirmationChecked':True,'idleRequests':0}
+
 def main():
  out=ROOT/f'test-results/{VERSION}';out.mkdir(parents=True,exist_ok=True);(out/'compare-harness.html').write_text(HTML,encoding='utf-8');(out/'compare-harness.tsx').write_text(HARNESS,encoding='utf-8')
  report={'sourceSha256':{s:hashlib.sha256((ROOT/s).read_bytes()).hexdigest()for s in SOURCES},'cases':[],'pageErrors':[]}
@@ -174,7 +195,7 @@ def main():
    except Exception:time.sleep(.1)
   with sync_playwright()as pw:
    browser=pw.chromium.launch(executable_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',headless=True);context=browser.new_context(viewport={'width':1480,'height':1000});page=context.new_page();page.set_default_timeout(9000);page.on('pageerror',lambda e:report['pageErrors'].append(str(e)))
-   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel)]:
+   for name,run in [('native-boundary-and-review-export',basic),('stale-result-and-flexible-fields',stale_and_fields),('zoom-pan-overlay-and-idle',zoom_pan_and_idle),('ignored-area-qualification',exclusions),('manual-point-alignment',alignment),('cancel-and-isolated-worker-failure',cancel_crash),('review-close-protection',close_guard),('external-guard-fail-closed',guard),('responsive-stationary-preview',responsive),('mixed-size-fit-and-side-clear',mixed_size_clear),('large-resizable-stable-details',large_detail),('automatic-translation-confirmation',auto_alignment),('multi-page-pairing-and-findings',batches),('restricted-text-and-batch-cancel',text_and_batch_cancel),('translated-button-groups-and-export-spacing',button_layout)]:
     case={'name':name}
     try:case.update(status='PASS',result=run(page,url))
     except Exception as e:case.update(status='FAIL',error=str(e),traceback=traceback.format_exc(),body=page.locator('body').inner_text()[:2500])
