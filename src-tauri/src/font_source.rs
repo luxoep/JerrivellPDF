@@ -592,11 +592,12 @@ mod native {
         rebuild_sfnt(tables)
     }
 
-    pub fn load(family: &str) -> Result<(String, Vec<u8>), String> {
+    pub fn load(family: &str, bold: bool, italic: bool) -> Result<(String, Vec<u8>), String> {
         // SAFETY: all-zero scalars/array form a valid initial LOGFONTW.
         let mut description: LogFontW = unsafe { std::mem::zeroed() };
         description.height = -16;
-        description.weight = 400;
+        description.weight = if bold { 700 } else { 400 };
+        description.italic = u8::from(italic);
         description.char_set = 1; // DEFAULT_CHARSET
         description.out_precision = 7; // OUT_TT_ONLY_PRECIS
         for (slot, word) in description.face_name.iter_mut().zip(family.encode_utf16()) {
@@ -654,11 +655,23 @@ mod native {
 
 /// Resolve one installed face and enforce editable embedding and exact glyphs.
 pub fn load_editable_font(family: &str, text: &str) -> Result<EditableFont, String> {
+    load_editable_font_style(family, text, false, false)
+}
+
+/// Require an actual matching installed face. GDI's synthetic bold/italic is
+/// not part of GetFontData and must never be advertised as embedded styling.
+pub fn load_editable_font_style(
+    family: &str,
+    text: &str,
+    bold: bool,
+    italic: bool,
+) -> Result<EditableFont, String> {
     let family = valid_family(family)?;
     #[cfg(windows)]
     {
-        let (actual, bytes) = native::load(family)?;
+        let (actual, bytes) = native::load(family, bold, italic)?;
         let fs_type = verify_font(&bytes)?;
+        validate_face_style(&bytes, bold, italic)?;
         validate_text_coverage(&bytes, text)?;
         Ok(EditableFont {
             family: actual,
@@ -668,9 +681,23 @@ pub fn load_editable_font(family: &str, text: &str) -> Result<EditableFont, Stri
     }
     #[cfg(not(windows))]
     {
-        let _ = (family, text);
+        let _ = (family, text, bold, italic);
         Err(invalid("当前仅支持 Windows 本机字体读取。"))
     }
+}
+
+fn validate_face_style(bytes: &[u8], bold: bool, italic: bool) -> Result<(), String> {
+    let tables = table_directory(bytes)?;
+    let os2 = required(&tables, *b"OS/2")?;
+    let selection = be16(os2, 62)?;
+    let actual_bold = be16(os2, 4)? >= 600 || selection & 0x20 != 0;
+    let actual_italic = selection & 1 != 0;
+    if actual_bold != bold || actual_italic != italic {
+        return Err(invalid(
+            "该字体没有匹配的真实粗体/斜体字形，已拒绝合成样式；请更换字体或关闭相应样式。",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -747,6 +774,36 @@ mod tests {
         tables.insert(*b"OS/2", os2);
         tables.insert(*b"cmap", cmap);
         tables
+    }
+
+    #[test]
+    fn requested_styles_require_real_font_program_flags_not_gdi_synthesis() {
+        let mut tables = synthetic_tables();
+        let regular = rebuild_sfnt(tables.clone()).unwrap();
+        assert!(validate_face_style(&regular, false, false).is_ok());
+        assert!(validate_face_style(&regular, true, false).is_err());
+        assert!(validate_face_style(&regular, false, true).is_err());
+        let os2 = tables.get_mut(b"OS/2").unwrap();
+        os2[4..6].copy_from_slice(&700u16.to_be_bytes());
+        os2[62..64].copy_from_slice(&0x21u16.to_be_bytes());
+        let bold_italic = rebuild_sfnt(tables).unwrap();
+        assert!(validate_face_style(&bold_italic, true, true).is_ok());
+        assert!(validate_face_style(&bold_italic, false, true).is_err());
+        assert!(validate_face_style(&bold_italic, true, false).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installed_arial_has_four_distinct_embeddable_real_style_programs() {
+        let mut programs = BTreeSet::new();
+        for (bold, italic) in [(false, false), (true, false), (false, true), (true, true)] {
+            let font = load_editable_font_style("Arial", "Editable ABC 123", bold, italic).unwrap();
+            assert!(
+                programs.insert(font.bytes.clone()),
+                "requested style must select a distinct real font program"
+            );
+            assert!(validate_text_coverage(&font.bytes, "Editable ABC 123").is_ok());
+        }
     }
 
     #[test]

@@ -95,6 +95,45 @@ try {
   assert.equal((await call('search_document', { documentId: cjk.id, query: title.text })).length, 0);
   passed.push('installed CJK font embedding, repeated page reuse, searchable Unicode, source text removed');
 
+  for (const [index, [bold, italic]] of [[false, false], [true, false], [false, true], [true, true]].entries()) {
+    const styled = { ...page, contentEdits: [patch(title, { text: 'Native styled text', fontFamily: 'Arial', fontSize: 22, bold, italic, opacity: .65 })] };
+    const current = (await call('inspect_page_content', { page: styled })).objects.find(object => object.objectIndex === title.objectIndex);
+    assert.equal(current.bold, bold); assert.equal(current.italic, italic);
+    assert.ok(Math.abs(current.opacity - .65) < .005);
+    const reopened = await roundTrip(`native-style-${index}`, [styled]);
+    assert.equal((await call('search_document', { documentId: reopened.id, query: 'Native styled text' })).length, 1);
+    assert.equal((await call('search_document', { documentId: reopened.id, query: title.text })).length, 0);
+    const savedText = (await call('inspect_page_content', { page: ref(reopened) })).objects.find(object => object.text === 'Native styled text');
+    assert.equal(savedText.bold, bold); assert.equal(savedText.italic, italic);
+    assert.ok(Math.abs(savedText.opacity - .65) < .005);
+  }
+  passed.push('four actual installed Arial faces, per-style font caching, native opacity, searchable saved Unicode and exact saved pixels');
+
+  const lineRequest = { page, objects: [{ objectIndex: title.objectIndex, fingerprint: title.fingerprint }], bounds: title.bounds,
+    targetBounds: { x: .12, y: .20, width: .7, height: .15 }, text: 'Styled line preview', fontFamily: 'Arial', fontSize: 22, color: '#185A7A',
+    charSpacing: 1.2, alignment: 'right', constrainWidth: true, bold: true, italic: true, opacity: .6, underline: true, strikeout: true };
+  const linePreview = await call('preview_line_edit', { request: lineRequest });
+  assert.equal(Object.hasOwn(linePreview, 'before'), false, 'no original-page raster should be returned');
+  assert.equal(linePreview.canApply, true);
+  const lineDoc = await call('commit_line_preview', { token: linePreview.token });
+  const lineObjects = (await call('inspect_page_content', { page: ref(lineDoc) })).objects;
+  const nativeLine = lineObjects.find(object => object.text === lineRequest.text);
+  assert.ok(nativeLine); assert.equal(nativeLine.bold, true); assert.equal(nativeLine.italic, true);
+  assert.ok(Math.abs(nativeLine.opacity - .6) < .005);
+  assert.ok(Math.abs(nativeLine.bounds.x + nativeLine.bounds.width - .82) < .001);
+  const savedLine = await roundTrip('native-line-style', [ref(lineDoc)]);
+  assert.equal((await call('search_document', { documentId: savedLine.id, query: lineRequest.text })).length, 1);
+  assert.equal(hash(pngBytes(linePreview.after)), hash(pngBytes(await call('render_page', { page: ref(savedLine), targetWidth: linePreview.after.width }))));
+  passed.push('after-only cached line preview, native real styles, opacity, vector underline and strikeout, exact right alignment and saved searchable text');
+
+  const spacedPreview = await call('preview_line_edit', { request: { ...lineRequest, text: 'HELLO', fontSize: 20, charSpacing: 3 } });
+  assert.equal(spacedPreview.canApply, true);
+  const spacedDoc = await call('commit_line_preview', { token: spacedPreview.token });
+  const savedSpaced = await roundTrip('native-line-spacing', [ref(spacedDoc)]);
+  assert.equal((await call('search_document', { documentId: savedSpaced.id, query: 'HELLO' })).length, 1);
+  assert.equal((await call('search_pages', { pages: [ref(savedSpaced)], query: 'HELLO' })).length, 1);
+  passed.push('inferred letter spacing remains searchable after native line commit, export and reopening');
+
   const placed = { ...english, contentEdits: [patch(title, { text: 'Exact bounds', bounds: { x: .9, y: .12, width: .03, height: .35 } })], rotation: 90 };
   const placedTitle = (await call('inspect_page_content', { page: placed })).objects.find(object => object.objectIndex === title.objectIndex);
   for (const [key, value] of Object.entries(placed.contentEdits[0].bounds)) assert.ok(Math.abs(placedTitle.bounds[key] - value) < .0001, key);

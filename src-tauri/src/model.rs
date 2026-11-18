@@ -90,6 +90,22 @@ pub struct LineEditRequest {
     pub char_spacing: f32,
     pub alignment: String,
     pub constrain_width: bool,
+    #[serde(default)]
+    pub target_bounds: Option<ContentBounds>,
+    #[serde(default)]
+    pub bold: Option<bool>,
+    #[serde(default)]
+    pub italic: Option<bool>,
+    #[serde(default = "opaque_text")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub underline: bool,
+    #[serde(default)]
+    pub strikeout: bool,
+}
+
+fn opaque_text() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,6 +131,12 @@ pub struct ContentEdit {
     #[serde(default)]
     pub fill_color: Option<String>,
     #[serde(default)]
+    pub bold: Option<bool>,
+    #[serde(default)]
+    pub italic: Option<bool>,
+    #[serde(default)]
+    pub opacity: Option<f32>,
+    #[serde(default)]
     pub bounds: Option<ContentBounds>,
     #[serde(default)]
     pub deleted: Option<bool>,
@@ -135,6 +157,9 @@ pub struct ContentObject {
     pub font_family: Option<String>,
     pub font_size: Option<f32>,
     pub fill_color: Option<String>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub opacity: Option<f32>,
     pub editable: bool,
     pub reason: Option<String>,
     pub deleted: bool,

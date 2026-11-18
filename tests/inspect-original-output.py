@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import struct
 import sys
 
 from PIL import Image
@@ -48,6 +49,65 @@ for page in cjk.pages:
 assert len(font_programs) == 1, 'Two pages must share one actual embedded font program'
 passed.append('CJK Unicode independently extractable with one shared embedded TrueType program across two pages')
 
+def installed_programs(page):
+    for font_ref in page['/Resources']['/Font'].values():
+        font = font_ref.get_object()
+        for descendant in font.get('/DescendantFonts', []):
+            descriptor = descendant.get_object()['/FontDescriptor'].get_object()
+            program = descriptor.get('/FontFile2')
+            if program:
+                yield program.get_object().get_data()
+
+
+def program_style(data):
+    assert data[:4] == b'\0\1\0\0', 'Expected a real embedded TrueType program'
+    table_count = struct.unpack_from('>H', data, 4)[0]
+    for index in range(table_count):
+        tag, _, offset, length = struct.unpack_from('>4sIII', data, 12 + index * 16)
+        if tag == b'OS/2':
+            assert length >= 64 and offset + length <= len(data)
+            weight = struct.unpack_from('>H', data, offset + 4)[0]
+            selection = struct.unpack_from('>H', data, offset + 62)[0]
+            return weight >= 600 or bool(selection & 0x20), bool(selection & 1)
+    raise AssertionError('Embedded TrueType font has no OS/2 style table')
+
+
+# PDFium's TrueType ToUnicode may choose U+00A0 for the shared space glyph.
+# Permit exactly that whitespace alias, not arbitrary missing/replaced letters.
+whitespace_aliases = {}
+def style_text(page, name):
+    value = page.extract_text()
+    whitespace_aliases[name] = value.count('\u00a0')
+    return value.replace('\u00a0', ' ')
+
+program_digests = set()
+for index, expected_style in enumerate([(False, False), (True, False), (False, True), (True, True)]):
+    styled = PdfReader(root / f'native-style-{index}.pdf')
+    page = styled.pages[0]
+    assert 'Native styled text' in style_text(page, f'native-style-{index}.pdf')
+    assert 'Make room for clarity.' not in page.extract_text()
+    assert len(page.images) == 0, 'Styled native text must remain text'
+    programs = list(installed_programs(page))
+    assert len(programs) == 1
+    assert program_style(programs[0]) == expected_style
+    program_digests.add(hashlib.sha256(programs[0]).hexdigest())
+    states = page['/Resources']['/ExtGState'].values()
+    assert any(abs(float(state.get_object().get('/ca', 1)) - .65) < .005 for state in states)
+assert len(program_digests) == 4, 'Four styles must use distinct actual installed font programs'
+passed.append('Four independently inspected TrueType OS/2 real styles, actual alpha ExtGState, searchable Unicode and zero text images')
+
+line_pdf = PdfReader(root / 'native-line-style.pdf')
+line_page = line_pdf.pages[0]
+assert 'Styled line preview' in style_text(line_page, 'native-line-style.pdf')
+assert 'Make room for clarity.' not in line_page.extract_text()
+assert len(line_page.images) == 0
+assert any(program_style(data) == (True, True) for data in installed_programs(line_page))
+line_ops = ContentStream(line_page.get_contents(), line_pdf).operations
+assert sum(op == b'S' for _, op in line_ops) >= sum(op == b'S' for _, op in original_ops) + 2, 'Decoration strokes must be vector paths'
+assert any(op == b'TJ' and any(isinstance(item, (int, float)) and item != 0 for item in operands[0]) for operands, op in line_ops), 'Native character spacing must survive in text-show advances'
+assert any(abs(float(state.get_object().get('/ca', 1)) - .6) < .005 for state in line_page['/Resources']['/ExtGState'].values())
+passed.append('Styled line remains native Unicode text, distinct vector decoration strokes, native TJ spacing, transparent fill and real bold-italic font')
+
 removed = PdfReader(root / '移除原文对象.pdf')
 assert 'Make room for clarity.' not in removed.pages[0].extract_text()
 assert 'PAGE-ONE' in removed.pages[0].extract_text()
@@ -64,7 +124,7 @@ assert 'Exact bounds' in rotated.pages[0].extract_text()
 passed.append('Rotation and changed text independently retained')
 
 renders = []
-for name in ['原文英文替换', '中文字体原文替换', '旋转原文定位', '替换单个原有图片']:
+for name in ['原文英文替换', '中文字体原文替换', '旋转原文定位', '替换单个原有图片', 'native-style-3', 'native-line-style']:
     prefix = root / (name + '-poppler')
     completed = subprocess.run(['pdftoppm', '-f', '1', '-singlefile', '-r', '96', '-png', str(root / (name + '.pdf')), str(prefix)], capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
@@ -79,6 +139,6 @@ for name in ['原文英文替换', '中文字体原文替换', '旋转原文定�
     renders.append({'file': image_path.name, 'stderr': completed.stderr.strip()})
 assert hashlib.sha256((root / '原创 原文样本.pdf').read_bytes()).hexdigest() == result['originalHash']
 passed.append('Independent Poppler rendering and color probes, immutable source SHA-256')
-report = {'status': 'PASS', 'outputDirectory': str(root), 'passed': passed, 'renders': renders}
+report = {'status': 'PASS', 'outputDirectory': str(root), 'passed': passed, 'renders': renders, 'unicodeWhitespaceAliases': whitespace_aliases, 'whitespaceNote': 'U+00A0 is normalized to U+0020 only for these text assertions. Exact Unicode whitespace identity is not claimed.'}
 (root / 'independent.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps(report, ensure_ascii=False, indent=2))

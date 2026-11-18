@@ -250,6 +250,21 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
             PdfPoints::new(12.0),
         )
         .unwrap();
+    for (x, y, value) in [
+        (40.0, 140.0, "X"),
+        (70.0, 140.0, "Y"),
+        (40.0, 100.0, "REAL SPACE"),
+    ] {
+        page.objects_mut()
+            .create_text_object(
+                PdfPoints::new(x),
+                PdfPoints::new(y),
+                value,
+                font,
+                PdfPoints::new(12.0),
+            )
+            .unwrap();
+    }
     page.regenerate_content().unwrap();
     drop(page);
     let path = temp.path().join("fragments.pdf");
@@ -306,8 +321,18 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
         char_spacing: 0.0,
         alignment: "left".into(),
         constrain_width: false,
+        target_bounds: None,
+        bold: None,
+        italic: None,
+        opacity: 1.0,
+        underline: false,
+        strikeout: false,
     };
     let narrow = engine.preview_line_edit(&request).unwrap();
+    assert!(
+        narrow.get("before").is_none(),
+        "line previews must render and return only the edited page"
+    );
     assert_eq!(narrow["canApply"], true);
     request.char_spacing = 3.0;
     request.alignment = "center".into();
@@ -343,7 +368,8 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
             .iter()
             .filter(|object| object.kind == "text")
             .count(),
-        2
+        5,
+        "Join the two fragments and preserve the four other text objects"
     );
     assert!(result
         .objects
@@ -397,6 +423,160 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
         (continued_line.bounds.width - new_line.bounds.width).abs() < 0.001,
         "Letter spacing must survive subsequent edits and save"
     );
+    request.font_family = Some("Arial".into());
+    request.bold = Some(true);
+    request.italic = Some(true);
+    request.opacity = 0.6;
+    request.underline = true;
+    request.strikeout = true;
+    request.target_bounds = Some(ContentBounds {
+        x: 0.10,
+        y: 0.35,
+        width: 0.70,
+        height: 0.20,
+    });
+    request.alignment = "right".into();
+    let styled = engine.preview_line_edit(&request).unwrap();
+    assert_eq!(styled["canApply"], true);
+    assert!(styled.get("before").is_none());
+    let styled_document = engine
+        .commit_line_preview(styled["token"].as_str().unwrap())
+        .unwrap();
+    let styled_info = engine
+        .inspect_page_content(&reference(&styled_document, 0, 0))
+        .unwrap();
+    let styled_line = styled_info
+        .objects
+        .iter()
+        .find(|object| object.text.as_deref() == Some("HELLO"))
+        .unwrap();
+    assert_eq!(styled_line.bold, Some(true));
+    assert_eq!(styled_line.italic, Some(true));
+    assert!((styled_line.opacity.unwrap() - 0.6).abs() < 0.005);
+    assert!((styled_line.bounds.x + styled_line.bounds.width - 0.8).abs() < 0.001);
+    assert_eq!(
+        styled_info
+            .objects
+            .iter()
+            .filter(|object| object.kind == "unsupported")
+            .count(),
+        2,
+        "underline and strikeout must be vector paths"
+    );
+    let styled_text = engine
+        .page_content_text(&reference(&styled_document, 0, 0))
+        .unwrap();
+    assert!(
+        styled_text.contains("H E L L O"),
+        "Styled line page extraction: {styled_text:?}"
+    );
+    assert!(
+        styled_text.contains("REAL SPACE"),
+        "Keep actual encoded spaces: {styled_text:?}"
+    );
+    assert!(
+        styled_text.contains("X Y"),
+        "Keep separators between positioned objects: {styled_text:?}"
+    );
+    assert_eq!(
+        engine
+            .search_document(&styled_document.id, "HELLO")
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(engine
+        .search_document(&styled_document.id, "XY")
+        .unwrap()
+        .is_empty());
+    assert!(engine
+        .search_document(&styled_document.id, "REALSPACE")
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        engine
+            .search_pages(&[reference(&styled_document, 0, 0)], "HELLO")
+            .unwrap()
+            .len(),
+        1
+    );
+    let styled_path = temp.path().join("styled-search.pdf");
+    engine
+        .save_document(
+            styled_path.to_str().unwrap(),
+            &[reference(&styled_document, 0, 0)],
+        )
+        .unwrap();
+    let reopened_style = engine
+        .open_document(styled_path.to_str().unwrap(), None)
+        .unwrap();
+    assert_eq!(
+        engine
+            .search_document(&reopened_style.id, "HELLO")
+            .unwrap()
+            .len(),
+        1,
+        "Spaced letters remain searchable after reopening"
+    );
+    let cropped_style = engine
+        .generate_pages(&GeneratePages::Crop {
+            pages: vec![reference(&styled_document, 0, 0)],
+            bounds: ContentBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 0.4,
+                height: 1.0,
+            },
+        })
+        .unwrap();
+    assert!(
+        engine
+            .search_document(&cropped_style.id, "HELLO")
+            .unwrap()
+            .is_empty(),
+        "Search must not reveal letters excluded by the visible crop"
+    );
+    assert_eq!(
+        engine
+            .search_document(&styled_document.id, "H E L L O")
+            .unwrap()
+            .len(),
+        1,
+        "Explicit whitespace queries keep native extraction behavior"
+    );
+    assert_eq!(
+        engine
+            .search_document(&styled_document.id, "REAL SPACE")
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        engine
+            .search_document(&styled_document.id, "X Y")
+            .unwrap()
+            .len(),
+        1
+    );
+    request.text = "H E L L O".into();
+    assert!(
+        engine.preview_line_edit(&request).is_err(),
+        "Ambiguous encoded/generated whitespace must still fail exact mapping validation"
+    );
+    request.text = "HELLO".into();
+    request.opacity = 0.0;
+    assert!(engine.preview_line_edit(&request).is_err());
+    request.opacity = 1.0;
+    request.font_family = None;
+    assert!(
+        engine.preview_line_edit(&request).is_err(),
+        "source fonts cannot silently acquire synthetic styles"
+    );
+    request.bold = None;
+    request.italic = None;
+    request.underline = false;
+    request.strikeout = false;
+    request.target_bounds = None;
     request.text = "X".repeat(100);
     request.char_spacing = 5.0;
     request.constrain_width = true;

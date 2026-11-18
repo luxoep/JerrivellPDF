@@ -326,6 +326,10 @@ fn original_text_local_font_embedding_bounds_and_invalid_patches() {
         json!({"text":"😀"}),
         json!({"fontSize":0}),
         json!({"fontSize":513}),
+        json!({"opacity":0.0}),
+        json!({"opacity":1.1}),
+        json!({"bold":true}),
+        json!({"italic":true}),
         json!({"fillColor":"#GG00FF"}),
         json!({"bounds":{"x":0.99,"y":0,"width":0.5,"height":0.1}}),
         json!({"text":"新增字符"}),
@@ -363,4 +367,76 @@ fn original_text_local_font_embedding_bounds_and_invalid_patches() {
         Some("AlphaOld")
     );
     assert_eq!(fs::read(&source).unwrap(), original_bytes);
+}
+
+#[test]
+fn original_text_real_style_opacity_and_saved_searchable_unicode() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let pdfium = native_pdfium();
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("real-style-source.pdf");
+    fs::write(&source, source_bytes(pdfium, 0, false)).unwrap();
+    let mut engine = PdfEngine::new(pdfium);
+    let document = engine
+        .open_document(source.to_str().unwrap(), None)
+        .unwrap();
+    let original = plan(&document, 0);
+    let info = engine.inspect_page_content(&original).unwrap();
+    let text = info
+        .objects
+        .iter()
+        .find(|object| object.text.as_deref() == Some("AlphaOld"))
+        .unwrap();
+    for (index, (bold, italic)) in [(false, false), (true, false), (false, true), (true, true)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut edited = original.clone();
+        edited.content_edits = vec![patch(
+            text,
+            json!({"text":"Native styled text", "fontFamily":"Arial", "fontSize":16, "bold":bold, "italic":italic, "opacity":0.65}),
+        )];
+        let current = engine.inspect_page_content(&edited).unwrap();
+        let current = current
+            .objects
+            .iter()
+            .find(|object| object.object_index == text.object_index)
+            .unwrap();
+        assert_eq!(current.fingerprint, text.fingerprint);
+        assert_eq!(current.bold, Some(bold));
+        assert_eq!(current.italic, Some(italic));
+        assert!((current.opacity.unwrap() - 0.65).abs() < 0.005);
+        let pixels_before = pixels(engine.render_page(&edited, 600).unwrap());
+        let output = directory.path().join(format!("style-{index}.pdf"));
+        engine
+            .save_document(output.to_str().unwrap(), &[edited])
+            .unwrap();
+        let reopened = engine
+            .open_document(output.to_str().unwrap(), None)
+            .unwrap();
+        assert_eq!(
+            engine
+                .search_document(&reopened.id, "Native styled text")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(engine
+            .search_document(&reopened.id, "AlphaOld")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            pixels_before,
+            pixels(engine.render_page(&plan(&reopened, 0), 600).unwrap())
+        );
+    }
+    assert_eq!(
+        engine.content_fonts.borrow().len(),
+        4,
+        "font cache must separate four real faces"
+    );
+    assert!(engine
+        .page_content_text(&original)
+        .unwrap()
+        .contains("AlphaOld"));
 }

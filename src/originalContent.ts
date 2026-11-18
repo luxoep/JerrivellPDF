@@ -8,6 +8,9 @@ export interface ContentEdit {
   fontFamily?: string;
   fontSize?: number;
   fillColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  opacity?: number;
   bounds?: ContentBounds;
   deleted?: boolean;
   replacementAssetId?: string;
@@ -23,6 +26,9 @@ export interface ContentObject {
   fontFamily?: string | null;
   fontSize?: number | null;
   fillColor?: string | null;
+  bold?: boolean | null;
+  italic?: boolean | null;
+  opacity?: number | null;
   editable: boolean;
   reason?: string;
   deleted: boolean;

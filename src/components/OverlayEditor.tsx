@@ -16,7 +16,7 @@ import type { ImageAsset, PageOverlay, PdfStampImage } from '../types';
 import { cleanLibraryName, LibraryError, loadStampLibrary, MAX_LIBRARY_ITEMS, pngFileName, saveStampLibrary } from '../stampLibrary';
 import type { LibraryItem, LibraryKind } from '../stampLibrary';
 import { createStampPng, createTextPng, DEFAULT_FONT_FAMILY, ensureFontReady, trimmedSignature } from './overlayCanvas';
-import type { StampShape } from './overlayCanvas';
+import type { StampShape, TextOverlaySource } from './overlayCanvas';
 import { FontPicker } from './FontPicker';
 import { alignedOverlay, duplicatedOverlay, MIN_OVERLAY_SIDE, normalizedOverlay, overlayStep, POINTS_PER_MM, resizeOverlay, rotatedOverlay90, translatedOverlay } from '../overlayGeometry';
 import type { PageAlignment } from '../overlayGeometry';
@@ -141,6 +141,38 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const [bold, setBold] = useState(false);
   const [textFont, setTextFont] = useState(DEFAULT_FONT_FAMILY);
   const [textColor, setTextColor] = useState('#242b3e');
+  const [italic, setItalic] = useState(false);
+  const [underline, setUnderline] = useState(false);
+  const [strikeout, setStrikeout] = useState(false);
+  const [textAlignment, setTextAlignment] = useState<'left' | 'center' | 'right'>('left');
+  const [charSpacing, setCharSpacing] = useState(0);
+  const [lineHeight, setLineHeight] = useState(1.45);
+  const [textWrap, setTextWrap] = useState(true);
+  const [textBoxWidth, setTextBoxWidth] = useState(100);
+  const [textPreview, setTextPreview] = useState<{ dataUrl: string; width: number; height: number; lineCount: number } | null>(null);
+  const [textPreviewError, setTextPreviewError] = useState('');
+  const textSource = useMemo<TextOverlaySource>(() => ({ content: text, color: textColor, fontSize, bold, fontFamily: textFont,
+    italic, underline, strikeout, alignment: textAlignment, charSpacing, lineHeight,
+    ...(textWrap ? { wrapWidth: Math.min(Math.max(24, textBoxWidth * POINTS_PER_MM), Math.max(24, props.pageWidth * .78)) } : {}),
+  }), [text, textColor, fontSize, bold, textFont, italic, underline, strikeout, textAlignment, charSpacing, lineHeight, textWrap, textBoxWidth, props.pageWidth]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!textSource.content.trim()) { setTextPreview(null); setTextPreviewError(''); return; }
+    const timer = window.setTimeout(() => {
+      void ensureFontReady(textSource.fontFamily, textSource.content, textSource.bold, textSource.italic).then(() => {
+        if (cancelled) return;
+        const result = createTextPng(textSource.content, textSource.color, textSource.fontSize, textSource.bold, textSource.fontFamily, textSource);
+        setTextPreview(result); setTextPreviewError('');
+      }).catch(error => { if (!cancelled) { setTextPreview(null); setTextPreviewError(error instanceof Error ? error.message : 'TEXT_LAYOUT_LIMIT'); } });
+    }, 160);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [textSource]);
+  const loadTextSettings = (source: TextOverlaySource) => {
+    setTab('text'); setText(source.content); setTextColor(source.color); setFontSize(source.fontSize); setBold(source.bold); setTextFont(source.fontFamily);
+    setItalic(source.italic ?? false); setUnderline(source.underline ?? false); setStrikeout(source.strikeout ?? false);
+    setTextAlignment(source.alignment ?? 'left'); setCharSpacing(source.charSpacing ?? 0); setLineHeight(source.lineHeight ?? 1.45);
+    setTextWrap(source.wrapWidth !== undefined); if (source.wrapWidth !== undefined) setTextBoxWidth(source.wrapWidth / POINTS_PER_MM);
+  };
   const [stampTitle, setStampTitle] = useState('');
   const [stampSubtitle, setStampSubtitle] = useState('');
   const [stampShape, setStampShape] = useState<StampShape>('round');
@@ -190,6 +222,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const locked = Boolean(props.disabled || working);
 
   const libraryError = (error: unknown): string => {
+    if (error instanceof Error && ['TEXT_LAYOUT_LIMIT', 'TEXT_BOX_TOO_NARROW', 'TEXT_PAGE_OVERFLOW'].includes(error.message)) return t('文字超出文本框或页面范围。请缩小字号、调整框宽或分成多个对象；内容不会被自动截断。', 'Text exceeds the text box or page. Reduce the size, adjust the box width or use separate objects. Text is never silently truncated.');
     if (error instanceof Error && error.message === 'FONT_LOAD_TIMEOUT') return t('所选字体载入超时，请刷新字体列表后重试。', 'The selected font took too long to load. Refresh the font list and try again.');
     if (!(error instanceof LibraryError)) return errorMessage(error);
     switch (error.code) {
@@ -238,14 +271,15 @@ export function OverlayEditor(props: OverlayEditorProps) {
     return asset;
   };
 
-  const place = (asset: RegisteredImage, name: string, requestedWidth = 0.3, blendMode: BlendMode = 'normal') => {
+  const place = (asset: RegisteredImage, name: string, requestedWidth = 0.3, blendMode: BlendMode = 'normal', textSource?: TextOverlaySource) => {
     if (!alive.current) return;
     const { pageWidth, pageHeight, overlays, onChange } = latest.current;
     if (overlays.length >= 30) throw new Error(t('当前页面最多添加 30 个内容对象。', 'A page can contain up to 30 added objects.'));
     let width = requestedWidth, height = width * pageWidth / pageHeight * asset.height / asset.width;
-    if (height > 0.65) { width *= 0.65 / height; height = 0.65; }
+    if (textSource && (width > .9 || height > .85)) throw new Error('TEXT_PAGE_OVERFLOW');
+    if (!textSource && height > 0.65) { width *= 0.65 / height; height = 0.65; }
     height = Math.max(0.01, height); width = Math.max(0.01, width);
-    const overlay: Overlay = { id: crypto.randomUUID(), assetId: asset.id, x: 0.12, y: 0.12, width, height, opacity: 1, rotation: 0, blendMode };
+    const overlay: Overlay = normalizedOverlay({ id: crypto.randomUUID(), assetId: asset.id, x: 0.12, y: 0.12, width, height, opacity: 1, rotation: 0, blendMode, ...(textSource ? { textSource } : {}) });
     onChange([...overlays, overlay]); setSelectedOverlay(overlay.id);
     setLabels(previous => ({ ...previous, [overlay.id]: name }));
     setPreviews(previous => ({ ...previous, [asset.id]: asset.dataUrl }));
@@ -279,15 +313,27 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (kind) remember(asset, kind, name); else place(asset, name);
   };
 
-  const addText = () => execute(async () => {
+  const addText = (replaceId?: string) => execute(async () => {
     if (!text.trim()) throw new Error(t('请先输入要添加的文字。', 'Enter the text to add.'));
-    if (text.replace(/\r/g, '').split('\n').length > 20) throw new Error(t('一段添加文字最多 20 行，请分成多个对象。', 'One text object supports up to 20 lines. Split it into separate objects.'));
-    await ensureFontReady(textFont, text, bold);
+    const source = { ...textSource };
+    await ensureFontReady(source.fontFamily, source.content, source.bold, source.italic);
     if (!alive.current) return;
-    const png = createTextPng(text, textColor, fontSize, bold, textFont);
+    const png = createTextPng(source.content, source.color, source.fontSize, source.bold, source.fontFamily, source);
+    const width = png.width / 2 / latest.current.pageWidth, height = png.height / 2 / latest.current.pageHeight;
+    if (width > .9 || height > .85) throw new Error('TEXT_PAGE_OVERFLOW');
     const asset = await register(png.dataUrl);
-    // Canvas uses two pixels per desired PDF point, keeping the initial text size predictable.
-    place(asset, t('文字', 'Text'), Math.min(0.85, Math.max(0.05, png.width / 2 / latest.current.pageWidth)));
+    if (!alive.current) return;
+    if (replaceId) {
+      const previous = latest.current.overlays.find(item => item.id === replaceId);
+      if (!previous?.textSource || previous.locked) return;
+      const quarterTurn = Math.abs(previous.rotation ?? 0) % 180 === 90;
+      const visibleWidth = quarterTurn ? png.height / 2 / latest.current.pageWidth : width;
+      const visibleHeight = quarterTurn ? png.width / 2 / latest.current.pageHeight : height;
+      if (visibleWidth > 1 || visibleHeight > 1) throw new Error('TEXT_PAGE_OVERFLOW');
+      latest.current.onChange(latest.current.overlays.map(item => item.id === replaceId ? normalizedOverlay({ ...item, assetId: asset.id, width: visibleWidth, height: visibleHeight, textSource: source }) : item));
+      setPreviews(values => ({ ...values, [asset.id]: asset.dataUrl }));
+      setMessage(t('已更新选中文字，可撤销。', 'Selected text updated. Undo is available.'));
+    } else place(asset, t('文字', 'Text'), width, 'normal', source);
   });
 
   const stampPreview = useMemo(() => {
@@ -465,7 +511,20 @@ export function OverlayEditor(props: OverlayEditorProps) {
     <nav className="oe-tabs" aria-label={t('添加内容类型', 'Content type')}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} className={id === tab ? 'active' : ''} aria-pressed={id === tab} onClick={() => { setTab(id); setMessage(''); }}><Icon size={16} /><span>{label}</span></button>)}</nav>
     <div className="oe-scroll">
       {libraryUnavailable && <p className="oe-storage-warning" role="status">{t('本机库暂不可用。已保留原有数据；重新启动后可重试，添加到页面仍可使用。', 'The local library is unavailable. Existing data is preserved. Restart to retry; adding content to the page remains available.')}</p>}
-      {tab === 'text' && <section className="oe-section"><h3>{t('添加文字', 'Add text')}</h3><label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={1000} rows={4} value={text} disabled={locked} placeholder={t('输入要添加的中文或英文…', 'Enter text to add…')} onChange={event => setText(event.target.value)} /></label><FontPicker value={textFont} onChange={setTextFont} disabled={locked} sample={text}/><div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input type="number" min={8} max={96} value={fontSize} disabled={locked} onChange={event => setFontSize(Math.max(8, Math.min(96, Number(event.target.value) || 24)))} /></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label><label className="oe-check"><input type="checkbox" checked={bold} disabled={locked} onChange={event => setBold(event.target.checked)} />{t('加粗', 'Bold')}</label></div><button className="oe-action primary" disabled={locked || !text.trim()} onClick={() => void addText()}><Plus size={15} />{t('添加到当前页', 'Add to this page')}</button><p className="oe-note">{t('本版将添加内容保存为透明图片；文字暂不生成可搜索文字层。可在保存前移动、调整和撤销。', 'Added content is saved as a transparent image in this version. Added text has no searchable text layer. Move, resize or undo it before saving.')}</p></section>}
+      {tab === 'text' && <section className="oe-section"><h3>{t('多行文字框', 'Multiline text box')}</h3>
+        <label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={4000} rows={5} value={text} disabled={locked} placeholder={t('输入中文或英文，支持多行与自动换行…', 'Enter text, including multiple lines…')} onChange={event => setText(event.target.value)} /></label>
+        <FontPicker value={textFont} onChange={setTextFont} disabled={locked} sample={text}/>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input type="number" min={6} max={144} value={fontSize} disabled={locked} onChange={event => setFontSize(Math.max(6, Math.min(144, Number(event.target.value) || 24)))} /></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label></div>
+        <div className="oe-text-styles">{[{ label: t('加粗', 'Bold'), value: bold, change: setBold }, { label: t('斜体', 'Italic'), value: italic, change: setItalic }, { label: t('下划线', 'Underline'), value: underline, change: setUnderline }, { label: t('删除线', 'Strikeout'), value: strikeout, change: setStrikeout }].map(style => <label className="oe-check" key={style.label}><input type="checkbox" checked={style.value} disabled={locked} onChange={event => style.change(event.target.checked)}/>{style.label}</label>)}</div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('段内对齐', 'Line alignment')}</span><select value={textAlignment} disabled={locked} onChange={event => setTextAlignment(event.target.value as typeof textAlignment)}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label><label className="oe-field"><span>{t('行距倍数', 'Line spacing')}</span><input type="number" min={.8} max={3} step={.05} value={lineHeight} disabled={locked} onChange={event => setLineHeight(Math.max(.8, Math.min(3, Number(event.target.value) || 1.45)))}/></label></div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字距（pt）', 'Character spacing (pt)')}</span><input type="number" min={-2} max={20} step={.1} value={charSpacing} disabled={locked} onChange={event => setCharSpacing(Math.max(-2, Math.min(20, Number(event.target.value) || 0)))}/></label><label className="oe-field"><span>{t('框宽（mm）', 'Box width (mm)')}</span><input type="number" min={9} max={Math.max(9, Math.floor(props.pageWidth * .78 / POINTS_PER_MM))} value={textBoxWidth} disabled={locked || !textWrap} onChange={event => setTextBoxWidth(Math.max(9, Math.min(props.pageWidth * .78 / POINTS_PER_MM, Number(event.target.value) || 100)))}/></label></div>
+        <label className="oe-check"><input type="checkbox" checked={textWrap} disabled={locked} onChange={event => setTextWrap(event.target.checked)}/>{t('按框宽自动换行', 'Wrap to box width')}</label>
+        <div className="oe-checker oe-text-preview">{textPreview ? <PreviewZoom width={textPreview.width} height={textPreview.height} resetKey="added-text" label={t('文字排版预览', 'Text layout preview')}><img src={textPreview.dataUrl} alt={t('修改后文字', 'Edited text')}/></PreviewZoom> : <span>{textPreviewError ? t('排版超出限制，请调整字号或文本框。', 'Layout exceeds limits. Adjust size or box width.') : t('输入文字后显示预览', 'Enter text to preview')}</span>}</div>
+        {textPreview && <p className="oe-note">{t(`共 ${textPreview.lineCount} 行 · 缩放仅影响预览`, `${textPreview.lineCount} lines · Zoom affects preview only`)}</p>}
+        <button className="oe-action primary" disabled={locked || !text.trim() || !!textPreviewError} onClick={() => void addText()}><Plus size={15}/>{t('添加到当前页', 'Add to this page')}</button>
+        {current?.textSource && <div className="oe-button-row"><button className="oe-action" disabled={locked || current.locked} onClick={() => loadTextSettings(current.textSource!)}>{t('载入选中文字', 'Load selected text')}</button><button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError} onClick={() => void addText(current.id)}>{t('更新选中文字', 'Update selected text')}</button></div>}
+        <p className="oe-note">{t('新增文字以透明图片保存；当前工作区可载入并继续改写，保存重开后作为图片。原文可搜索文字请使用“原文编辑 / 文字行编辑”。', 'New text is saved as a transparent image. Reload its settings to edit within this workspace; reopening the PDF treats it as an image. Use original text or text line editing for searchable PDF text.')}</p>
+      </section>}
       {tab === 'image' && <section className="oe-section"><h3>{t('添加图片', 'Add an image')}</h3><div className="oe-empty-symbol"><ImagePlus size={34} /></div><p className="oe-description">{t('选择本机 PNG 或 JPEG 图片，放到当前页面上。PNG 透明背景会保留。', 'Choose a local PNG or JPEG image and place it on this page. PNG transparency is preserved.')}</p><button className="oe-action primary" disabled={locked} onClick={() => void execute(() => importAsset())}><Upload size={15} />{t('选择图片', 'Choose image')}</button><p className="oe-note">{t('导入图像会进行尺寸与格式检查，最长边不超过 2400 像素。', 'Imported images are validated and limited to a 2400-pixel longest edge.')}</p></section>}
       {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}</section>}
       {tab === 'signature' && <section className="oe-section"><h3>{t('手写签名', 'Handwritten signature')}</h3><p className="oe-description">{t('用鼠标、触控或触控笔在下方书写。', 'Write below using a mouse, touch or pen.')}</p><SignaturePad color={signatureColor} disabled={locked} resetKey={signatureReset} onChange={value => { signatureCanvas.current = value; setSignatureReady(Boolean(value)); }} /><div className="oe-signature-options"><label className="oe-color-label"><span>{t('笔迹颜色', 'Ink')}</span><input type="color" value={signatureColor} disabled={locked} onChange={event => setSignatureColor(event.target.value)} /></label><button className="oe-small-button" disabled={locked} onClick={() => setSignatureReset(previous => previous + 1)}>{t('清空画布', 'Clear canvas')}</button></div><label className="oe-field"><span>{t('签名名称', 'Signature name')}</span><input maxLength={80} value={signatureName} disabled={locked} onChange={event => setSignatureName(event.target.value)} placeholder={t('我的签名', 'My signature')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !signatureReady} onClick={() => void createSignature(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !signatureReady} onClick={() => void createSignature(false)}><PenLine size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名图片', 'Import signature image')}</button><p className="oe-note">{t('图章和签名是可视图片，不是证书数字签名，也不提供签署者身份或文件完整性验证。', 'Stamps and signatures are visual images, not certificate-based digital signatures. They do not verify signer identity or file integrity.')}</p></section>}

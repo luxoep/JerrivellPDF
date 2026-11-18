@@ -8,6 +8,7 @@ import { visiblePageSize } from '../viewerGeometry';
 import { useI18n } from '../i18n';
 import { MarkLayer } from './MarkLayer';
 import { PreviewZoom } from './PreviewZoom';
+import { createPreviewRasterPainter } from '../previewRaster';
 
 type ImagePreview = ImageFilePreview;
 type Crop = { x: number; y: number; width: number; height: number };
@@ -22,9 +23,9 @@ export interface ToolPreviewProps {
 export function useToolImage(page: WorkspacePage | undefined) {
   const key = page ? JSON.stringify(pageReference(page)) : '';
   const identity = page ? JSON.stringify([page.documentId, page.pageIndex, page.rotation]) : '';
-  const [result, setResult] = useState<{ identity: string; key: string; image: RenderedPage } | null>(null);
+  const [result, setResult] = useState<{ identity: string; key: string; image: RenderedPage; source: HTMLImageElement } | null>(null);
   const [pending, setPending] = useState(false), [error, setError] = useState('');
-  const decodedCache = useRef(new Map<string, RenderedPage>());
+  const decodedCache = useRef(new Map<string, { image: RenderedPage; source: HTMLImageElement }>());
   useEffect(() => {
     if (!page || !isDesktop()) return;
     if (decodedCache.current.has(key)) { setPending(false); setError(''); return; }
@@ -33,13 +34,13 @@ export function useToolImage(page: WorkspacePage | undefined) {
       void renderPage(page, 1000, false, lease).then(async image => {
         const decoded = new Image(); decoded.src = image.dataUrl; await decoded.decode();
         if (!disposed) {
-          decodedCache.current.set(key,image);
-          let bytes = [...decodedCache.current.values()].reduce((sum, value) => sum + value.width * value.height * 4 + value.dataUrl.length * 2, 0);
+          decodedCache.current.set(key,{ image, source: decoded });
+          let bytes = [...decodedCache.current.values()].reduce((sum, value) => sum + value.image.width * value.image.height * 4 + value.image.dataUrl.length * 2, 0);
           while (decodedCache.current.size > 8 || bytes > 24 * 1024 * 1024) {
             const oldest = decodedCache.current.keys().next().value!, value = decodedCache.current.get(oldest)!;
-            decodedCache.current.delete(oldest); bytes -= value.width * value.height * 4 + value.dataUrl.length * 2;
+            decodedCache.current.delete(oldest); bytes -= value.image.width * value.image.height * 4 + value.image.dataUrl.length * 2;
           }
-          setResult({ identity, key, image });
+          setResult({ identity, key, image, source: decoded });
         }
       }).catch(reason => { if (!disposed && errorMessage(reason) !== cancelledRequest) setError(errorMessage(reason)); })
         .finally(() => { if (!disposed) setPending(false); });
@@ -47,7 +48,16 @@ export function useToolImage(page: WorkspacePage | undefined) {
     return () => { disposed = true; lease.cancelled = true; window.clearTimeout(timer); };
   }, [key]);
   const cached=decodedCache.current.get(key);
-  return { image: cached ?? (result?.identity === identity ? result.image : null), pending: !cached && (pending || result?.key !== key), error };
+  const current = cached ?? (result?.identity === identity ? result : null);
+  return { image: current?.image ?? null, source: current?.source ?? null, pending: !cached && (pending || result?.key !== key), error };
+}
+
+export function PageToolRaster({ source, label }: { source: HTMLImageElement; label: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (canvas.current) return createPreviewRasterPainter(canvas.current, source);
+  }, [source]);
+  return <canvas ref={canvas} className="tool-preview-raster" role="img" aria-label={label}/>;
 }
 
 export function PageToolPreview(props: ToolPreviewProps) {
@@ -92,7 +102,7 @@ export function PageToolPreview(props: ToolPreviewProps) {
     {props.splitError && props.tab === 'split' && <p className="dt-error" role="alert">{props.splitError}</p>}
     <div className="tool-preview-stage">
       {(props.tab === 'images' && asset || page) && <PreviewZoom width={dimensions.width} height={dimensions.height} resetKey={`${props.tab}:${page?.id ?? props.imagePaths[index]}`} label={t('页面工具可缩放预览', 'Zoomable page tool preview')} disabled={props.working}><div className="dt-tool-page" style={{ width:'100%', height:'100%' }}>
-        {props.tab === 'images' && asset ? <svg width="100%" height="100%" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}><rect width={dimensions.width} height={dimensions.height} fill="white"/><rect x={props.margin} y={props.margin} width={Math.max(0, dimensions.width - 2 * props.margin)} height={Math.max(0, dimensions.height - 2 * props.margin)} fill="none" stroke="#c8bddc" strokeWidth={1} strokeDasharray="4 4"/><image href={asset.dataUrl} x={(dimensions.width - asset.width * imageScale) / 2} y={(dimensions.height - asset.height * imageScale) / 2} width={asset.width * imageScale} height={asset.height * imageScale}/></svg> : rendered.image ? <img src={rendered.image.dataUrl} alt={t('页面工具预览', 'Page tool preview')}/> : <div className="dt-empty"><LoaderCircle className="spin"/><p>{rendered.error || t('正在载入页面', 'Loading page')}</p></div>}
+        {props.tab === 'images' && asset ? <svg width="100%" height="100%" viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}><rect width={dimensions.width} height={dimensions.height} fill="white"/><rect x={props.margin} y={props.margin} width={Math.max(0, dimensions.width - 2 * props.margin)} height={Math.max(0, dimensions.height - 2 * props.margin)} fill="none" stroke="#c8bddc" strokeWidth={1} strokeDasharray="4 4"/><image href={asset.dataUrl} x={(dimensions.width - asset.width * imageScale) / 2} y={(dimensions.height - asset.height * imageScale) / 2} width={asset.width * imageScale} height={asset.height * imageScale}/></svg> : rendered.source ? <PageToolRaster source={rendered.source} label={t('页面工具预览', 'Page tool preview')}/> : <div className="dt-empty"><LoaderCircle className="spin"/><p>{rendered.error || t('正在载入页面', 'Loading page')}</p></div>}
         {props.tab === 'crop' && rendered.image && <><div className="dt-crop-outline" style={{ left: `${props.crop.x * 100}%`, top: `${props.crop.y * 100}%`, width: `${props.crop.width * 100}%`, height: `${props.crop.height * 100}%` }}/><MarkLayer settings={{ tool: 'rectangle', color: '#7561cb', opacity: .7, lineWidth: 2 }} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={props.working} onBegin={() => {}} onComplete={mark => props.onCrop(mark.bounds)}/></>}
       </div></PreviewZoom>}
       {!page && !(props.tab === 'images' && asset) && <div className="dt-empty"><p>{imageError || (props.tab === 'images' ? t('选择 PNG / JPEG 后，将显示纸张、比例与页边距。', 'Choose PNG / JPEG images to see paper, scaling and margins.') : t('选择有效页面或分组以查看内容。', 'Choose valid pages or a group to view its content.'))}</p></div>}

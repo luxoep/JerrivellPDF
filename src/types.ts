@@ -14,6 +14,8 @@ export interface PageOverlay {
   rotation?: number;
   /** Workspace editing guard; omitted from the PDF worker and exported PDF. */
   locked?: boolean;
+  /** Editable only in this workspace; exported content is a transparent image. */
+  textSource?: import('./components/overlayCanvas').TextOverlaySource;
 }
 
 export interface ImageAsset {

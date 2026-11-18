@@ -332,7 +332,7 @@ impl<'a> PdfEngine<'a> {
             if text.len() as usize > MAX_SEARCH_CHARS {
                 return Err("页面文字量超过搜索限制。".into());
             }
-            let original = content::visible_text(&page, &text)?;
+            let original = content::searchable_text(&page, &text, &query)?;
             let lower = original.to_lowercase();
             let match_count = lower.matches(&query).count();
             if match_count > 0 {
@@ -371,7 +371,7 @@ impl<'a> PdfEngine<'a> {
         let query = query.to_lowercase();
         let mut matches = Vec::new();
         for (index, reference) in pages.iter().enumerate() {
-            let original = self.page_content_text(reference)?;
+            let original = self.page_search_text(reference, &query)?;
             if original.chars().count() > MAX_SEARCH_CHARS {
                 return Err("页面文字量超过搜索限制。".into());
             }

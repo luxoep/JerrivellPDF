@@ -205,7 +205,7 @@ export const renderDiagnostics = () => ({ estimatedCacheBytes: cacheBytes, cache
 export function pageReference(page: PageRef): PageRef {
   return { documentId: page.documentId, pageIndex: page.pageIndex, rotation: page.rotation,
     ...(page.contentEdits?.length ? { contentEdits: page.contentEdits.map(edit => ({ ...edit, ...(edit.bounds ? { bounds: { ...edit.bounds } } : {}) })) } : {}),
-    ...(page.overlays?.length ? { overlays: page.overlays.map(({ locked: _locked, ...overlay }) => ({ ...overlay })) } : {}),
+    ...(page.overlays?.length ? { overlays: page.overlays.map(({ locked: _locked, textSource: _textSource, ...overlay }) => ({ ...overlay })) } : {}),
     ...(page.decorations?.length ? { decorations: page.decorations.map(item => ({ ...item })) } : {}) };
 }
 

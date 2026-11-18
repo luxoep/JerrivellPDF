@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+.text-line-modal{width:1420px;height:min(880px,calc(100vh - 70px))}
+.text-line-modal .line-editor-body{grid-template-columns:190px 300px minmax(240px,1fr);height:auto;flex:1;min-height:0}
+.line-result{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;padding:14px 16px;background:#f1f3f2;overflow:hidden}
+.line-result-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;min-height:28px;font-size:11px;color:#5c7481}
+.line-result-heading>b{font-weight:550}.line-result-heading .dt-check{margin:0;white-space:nowrap}
+.line-result-image,.line-result-zoom{display:flex;flex:1;min-width:0;min-height:0;overflow:hidden}
+.line-result-image{border:1px solid #d8e0df;border-radius:7px;background:#fff}
+.line-result>.dt-empty{flex:1;min-height:0}.line-result-zoom>.preview-zoom{height:100%}
+.line-style-tools{display:flex;align-items:center;gap:7px;margin-top:13px}
+.line-style-tools>button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:32px;border:1px solid #cbd9df;border-radius:6px;background:#fff;color:#526c7b;cursor:pointer}
+.line-style-tools>button[aria-pressed=true]{background:#e2edf3;border-color:#6b94ae;color:#244f6d}
+.line-style-tools>button:hover:not(:disabled){background:#edf3f6}.line-style-tools>button:disabled{opacity:.4;cursor:default}
+.line-style-tools>button:focus-visible{outline:2px solid #6b94ae;outline-offset:2px}
+.line-frame-heading{display:flex;justify-content:space-between;align-items:center;gap:7px;border-top:1px solid #e0e6e7;padding-top:14px;margin:16px 0 12px;color:#617985;font-size:11px}
+.line-frame-heading>b{font-weight:550}.line-frame-heading>button{font-size:10px;padding:4px 6px;border:1px solid #d5dfe3;border-radius:5px;background:#fff;color:#587c93}
+.line-frame-heading>button:disabled{opacity:.4}.line-frame-fields .dt-field{margin-bottom:10px}
+.text-line-modal .line-fields input[type=range]{min-height:34px}
+@media(max-width:1120px){.text-line-modal .line-editor-body{grid-template-columns:150px 270px minmax(220px,1fr)}.line-result{padding:12px}}
+@media(max-height:700px){.text-line-modal{height:calc(100vh - 30px);max-height:calc(100vh - 30px)}.text-line-modal .dt-header{padding-block:13px}.text-line-modal .dt-bottom-note{padding-block:7px}}

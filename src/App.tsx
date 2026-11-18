@@ -153,7 +153,7 @@ function AppWorkspace() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const appRoot = useRef<HTMLDivElement>(null), appHeader = useRef<HTMLElement>(null), workspaceBody = useRef<HTMLDivElement>(null);
     const [replaceRequest, setReplaceRequest] = useState<string[] | null>(null);
-    const [closeRequest, setCloseRequest] = useState(false);
+    const [closeRequest, setCloseRequest] = useState<'document' | 'application' | null>(null);
     const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
     const searchField = useRef<HTMLInputElement>(null);
     const busyRef = useRef(false);
@@ -198,6 +198,9 @@ function AppWorkspace() {
         setOriginalError('');
         setActiveOverlayId('');
         setPrintOpen(false);
+        setPixelEdit(null);
+        setOriginalEraseMode(false);
+        setCloseRequest(null);
         setSources([]);
         setTitle('');
         setSavedPath('');
@@ -271,7 +274,7 @@ function AppWorkspace() {
             }
             else if (live.current.dirty) {
                 event.preventDefault();
-                setCloseRequest(true);
+                setCloseRequest('application');
             }
         }).then((cleanup) => { if (disposed)
             cleanup();
@@ -516,10 +519,28 @@ function AppWorkspace() {
         if (!snapshot.length) return false;
         return requestExport([{ name: `${pdfName(title || 'document')}_edited.pdf`, pages: snapshot }], true);
     }, [title, requestExport]);
+    const closeCurrentDocument = useCallback(async () => {
+        if (busyRef.current || !live.current.pages.length) return;
+        busyRef.current = true;
+        setBusy(t('正在关闭 PDF…', 'Closing PDF…'));
+        try {
+            // Release native documents/assets before clearing the workspace. A failed
+            // close leaves the visible plan intact so the user can retry or save it.
+            await backend('close_all_documents', undefined, 3);
+            resetWorkspace();
+        } catch (error) {
+            notify(t(`未能关闭 PDF：${errorMessage(error)}`, `Could not close PDF: ${errorMessage(error)}`), 'error');
+        } finally { busyRef.current = false; setBusy(''); }
+    }, [resetWorkspace, notify]);
+    const requestCloseDocument = useCallback(() => {
+        if (busyRef.current || exportOpenRef.current || !live.current.pages.length) return;
+        if (live.current.dirty) setCloseRequest('document');
+        else void closeCurrentDocument();
+    }, [closeCurrentDocument]);
     const cancelExport = () => {
         exportRequestRef.current?.resolve(false);
         setExportRequest(null); exportOpenRef.current = false;
-        setCloseRequest(false); setReplaceRequest(null);
+        setCloseRequest(null); setReplaceRequest(null);
     };
     const finishedExport = (result: ExportResult) => {
         const request = exportRequestRef.current;
@@ -791,28 +812,33 @@ function AppWorkspace() {
     useEffect(() => {
         const handleKey = (event: globalThis.KeyboardEvent) => {
             if (pageToolsOpen || lineOpen || exportRequest) {
-                if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault();
+                if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f', 'w'].includes(event.key.toLowerCase())) event.preventDefault();
                 return;
             }
             if (printOpen) {
-                if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f'].includes(event.key.toLowerCase())) event.preventDefault();
+                if ((event.ctrlKey || event.metaKey) && ['o', 's', 'p', 'f', 'w'].includes(event.key.toLowerCase())) event.preventDefault();
                 return;
             }
             if (passwordRequest || replaceRequest || importRequest || closeRequest || showShortcuts || showWarnings || settingsOpen) {
                 if (event.key === 'Escape' && !passwordRequest) {
                     setReplaceRequest(null);
                     setImportRequest(null);
-                    setCloseRequest(false);
+                    setCloseRequest(null);
                     setShowShortcuts(false);
                     setShowWarnings(false);
                     setSettingsOpen(false);
                 }
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') event.preventDefault();
                 return;
             }
             const editing = event.target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) || event.target.isContentEditable || Boolean(event.target.closest('.overlay-editor, .original-editor')));
             const fieldOwnsHistory = editing && !(event.target instanceof HTMLInputElement && event.target.type === 'range' && event.target.closest('.mark-toolbar'));
             const modifier = event.ctrlKey || event.metaKey;
-            if (modifier && event.key.toLowerCase() === 'o') {
+            if (modifier && event.key.toLowerCase() === 'w') {
+                event.preventDefault();
+                requestCloseDocument();
+            }
+            else if (modifier && event.key.toLowerCase() === 'o') {
                 event.preventDefault();
                 void chooseFiles(event.shiftKey);
             }
@@ -891,7 +917,7 @@ function AppWorkspace() {
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, settingsOpen, chooseFiles, saveCopy, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
+    }, [pageToolsOpen, lineOpen, exportRequest, currentPage, activeOverlayId, updateOverlays, markOpen, printOpen, passwordRequest, replaceRequest, importRequest, closeRequest, showShortcuts, showWarnings, settingsOpen, chooseFiles, saveCopy, requestCloseDocument, openPrint, pages, redo, undo, deletePages, rotatePages, movePages, goToPage, activeIndex, changeZoom]);
     const selectThumbnail = (event: React.MouseEvent, page: WorkspacePage, index: number) => {
         if (busyRef.current) return;
         if (event.shiftKey) {
@@ -918,7 +944,7 @@ function AppWorkspace() {
           <button className={`rail-button ${pageToolsOpen ? 'active' : ''}`} aria-pressed={pageToolsOpen} onClick={() => { setEditorOpen(false); setOriginalOpen(false); setMarkOpen(false); setPageToolsOpen(true); }} disabled={!!busy || !status?.engineReady} title={t('页面与批量工具', 'Page and batch tools')}><Wrench size={18}/><span>{t('工具', 'Tools')}</span></button>
           <button className={`rail-button ${settingsOpen ? 'active' : ''}`} aria-pressed={settingsOpen} disabled={!!busy} onClick={() => setSettingsOpen(true)} title={t('默认应用与打开方式设置', 'Default app and Open with settings')}><Settings2 size={18}/><span>{t('设置', 'Settings')}</span></button>
         </nav>
-        <div className="header-actions"><select className="language-select" aria-label={t("界面语言", "Interface language")} value={language} onChange={event => setLanguage(event.target.value as 'zh-CN' | 'en-US')} disabled={!!busy}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>{pages.length > 0 ? <><button className="button secondary" disabled={!!busy} onClick={() => void chooseFiles(true)} title={t("添加 PDF \u00B7 Ctrl+Shift+O")}><FilePlus2 size={16}/><span>{t("添加 PDF")}</span></button><button className="button primary save-button" disabled={!!busy} onClick={() => void saveCopy()} title={t("保存副本 \u00B7 Ctrl+S")}><Save size={16}/><span>{t("保存副本")}</span></button></> : <span className="privacy-pill"><span />{t("本地处理 \u00B7 文件不上传")}</span>}</div>
+        <div className="header-actions"><select className="language-select" aria-label={t("界面语言", "Interface language")} value={language} onChange={event => setLanguage(event.target.value as 'zh-CN' | 'en-US')} disabled={!!busy}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select>{pages.length > 0 ? <><button className="button secondary" disabled={!!busy} onClick={() => void chooseFiles(true)} title={t("添加 PDF \u00B7 Ctrl+Shift+O")}><FilePlus2 size={16}/><span>{t("添加 PDF")}</span></button><button className="button secondary close-document-button" disabled={!!busy} onClick={requestCloseDocument} title={t("关闭当前 PDF · Ctrl+W", "Close current PDF · Ctrl+W")} aria-label={t("关闭当前 PDF", "Close current PDF")}><X size={16}/><span>{t("关闭 PDF", "Close PDF")}</span></button><button className="button primary save-button" disabled={!!busy} onClick={() => void saveCopy()} title={t("保存副本 \u00B7 Ctrl+S")}><Save size={16}/><span>{t("保存副本")}</span></button></> : <span className="privacy-pill"><span />{t("本地处理 \u00B7 文件不上传")}</span>}</div>
       </header>
 
       {!status?.engineReady && !checkingEngine && <div className="engine-banner"><CircleAlert size={16}/><span>{t(status?.message || "PDF 引擎暂不可用。")}</span>{isDesktop() && <button onClick={() => void checkEngine()}>{t("重新检测")}</button>}</div>}
@@ -986,8 +1012,7 @@ function AppWorkspace() {
         {importError && <p className="form-error" role="alert">{importError}</p>}
         <div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setImportRequest(null); setImportError(''); }}>{t('取消', 'Cancel')}</button><button type="submit" className="button primary">{t('导入页面', 'Import pages')}<ChevronRight size={15}/></button></div>
     </form></div>}
-    {closeRequest && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{t("退出前保存这次修改\uFF1F")}</h2><p className="modal-description">{t("未保存的页面调整将在退出后丢失\u3002原始 PDF 文件始终保留\uFF0C你也可以先把调整保存为副本\u3002")}</p><div className="replace-actions"><button className="button primary" onClick={async () => { if (await saveCopy())
-        await closeApplication(); }} disabled={!!busy}>{t("保存副本并退出")}</button><button className="button secondary" onClick={() => void closeApplication()} disabled={!!busy}>{t("不保存\uFF0C退出")}</button><button className="text-button" onClick={() => setCloseRequest(false)} disabled={!!busy}>{t("继续编辑")}</button></div></div></div>}
+    {closeRequest && !exportRequest && !busy && !closingRef.current && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{closeRequest === 'document' ? t('关闭 PDF 前保存修改？', 'Save changes before closing this PDF?') : t('退出前保存这次修改？', 'Save changes before quitting?')}</h2><p className="modal-description">{t('当前工作区有未保存的修改，可以先保存副本。关闭 PDF 会返回首页，原始文件保留。', 'This workspace has unsaved changes. You can save a copy first. Closing the PDF returns to the home screen and keeps the original file.')}</p><div className="replace-actions"><button className="button primary" onClick={async () => { const action = closeRequest; if (await saveCopy()) { if (action === 'document') await closeCurrentDocument(); else await closeApplication(); } }} disabled={!!busy}>{closeRequest === 'document' ? t('保存副本并关闭', 'Save copy and close') : t('保存副本并退出', 'Save copy and quit')}</button><button className="button secondary" onClick={() => void (closeRequest === 'document' ? closeCurrentDocument() : closeApplication())} disabled={!!busy}>{closeRequest === 'document' ? t('不保存，关闭 PDF', 'Close PDF without saving') : t('不保存，退出', 'Quit without saving')}</button><button className="text-button" onClick={() => setCloseRequest(null)} disabled={!!busy}>{t('继续编辑', 'Keep editing')}</button></div></div></div>}
     {editorOpen && currentPage && <OverlayEditor key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); }} onBusyChange={editorBusyChanged}/>}
     {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} onRasterEdit={() => void openPixelEdit(true)} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
     {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={pixelEdit.overlayId?t('选中标记或图章','Selected mark or stamp'):t('当前页像素编辑','Current page pixels')} notice={pixelEdit.overlayId?undefined:t('应用后仅将当前页转换为图像。该页文字不再可搜索，链接、可编辑对象及批注结构不保留；其他页不变，可撤销恢复。','Applying converts only this page to an image. Its searchable text, links, editable objects and annotation structure are not retained. Other pages stay unchanged; undo restores the page.')} applyLabel={pixelEdit.overlayId?undefined:t('转换本页并应用','Convert this page and apply')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>} 
@@ -1002,7 +1027,7 @@ function AppWorkspace() {
         void loadPaths(paths, false);
     } }} disabled={!!busy}>{t("保存副本并打开")}</button><button className="button secondary" onClick={() => { const paths = replaceRequest; setReplaceRequest(null); void loadPaths(paths, false); }} disabled={!!busy}>{t("不保存\uFF0C继续打开")}</button><button className="text-button" onClick={() => setReplaceRequest(null)}>{t("返回文档")}</button></div></div></div>}
     {showShortcuts && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
-        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list">{[[t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0'], [t('适合整页', 'Fit whole page'), 'Ctrl + 1'], [t('鼠标位置缩放', 'Zoom at pointer'), t('Ctrl + 滚轮', 'Ctrl + wheel')], [t('连续阅读', 'Continuous reading'), t('滚轮 / 空格', 'Wheel / Space')]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
+        setShowShortcuts(false); }}><div className="modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title"><button className="icon-button modal-close" aria-label={t("关闭快捷键")} onClick={() => setShowShortcuts(false)}><X size={18}/></button><div className="modal-symbol"><Keyboard size={26}/></div><h2 id="shortcuts-title">{t("让操作更顺手")}</h2><p className="modal-description">{t("几个熟悉的按键\uFF0C让整理文档更从容\u3002")}</p><div className="shortcut-list"><div><kbd>Ctrl + W</kbd><span>{t("关闭当前 PDF", "Close current PDF")}</span></div>{[[t("打开 PDF"), 'Ctrl + O'], [t("添加 PDF"), 'Ctrl + Shift + O'], [t("保存副本"), 'Ctrl + S'], [t("打印与预览", "Print and preview"), 'Ctrl + P'], [t("查找文字"), 'Ctrl + F'], [t("撤销 / 重做"), 'Ctrl + Z / Ctrl + Shift + Z'], [t("选择全部页面"), 'Ctrl + A'], [t("旋转 / 删除页面"), 'R / Delete'], [t("前移 / 后移页面"), 'Alt + ↑ / Alt + ↓'], [t("上一页 / 下一页"), '← / →'], [t("放大 / 缩小"), 'Ctrl + + / Ctrl + −'], [t("适合宽度"), 'Ctrl + 0'], [t('适合整页', 'Fit whole page'), 'Ctrl + 1'], [t('鼠标位置缩放', 'Zoom at pointer'), t('Ctrl + 滚轮', 'Ctrl + wheel')], [t('连续阅读', 'Continuous reading'), t('滚轮 / 空格', 'Wheel / Space')]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div><p className="shortcut-footnote">{t("按住 Ctrl 点击缩略图可多选\uFF0C按住 Shift 可连续选择\u3002")}</p></div></div>}
     {showWarnings && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget)
         setShowWarnings(false); }}><div className="modal warnings-modal" role="dialog" aria-modal="true" aria-labelledby="warnings-title"><button className="icon-button modal-close" aria-label={t("关闭文档提示")} onClick={() => setShowWarnings(false)}><X size={18}/></button><div className="modal-symbol amber"><CircleAlert size={26}/></div><h2 id="warnings-title">{t("文档处理提示")}</h2><p className="modal-description">{t("保存副本前\uFF0C请确认这些提示符合你的使用需求\u3002")}</p><div className="warnings-list">{warnings.map((warning, index) => <div key={index}><strong>{warning.source}</strong><p>{t(warning.message)}</p></div>)}</div><button className="button primary" onClick={() => setShowWarnings(false)}>{t("我知道了")}</button></div></div>}
   </div>;

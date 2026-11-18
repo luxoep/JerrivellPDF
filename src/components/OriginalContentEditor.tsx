@@ -38,7 +38,7 @@ export interface OriginalContentEditorProps {
   onEditLines?: () => void;
 }
 type GeometryDraft = { x: string; y: string; width: string; height: string };
-type Draft = { text: string; fontSize: string; fillColor: string; replaceFont: boolean; fontFamily: string; geometry: GeometryDraft; geometryChanged: boolean };
+type Draft = { text: string; fontSize: string; fillColor: string; replaceFont: boolean; fontFamily: string; bold: boolean; italic: boolean; opacity: string; geometry: GeometryDraft; geometryChanged: boolean };
 const formatMillimeters = (fraction: number, points: number) => (fraction * points / POINTS_PER_MILLIMETER).toFixed(2);
 function geometryDraft(bounds: ContentBounds, width: number, height: number): GeometryDraft {
   return { x: formatMillimeters(bounds.x, width), y: formatMillimeters(bounds.y, height), width: formatMillimeters(bounds.width, width), height: formatMillimeters(bounds.height, height) };
@@ -46,6 +46,8 @@ function geometryDraft(bounds: ContentBounds, width: number, height: number): Ge
 function initialDraft(object: ContentObject, edit: ContentEdit | undefined, width: number, height: number): Draft {
   return { text: object.text ?? '', fontSize: object.fontSize == null ? '' : String(object.fontSize), fillColor: object.fillColor ?? '#000000',
     replaceFont: Boolean(edit?.fontFamily), fontFamily: edit?.fontFamily ?? DEFAULT_FONT_FAMILY,
+    bold: edit?.bold ?? object.bold ?? false, italic: edit?.italic ?? object.italic ?? false,
+    opacity: String(Math.round((object.opacity ?? 1) * 100)),
     geometry: geometryDraft(object.bounds, width, height), geometryChanged: false };
 }
 
@@ -109,8 +111,17 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
         patch.fontSize = size;
       }
       if (draft.fillColor.toLowerCase() !== (object.fillColor ?? '#000000').toLowerCase()) patch.fillColor = draft.fillColor;
+      const opacity = Number(draft.opacity) / 100;
+      if (!draft.opacity.trim() || !Number.isFinite(opacity) || opacity < .05 || opacity > 1) throw new Error(t('不透明度须为 5%～100%。', 'Opacity must be between 5% and 100%.'));
+      if (Math.abs(opacity - (object.opacity ?? 1)) > .002) patch.opacity = opacity;
       if (draft.replaceFont && draft.fontFamily !== sourceEdit?.fontFamily) patch.fontFamily = draft.fontFamily;
       else if (!draft.replaceFont && sourceEdit?.fontFamily) patch.fontFamily = undefined;
+      if (draft.replaceFont) {
+        if (draft.bold !== (sourceEdit?.bold ?? false)) patch.bold = draft.bold;
+        if (draft.italic !== (sourceEdit?.italic ?? false)) patch.italic = draft.italic;
+      } else if (sourceEdit?.fontFamily) {
+        patch.bold = undefined; patch.italic = undefined;
+      }
     }
     if (!Object.keys(patch).length) { setMessage(t('当前对象没有待应用的修改。', 'This object has no pending changes.')); return; }
     await commit(upsertContentEdit(props.contentEdits, object, patch), t('原对象修改已应用。请检查页面效果，再保存副本。', 'Original object changes applied. Inspect the page, then save a copy.'));
@@ -160,7 +171,7 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
     <header className="oc-header"><div><strong>{t('编辑原文', 'Edit original content')}</strong><span>{t('修改 PDF 中已有的文字与图片对象', 'Modify existing PDF text and image objects')}</span></div><button aria-label={t('关闭原文编辑', 'Close original content editor')} disabled={working} onClick={props.onClose}><X size={18}/></button></header>
     {props.onEraseMode && <label className="oc-erase-mode"><input type="checkbox" checked={Boolean(props.eraseMode)} disabled={blocked} onChange={event=>props.onEraseMode?.(event.target.checked)}/>{t('对象橡皮擦：点击对象删除，可撤销','Object eraser: click an object to remove it; undo is available')}</label>}
     {props.onRasterEdit && <div className="oc-pixel-action"><button className="oe-action wide" disabled={blocked} onClick={props.onRasterEdit}>{t('当前页像素编辑（转换为图像）','Edit page pixels (convert to image)')}</button></div>}
-    <div className="oc-scroll">{props.onEditLines && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onEditLines}><FileText size={14}/>{t('组合文字行编辑、字距与前后预览', 'Edit grouped text lines, spacing and comparison')}</button></section>}
+    <div className="oc-scroll">{props.onEditLines && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onEditLines}><FileText size={14}/>{t('文字行排版与修改后预览', 'Text-line formatting and result preview')}</button><p className="oc-note">{t('文字行工具提供字距、对齐、装饰线与目标框；保留可搜索的 PDF 文字。', 'The line tool provides spacing, alignment, decoration strokes and a target frame while retaining searchable PDF text.')}</p></section>}
       <section className="oc-section"><div className="oc-section-heading"><h3>{t('本页原有对象', 'Original page objects')}</h3><button disabled={blocked} onClick={props.onRefresh} aria-label={t('重新读取原有对象', 'Refresh original objects')}><RefreshCw size={13}/></button></div>
         <p className="oc-description">{t('先在页面框内或下方列表中选择一个对象。PDF 文字可能按行或小片段拆分，不会自动重排相邻段落。', 'Choose an object on the page or in the list. PDF text may be split into lines or short runs; neighboring paragraphs do not reflow automatically.')}</p>
         <label className="oc-field"><span>{t('对象类型', 'Object type')}</span><select value={filter} disabled={blocked} onChange={event => setFilter(event.target.value as typeof filter)}><option value="all">{t('全部', 'All')}</option><option value="text">{t('文字', 'Text')}</option><option value="image">{t('图片', 'Images')}</option><option value="unsupported">{t('其他与暂不支持', 'Other and unsupported')}</option></select></label>
@@ -183,6 +194,9 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
           <div className="oc-fields"><label className="oc-field"><span>{t('字号（PDF pt）', 'Font size (PDF pt)')}</span><input type="number" min="1" max="512" step="0.1" value={draft.fontSize} disabled={!canEdit} onChange={event => setDraft({ ...draft, fontSize: event.target.value })}/></label><label className="oc-field"><span>{t('文字颜色', 'Text color')}</span><input type="color" value={draft.fillColor} disabled={!canEdit} onChange={event => setDraft({ ...draft, fillColor: event.target.value })}/></label></div>
           <label className="oc-checkbox"><input type="checkbox" disabled={!canEdit} checked={draft.replaceFont} onChange={event => setDraft({ ...draft, replaceFont: event.target.checked })}/>{t('更换为本机字体', 'Replace with an installed font')}</label>
           {draft.replaceFont && <FontPicker value={draft.fontFamily} onChange={family => setDraft(previous => previous ? { ...previous, fontFamily: family } : previous)} disabled={!canEdit} sample={draft.text} embedForOriginal/>}
+          {draft.replaceFont && <><div className="oc-fields"><label className="oc-checkbox"><input type="checkbox" checked={draft.bold} disabled={!canEdit} onChange={event => setDraft({ ...draft, bold: event.target.checked })}/>{t('粗体', 'Bold')}</label><label className="oc-checkbox"><input type="checkbox" checked={draft.italic} disabled={!canEdit} onChange={event => setDraft({ ...draft, italic: event.target.checked })}/>{t('斜体', 'Italic')}</label></div><p className="oc-note">{t('使用已安装字体的真实字形。该字体无对应字形或不允许编辑嵌入时，将提示更换字体，不使用合成粗斜体。', 'Uses a real installed face. Fonts without the requested face or editable embedding permission are rejected; synthetic bold and italic are not used.')}</p></>}
+          <label className="oc-field"><span>{t('文字不透明度（%）', 'Text opacity (%)')}</span><input type="number" min="5" max="100" step="1" value={draft.opacity} disabled={!canEdit} onChange={event => setDraft({ ...draft, opacity: event.target.value })}/></label>
+          {Number(draft.opacity) < 100 && <p className="oc-note">{t('透明文字保存后仍可搜索。重新打开时，因透明度/蒙版的保护限制，可能无法再次直接编辑该原文对象；请保留原稿。', 'Transparent text remains searchable after saving. On reopening, transparency/mask safeguards may prevent direct re-editing of this object; retain the original.')}</p>}
           <p className="oc-note">{t('保留原字体时，新增字符可能不在原字体子集中。遇到缺字提示，请选择允许嵌入的本机字体；更换字体可能改变文字宽度。', 'With the original font, added characters may be absent from its subset. If glyphs are missing, choose an embeddable installed font; changing fonts may alter text width.')}</p>
         </>}
         {object.kind === 'image' && <button className="oc-action oc-wide" disabled={!canEdit} onClick={() => void replaceImage()}><ImagePlus size={14}/>{t('替换图片，保留位置', 'Replace image, keep placement')}</button>}

@@ -85,6 +85,17 @@ walk(fontToggle, node => node.type === 'input')[0].props.onChange({ target: { ch
 walk(host.tree, node => node.type === 'FontPicker')[0].props.onChange('仿宋'); rerender();
 button('Apply original content changes').props.onClick(); await settle(); rerender();
 assert.equal(changes.at(-1)[0].fontFamily, '仿宋'); assert.equal('bounds' in changes.at(-1)[0], false);
+const fieldInput = label => walk(walk(host.tree, node => node.type === 'label' && text(node).trim() === label)[0], node => node.type === 'input')[0];
+fieldInput('Bold').props.onChange({ target: { checked: true } }); rerender();
+fieldInput('Italic').props.onChange({ target: { checked: true } }); rerender();
+fieldInput('Text opacity (%)').props.onChange({ target: { value: '0' } }); rerender();
+const beforeBadOpacity = changes.length;
+button('Apply original content changes').props.onClick(); await settle(); rerender();
+assert.equal(changes.length, beforeBadOpacity); assert.ok(errors.at(-1).includes('Opacity'));
+fieldInput('Text opacity (%)').props.onChange({ target: { value: '65' } }); rerender();
+button('Apply original content changes').props.onClick(); await settle(); rerender();
+assert.equal(changes.at(-1)[0].bold, true); assert.equal(changes.at(-1)[0].italic, true); assert.equal(changes.at(-1)[0].opacity, .65);
+assert.equal('bounds' in changes.at(-1)[0], false, 'Real font styles and opacity must not freeze old glyph bounds');
 const xField = walk(host.tree, node => node.type === 'input' && node.props['aria-label'] === 'Left mm')[0];
 xField.props.onChange({ target: { value: '42' } }); rerender();
 button('Apply original content changes').props.onClick(); await settle(); rerender();
@@ -94,6 +105,12 @@ props.contentEdits = [{ objectIndex: 3, fingerprint: object.fingerprint, text: '
 props.objects = [{ ...object, text: 'Revised', fontFamily: '仿宋', bounds: { x: .2, y: .2, width: .3, height: .04 } }]; rerender(); rerender();
 button('Clear manual placement and size').props.onClick(); await settle(); rerender();
 assert.equal('bounds' in changes.at(-1)[0], false); assert.equal(changes.at(-1)[0].text, 'Revised'); assert.equal(changes.at(-1)[0].fontFamily, '仿宋');
+props.contentEdits[0].bold = true; props.contentEdits[0].italic = true;
+props.objects[0].bold = true; props.objects[0].italic = true; rerender(); rerender();
+fieldInput('Replace with an installed font').props.onChange({ target: { checked: false } }); rerender();
+button('Apply original content changes').props.onClick(); await settle(); rerender();
+assert.equal('fontFamily' in changes.at(-1)[0], false); assert.equal('bold' in changes.at(-1)[0], false); assert.equal('italic' in changes.at(-1)[0], false);
+assert.equal(changes.at(-1)[0].text, 'Revised', 'Restoring original font must clear local-face styles while retaining text');
 const countBeforeInvalid = changes.length;
 walk(host.tree, node => node.type === 'textarea')[0].props.onChange({ target: { value: 'Two\nlines' } }); rerender();
 button('Apply original content changes').props.onClick(); await settle(); rerender();
@@ -153,4 +170,4 @@ assert.equal(walk(handleHost.tree,node=>node.type==='OriginalObjectPreview')[0].
 handleProps.inspectionKey='drag-start';handleProps.rendering=false;renderHandles();renderHandles();
 assert.equal(walk(handleHost.tree,node=>node.type==='OriginalObjectPreview')[0].props.visible,false,'Undo must remove a settling object preview');
 handleProps.eraseMode=true;renderHandles();handle=walk(handleHost.tree,node=>node.props.role==='button')[0];handle.props.onPointerDown(pointer(100,200));assert.equal(handleChanges.at(-1)[0].deleted,true);
-console.log('PASS: immutable original-content patches, native-validation wait/retry, text/font vs geometry semantics, tombstone restore/reset, image replacement, unmount cleanup and stale/unsupported handle boundaries');
+console.log('PASS: immutable original-content patches, native-validation wait/retry, text/font vs geometry semantics, real-face style and opacity requests, safe original-font reset, tombstone restore/reset, image replacement, unmount cleanup and stale/unsupported handle boundaries');

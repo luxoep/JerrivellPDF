@@ -47,7 +47,7 @@ const text = node => node == null || node === false ? '' : typeof node === 'stri
 function walk(node, predicate, result = []) { if (!node || typeof node !== 'object') return result; if (Array.isArray(node)) { node.forEach(child => walk(child, predicate, result)); return result; } if (predicate(node)) result.push(node); walk(node.props?.children, predicate, result); return result; }
 const calls = [], busy = [], saved = [], generated = [], applied = [];
 let referenceCalls = 0;
-let reportResolve, responseMode = 'normal';
+let reportResolve, responseMode = 'normal', linePreviewCount = 0;
 const image = { dataUrl: 'data:image/png;base64,fixture', width: 600, height: 800 };
 const report = { token: 'export-reviewed', outputs: [{ name: 'review.pdf', pageCount: 2, bytes: 12345 }], totalBytes: 12345, pageCount: 2, structures: { sourceCount: 1, annotationsAndLinks: 1, bookmarks: 1, attachments: 0, signatures: 1, forms: false, protected: false }, risks: [] };
 const backend = {
@@ -57,7 +57,7 @@ const backend = {
     if (command === 'prepare_export') return new Promise(resolve => { reportResolve = resolve; });
     if (command === 'save_prepared_export') return { succeeded: 1, failed: 0, results: [{ path: args.paths[0], pageCount: 2, bytes: 12345, success: true }] };
     if (command === 'generate_pages') return { ...pages[0], id: 'generated', pages: [{ index: 0, width: 600, height: 800, rotation: 0 }], path: 'memory://generated', fileName: 'generated.pdf', fileSize: 10, pageCount: 1, warnings: [] };
-    if (command === 'preview_line_edit') return { token: 'line-reviewed', before: image, after: image, bounds: lines[0].bounds, textWidth: responseMode === 'overflow' ? 900 : 100, availableWidth: 110, overflowLine: responseMode === 'overflow', overflowPage: responseMode === 'overflow', canApply: responseMode !== 'overflow' };
+    if (command === 'preview_line_edit') return Object.defineProperty({ token: `line-reviewed-${++linePreviewCount}`, after: image, bounds: lines[0].bounds, textWidth: responseMode === 'overflow' ? 900 : 100, availableWidth: 110, overflowLine: responseMode === 'overflow', overflowPage: responseMode === 'overflow', canApply: responseMode !== 'overflow' }, 'before', { enumerable: true, get() { throw new Error('Legacy before raster must never be consumed or copied'); } });
     if (command === 'commit_line_preview') return { id: 'new-source', pages: [{ index: 0, width: 600, height: 800 }] };
     return null;
   },
@@ -124,13 +124,53 @@ largeReview.cleanup();
 
 const { TextLineEditor } = load('../src/components/TextLineEditor.tsx', { require });
 const lineEditor = harness(TextLineEditor, { page: pages[0], objects, loading: false, onClose() {}, onApplied: value => applied.push(value), onBusyChange: value => busy.push(value) });
-lineEditor.button('Generate comparison').props.onClick(); await settle(); lineEditor.render();
+assert.equal(lineEditor.input('Show whole page').props.checked, true, 'Whole-page result preview is the default');
+assert.equal(lineEditor.button('Bold').props.disabled, true, 'Keep-original-font mode cannot pretend to change its face');
+lineEditor.button('Generate result preview').props.onClick(); await settle(); lineEditor.render();
 assert.equal(lineEditor.button('Apply previewed result').props.disabled, false);
+const lastLineRequest = () => calls.filter(call => call.command === 'preview_line_edit').at(-1).args.request;
+assert.equal(lastLineRequest().bold, undefined); assert.equal(lastLineRequest().italic, undefined);
+assert.equal(lastLineRequest().targetBounds, undefined, 'Unchanged original geometry must not opt into frame-height constraints');
+const resultImage = () => lineEditor.find(node => typeof node.type === 'function' && node.type.name === 'ResultImage');
+assert.equal(resultImage().length, 1, 'Only the revised raster is mounted');
+assert.equal(resultImage()[0].props.whole, true);
+assert.equal(resultImage()[0].props.image, image);
+let renderedResult = resultImage()[0].type(resultImage()[0].props);
+assert.equal(walk(renderedResult, node => node.type === 'img').length, 1);
+let zoom = walk(renderedResult, node => node.type === 'PreviewZoom')[0];
+assert.equal(zoom.props.width, image.width); assert.equal(zoom.props.height, image.height);
+const previewCallsBeforeViewSwitch = linePreviewCount;
+lineEditor.input('Show whole page').props.onChange({ target: { checked: false } }); lineEditor.render();
+assert.equal(linePreviewCount, previewCallsBeforeViewSwitch, 'Switching to a local crop must reuse the result raster');
+assert.equal(lineEditor.button('Apply previewed result').props.disabled, false, 'Preview display mode does not invalidate the native edit');
+renderedResult = resultImage()[0].type(resultImage()[0].props); zoom = walk(renderedResult, node => node.type === 'PreviewZoom')[0];
+assert.ok(zoom.props.width < image.width); assert.ok(zoom.props.height < image.height);
 lineEditor.input('Text line character spacing').props.onChange({ target: { value: '2.5' } }); lineEditor.render();
 assert.equal(lineEditor.button('Apply previewed result').props.disabled, true, 'An edited draft cannot apply a stale native preview');
-responseMode = 'overflow'; lineEditor.button('Generate comparison').props.onClick(); await settle(); lineEditor.render();
+lineEditor.input('Use an embeddable installed font').props.onChange({ target: { checked: true } }); lineEditor.render();
+assert.equal(lineEditor.button('Bold').props.disabled, false);
+lineEditor.button('Bold').props.onClick(); lineEditor.button('Italic').props.onClick(); lineEditor.button('Underline').props.onClick(); lineEditor.button('Strikethrough').props.onClick();
+lineEditor.input('Text line opacity').props.onChange({ target: { value: '65' } });
+lineEditor.input('Text line x pt').props.onChange({ target: { value: '90' } });
+lineEditor.input('Text line y pt').props.onChange({ target: { value: '120' } });
+lineEditor.input('Text line width pt').props.onChange({ target: { value: '200' } });
+lineEditor.input('Text line height pt').props.onChange({ target: { value: '40' } }); lineEditor.render();
+responseMode = 'overflow'; lineEditor.button('Generate result preview').props.onClick(); await settle(); lineEditor.render();
 assert.equal(lineEditor.button('Apply previewed result').props.disabled, true, 'Page overflow must prevent application');
-responseMode = 'normal'; lineEditor.button('Generate comparison').props.onClick(); await settle(); lineEditor.render();
+assert.equal(lastLineRequest().charSpacing, 2.5); assert.equal(lastLineRequest().opacity, .65);
+assert.equal(lastLineRequest().bold, true); assert.equal(lastLineRequest().italic, true);
+assert.equal(lastLineRequest().underline, true); assert.equal(lastLineRequest().strikeout, true);
+assert.deepEqual(JSON.parse(JSON.stringify(lastLineRequest().targetBounds)), { x: .15, y: .15, width: 1 / 3, height: .05 });
+assert.ok(calls.some(call => call.command === 'discard_line_preview' && call.args.token === 'line-reviewed-1'), 'Replacing a preview releases the previous native PDF token');
+lineEditor.input('Text line width pt').props.onChange({ target: { value: '900' } }); lineEditor.render();
+const validPreviewCount = linePreviewCount;
+lineEditor.button('Generate result preview').props.onClick(); await settle(); lineEditor.render();
+assert.equal(linePreviewCount, validPreviewCount, 'Out-of-page geometry is rejected before a native render');
+assert.ok(text(lineEditor.find(node => node.props.role === 'alert')[0]).includes('inside the page'));
+lineEditor.button('Reset frame').props.onClick(); lineEditor.render();
+assert.equal(lineEditor.input('Text line x pt').props.value, '60');
+responseMode = 'normal'; lineEditor.button('Generate result preview').props.onClick(); await settle(); lineEditor.render();
+assert.equal(lastLineRequest().targetBounds, undefined);
 lineEditor.button('Apply previewed result').props.onClick(); await settle(); assert.equal(applied.length, 1); lineEditor.cleanup();
 
 const { PageToolsDialog } = load('../src/components/PageToolsDialog.tsx', { require, crypto: { randomUUID: () => `id-${++id}` } });
@@ -142,5 +182,5 @@ assert.equal(imagesDialog.find(node => node.type === 'button' && ['Blank pages',
 imagesDialog.button('Choose images').props.onClick(); await settle(); imagesDialog.render();
 imagesDialog.button('Apply to workspace').props.onClick(); await settle();
 assert.equal(generated.length, 1); assert.equal(generated[0][2], 2); assert.equal(calls.find(call => call.command === 'generate_pages').args.request.kind, 'images'); imagesDialog.cleanup();
-console.log('PASS: stable text-line clustering and columns, immutable page copies/decorations, split limits and safe names, export preflight/exact-token write/double-submit, 4992-page virtual order and one-time plan snapshot, stale/overflow line previews and native apply, split modal handoff, image insertion and no duplicate main-page commands');
+console.log('PASS: stable text-line clustering and columns, immutable page copies/decorations, split limits and safe names, export preflight/exact-token write/double-submit, 4992-page virtual order and one-time plan snapshot, single revised raster/whole-page default/local crop reuse, real style and normalized geometry requests, invalid-frame/stale/overflow guards and token release, split modal handoff, image insertion and no duplicate main-page commands');
 

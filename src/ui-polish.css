@@ -221,7 +221,7 @@
   color: #365a74;
 }
 
-/* Composite a small entrance once; avoid re-blurring the live PDF behind it. */
+/* Animate the veil color, never opacity on a parent containing a PDF canvas. */
 .modal-backdrop,
 .dt-backdrop,
 .image-workbench-backdrop {
@@ -229,6 +229,7 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   isolation: isolate;
+  opacity: 1;
   animation: jerrivell-overlay-enter 140ms ease-out;
 }
 
@@ -237,7 +238,9 @@
 .dt-backdrop > .dt-modal,
 .image-workbench-backdrop > .image-workbench {
   animation: jerrivell-dialog-enter 170ms cubic-bezier(.2, .75, .25, 1);
-  transform-origin: center center;
+  opacity: 1;
+  transform: none;
+  box-shadow: 0 20px 64px #192d3b24;
 }
 
 .print-dialog {
@@ -370,24 +373,15 @@
 }
 
 @keyframes jerrivell-overlay-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { background-color: #21374400; }
+  to { background-color: #21374454; }
 }
 
+/* Opaque, stationary surfaces prevent the page behind from showing through
+   at 100%, including during the very first animation frame. */
 @keyframes jerrivell-dialog-enter {
-  from { opacity: .5; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Canvas coordinates stay stationary even during the opening animation. */
-.dt-backdrop > .dt-modal,
-.modal-backdrop > .print-dialog,
-.image-workbench-backdrop > .image-workbench {
-  animation-name: jerrivell-preview-enter;
-}
-@keyframes jerrivell-preview-enter {
-  from { opacity: .5; }
-  to { opacity: 1; }
+  from { box-shadow: 0 4px 12px #192d3b0d; }
+  to { box-shadow: 0 20px 64px #192d3b24; }
 }
 .windows-settings-modal { width: 520px; padding: 28px; }
 .windows-settings-modal .modal-symbol { margin-bottom: 15px; }

@@ -47,7 +47,7 @@ const require = name => {
   throw new Error(`Unexpected import ${name}`);
 };
 const editorExports = {};
-vm.runInNewContext(await transpile('../src/components/OverlayEditor.tsx'), { exports: editorExports, require, crypto: { randomUUID: () => `copy-${++nextId}` }, console, Error });
+vm.runInNewContext(await transpile('../src/components/OverlayEditor.tsx'), { exports: editorExports, require, window: { setTimeout: () => 1, clearTimeout() {} }, crypto: { randomUUID: () => `copy-${++nextId}` }, console, Error });
 const { OverlayEditor } = editorExports;
 const props = { pageWidth: 595.2755905511812, pageHeight: 841.8897637795277, overlays: [{ id: 'source', assetId: 'existing-asset', x: .2, y: .25, width: .1, height: .05, opacity: .7, blendMode: 'multiply', rotation: 0 }], selectedId: 'source', onChange(next) { changes.push(next); props.overlays = next; }, onSelect(id) { selected.push(id); props.selectedId = id; }, onError(message) { errors.push(message); }, onClose() {} };
 const host = hostFor();

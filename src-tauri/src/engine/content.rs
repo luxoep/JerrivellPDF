@@ -162,6 +162,23 @@ fn color_string(color: PdfColor) -> String {
     )
 }
 
+fn text_bold(font: &PdfFont<'_>) -> bool {
+    matches!(
+        font.weight(),
+        Ok(PdfFontWeight::Weight600
+            | PdfFontWeight::Weight700Bold
+            | PdfFontWeight::Weight800
+            | PdfFontWeight::Weight900)
+    )
+}
+
+fn text_alpha(opacity: f32) -> Result<u8, String> {
+    if !opacity.is_finite() || !(0.05..=1.0).contains(&opacity) {
+        return Err(invalid("文字不透明度须在 5%～100% 之间。"));
+    }
+    Ok((opacity * 255.0).round() as u8)
+}
+
 fn parse_color(color: &str, alpha: u8) -> Result<PdfColor, String> {
     if color.len() != 7
         || !color.starts_with('#')
@@ -347,6 +364,12 @@ fn inspect_object(
         font_family: family,
         font_size,
         fill_color,
+        bold: object.as_text_object().map(|text| text_bold(&text.font())),
+        italic: object.as_text_object().map(|text| text.font().is_italic()),
+        opacity: object
+            .as_text_object()
+            .and_then(|text| text.fill_color().ok())
+            .map(|color| color.alpha() as f32 / 255.0),
         editable: reason.is_none(),
         reason,
         deleted: false,
@@ -376,7 +399,7 @@ fn validate_page_text_budget(page: &PdfPage<'_>) -> Result<(), String> {
     }
 }
 
-pub(super) fn visible_text(page: &PdfPage<'_>, text: &PdfPageText<'_>) -> Result<String, String> {
+fn visible_text_rect(page: &PdfPage<'_>) -> Result<PdfRect, String> {
     let space = PageSpace::new(page)?;
     let mut xs = Vec::new();
     let mut ys = Vec::new();
@@ -393,12 +416,141 @@ pub(super) fn visible_text(page: &PdfPage<'_>, text: &PdfPageText<'_>) -> Result
     let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let bottom = ys.iter().copied().fold(f32::INFINITY, f32::min);
     let top = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    Ok(text.inside_rect(PdfRect::new(
+    let visible = PdfRect::new(
         PdfPoints::new(bottom),
         PdfPoints::new(left),
         PdfPoints::new(top),
         PdfPoints::new(right),
-    )))
+    );
+    Ok(visible)
+}
+
+pub(super) fn visible_text(page: &PdfPage<'_>, text: &PdfPageText<'_>) -> Result<String, String> {
+    Ok(text.inside_rect(visible_text_rect(page)?))
+}
+
+/// Prefer PDFium's normal extraction, including actual/inferred word spaces.
+/// If a word is absent, tolerate inferred intra-run letter-spacing only. This
+/// does not rewrite stored PDF text or change explicit whitespace queries.
+pub(super) fn searchable_text(
+    page: &PdfPage<'_>,
+    text: &PdfPageText<'_>,
+    query: &str,
+) -> Result<String, String> {
+    let bounded = visible_text(page, text)?;
+    if query.chars().any(char::is_whitespace) || bounded.to_lowercase().contains(query) {
+        return Ok(bounded);
+    }
+    let visible = visible_text_rect(page)?;
+    // PDFium may infer spaces between individually spaced letters. Keep its
+    // fast bounded extraction for ordinary prose; only inspect the character
+    // stream when it contains adjacent one-character tokens (e.g. H E L L O).
+    let mut isolated = false;
+    let needs_spacing_check = bounded.split_whitespace().any(|part| {
+        let single = part.chars().count() == 1 && !part.chars().next().unwrap().is_whitespace();
+        let adjacent = single && isolated;
+        isolated = single;
+        adjacent
+    });
+    if !needs_spacing_check {
+        return Ok(bounded);
+    }
+    let chars = text.chars();
+    let mut skipped = HashSet::new();
+    let mut previous = None;
+    let mut pending = Vec::new();
+    for character in chars.iter() {
+        let value = character.unicode_char();
+        if value == Some(' ') && character.is_generated().map_err(pdf_error)? {
+            pending.push(character.index());
+            continue;
+        }
+        if !pending.is_empty() {
+            if let Some(index) = previous {
+                let preceding = chars.get(index).map_err(pdf_error)?;
+                if same_text_run(&preceding, &character) {
+                    skipped.extend(pending.iter().copied());
+                }
+            }
+            pending.clear();
+        }
+        previous = if value.is_some_and(|ch| !ch.is_whitespace()) {
+            Some(character.index())
+        } else {
+            None
+        };
+    }
+    if skipped.is_empty() {
+        return Ok(bounded);
+    }
+    let mut result = String::new();
+    let mut separator = String::new();
+    let mut last_visible = false;
+    for character in chars.iter() {
+        if skipped.contains(&character.index()) {
+            continue;
+        }
+        let Some(value) = character.unicode_char() else {
+            continue;
+        };
+        if character.is_generated().map_err(pdf_error)? {
+            if value.is_whitespace() {
+                separator.push(value);
+            }
+            continue;
+        }
+        let bounds = character.loose_bounds().map_err(pdf_error)?;
+        let origin = character.origin().map_err(pdf_error)?;
+        let is_visible = bounds.does_overlap(&visible) || visible.contains(origin.0, origin.1);
+        if is_visible {
+            if last_visible {
+                result.push_str(&separator);
+            } else if !result.is_empty() && !result.ends_with('\n') {
+                result.push('\n');
+            }
+            result.push(value);
+        }
+        separator.clear();
+        last_visible = is_visible;
+    }
+    if result.to_lowercase().contains(query) {
+        Ok(result)
+    } else {
+        Ok(bounded)
+    }
+}
+
+/// Only spacing reported by PDFium as generated is considered, and only within
+/// a consistent text run. Preserve separators between positioned objects.
+/// Geometry/font comparisons keep this linear; chars_for_object() scans the
+/// whole page for every call and would make large-page search quadratic.
+fn same_text_run(left: &PdfPageTextChar<'_>, right: &PdfPageTextChar<'_>) -> bool {
+    let signature = |character: &PdfPageTextChar<'_>| -> Option<([u32; 11], String)> {
+        let object = character.text_object().ok()?;
+        let matrix = object.matrix().ok()?;
+        let bounds = object.bounds().ok()?;
+        let family = object.font().name();
+        Some((
+            [
+                matrix.a().to_bits(),
+                matrix.b().to_bits(),
+                matrix.c().to_bits(),
+                matrix.d().to_bits(),
+                matrix.e().to_bits(),
+                matrix.f().to_bits(),
+                bounds.left().value.to_bits(),
+                bounds.bottom().value.to_bits(),
+                bounds.right().value.to_bits(),
+                bounds.top().value.to_bits(),
+                object.unscaled_font_size().value.to_bits(),
+            ],
+            family,
+        ))
+    };
+    match (signature(left), signature(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// Only parse our own PDFium-generated one-page PDF. Change the final, newly
@@ -513,8 +665,22 @@ impl<'a> PdfEngine<'a> {
         family: &str,
         text: &str,
     ) -> Result<PdfFontToken, String> {
-        let font = self.content_font(family, text)?;
-        let key = font.family.to_lowercase();
+        self.editable_font_token_style(output, fonts, family, text, false, false)
+    }
+
+    fn editable_font_token_style(
+        &self,
+        output: &mut PdfDocument<'a>,
+        fonts: &mut ContentFontCache,
+        family: &str,
+        text: &str,
+        bold: bool,
+        italic: bool,
+    ) -> Result<PdfFontToken, String> {
+        let font = self.content_font_style(family, text, bold, italic)?;
+        // Localized aliases can resolve to the same real face. Tokens are
+        // document-local and deduplicate by the verified selected face/style.
+        let key = format!("{}|{bold}|{italic}", font.family.to_lowercase());
         if let Some(token) = fonts.tokens.get(&key) {
             return Ok(*token);
         }
@@ -631,6 +797,8 @@ impl<'a> PdfEngine<'a> {
         self.prepared_line = None;
         validate_text(&request.text)?;
         validate_bounds(&request.bounds)?;
+        let target = request.target_bounds.as_ref().unwrap_or(&request.bounds);
+        validate_bounds(target)?;
         if request.text.chars().count() > 500
             || request.objects.is_empty()
             || request.objects.len() > 64
@@ -642,7 +810,12 @@ impl<'a> PdfEngine<'a> {
         {
             return Err(invalid("文字行最多 500 字、64 个片段；字距为 -5～30 pt。"));
         }
-        let color = parse_color(&request.color, 255)?;
+        if request.font_family.is_none() && (request.bold.is_some() || request.italic.is_some()) {
+            return Err(font_error(
+                "粗体/斜体样式须明确选择本机字体；保留来源字体时保留原字形。",
+            ));
+        }
+        let color = parse_color(&request.color, text_alpha(request.opacity)?)?;
         let inspection = self.inspect_page_content(&request.page)?;
         let mut selected = Vec::new();
         let mut seen = HashSet::new();
@@ -678,7 +851,6 @@ impl<'a> PdfEngine<'a> {
             .filter_map(|object| object.text.as_deref())
             .collect::<Vec<_>>()
             .join("");
-        let before = self.render_page(&request.page, 760)?;
         let mut output = self.prepare_document(std::slice::from_ref(&request.page))?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;
         let space = PageSpace::new(&page)?;
@@ -713,11 +885,13 @@ impl<'a> PdfEngine<'a> {
             space.inverse.apply_to_points(origin.0, origin.1).1.value
         };
         let font = if let Some(family) = &request.font_family {
-            self.editable_font_token(
+            self.editable_font_token_style(
                 &mut output,
                 &mut ContentFontCache::default(),
                 family,
                 &request.text,
+                request.bold.unwrap_or(false),
+                request.italic.unwrap_or(false),
             )?
         } else {
             if selected
@@ -748,11 +922,11 @@ impl<'a> PdfEngine<'a> {
                 -uy.0,
                 -uy.1,
                 space.forward.e()
-                    + space.forward.a() * request.bounds.x
-                    + space.forward.c() * baseline,
+                    + space.forward.a() * target.x
+                    + space.forward.c() * (baseline + target.y - request.bounds.y),
                 space.forward.f()
-                    + space.forward.b() * request.bounds.x
-                    + space.forward.d() * baseline,
+                    + space.forward.b() * target.x
+                    + space.forward.d() * (baseline + target.y - request.bounds.y),
             ))
             .map_err(pdf_error)?;
         drop(first);
@@ -796,13 +970,15 @@ impl<'a> PdfEngine<'a> {
                 .ok_or_else(|| invalid("预览文字对象无效。"))?,
         )? != request.text
         {
-            return Err(font_error("预览文字映射不完整，请选择其他字体。"));
+            return Err(font_error(
+                "无法核对文字及空格的映射，请减小字距或选择其他字体。",
+            ));
         }
         let bounds = space.bounds(&object)?;
         let x = match request.alignment.as_str() {
-            "center" => request.bounds.x + (request.bounds.width - bounds.width) / 2.0,
-            "right" => request.bounds.x + request.bounds.width - bounds.width,
-            _ => request.bounds.x,
+            "center" => target.x + (target.width - bounds.width) / 2.0,
+            "right" => target.x + target.width - bounds.width,
+            _ => target.x,
         };
         let delta = PdfMatrix::new(1.0, 0.0, 0.0, 1.0, x - bounds.x, 0.0);
         let transform = space.inverse.multiply(delta).multiply(space.forward);
@@ -812,9 +988,46 @@ impl<'a> PdfEngine<'a> {
             .map_err(pdf_error)?;
         let actual = space.bounds(&object)?;
         drop(object);
+        // Decoration strokes are real PDF paths, added after text spacing has
+        // been finalized. The Unicode text itself remains searchable.
+        let line_baseline = baseline + target.y - request.bounds.y;
+        let visual_height = space.forward.c().hypot(space.forward.d());
+        let mut decoration_overflow = false;
+        for offset in [
+            request.underline.then_some(0.10),
+            request.strikeout.then_some(-0.30),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let y = line_baseline + request.font_size * offset / visual_height;
+            let stroke = (request.font_size / 18.0).clamp(0.5, 6.0);
+            decoration_overflow |=
+                y - stroke / visual_height / 2.0 < 0.0 || y + stroke / visual_height / 2.0 > 1.0;
+            let (x1, y1) = space
+                .forward
+                .apply_to_points(PdfPoints::new(actual.x), PdfPoints::new(y));
+            let (x2, y2) = space
+                .forward
+                .apply_to_points(PdfPoints::new(actual.x + actual.width), PdfPoints::new(y));
+            let mut path = PdfPagePathObject::new(
+                &document,
+                x1,
+                y1,
+                Some(color),
+                Some(PdfPoints::new(stroke)),
+                None,
+            )
+            .map_err(pdf_error)?;
+            path.line_to(x2, y2).map_err(pdf_error)?;
+            page.objects_mut()
+                .add_path_object(path)
+                .map_err(pdf_error)?;
+        }
         page.regenerate_content().map_err(pdf_error)?;
-        let overflow_page = !is_in_page(&actual);
-        let overflow_line = actual.width > request.bounds.width + 0.0005;
+        let overflow_page = !is_in_page(&actual) || decoration_overflow;
+        let overflow_line = actual.width > target.width + 0.0005
+            || (request.target_bounds.is_some() && actual.height > target.height + 0.0005);
         let (rw, rh) = render_dimensions(page.width().value, page.height().value, 760, false)?;
         let after = page
             .render_with_config(
@@ -843,8 +1056,8 @@ impl<'a> PdfEngine<'a> {
             can_apply,
         });
         Ok(
-            json!({"token":token,"before":before,"after":{"dataUrl":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(png.into_inner())),"width":after_width,"height":after_height},
-            "bounds":actual,"textWidth":actual.width*width,"availableWidth":request.bounds.width*width,"overflowLine":overflow_line,"overflowPage":overflow_page,"canApply":can_apply,"oldText":old_text,"text":request.text}),
+            json!({"token":token,"after":{"dataUrl":format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(png.into_inner())),"width":after_width,"height":after_height},
+            "bounds":actual,"textWidth":actual.width*width,"availableWidth":target.width*width,"overflowLine":overflow_line,"overflowPage":overflow_page,"canApply":can_apply,"oldText":old_text,"text":request.text}),
         )
     }
 
@@ -862,17 +1075,23 @@ impl<'a> PdfEngine<'a> {
         Ok(output)
     }
 
-    fn content_font(
+    fn content_font_style(
         &self,
         family: &str,
         text: &str,
+        bold: bool,
+        italic: bool,
     ) -> Result<Arc<crate::font_source::EditableFont>, String> {
-        let key = family.trim().to_lowercase();
+        let key = format!("{}|{bold}|{italic}", family.trim().to_lowercase());
         if let Some(font) = self.content_fonts.borrow().get(&key).cloned() {
             crate::font_source::validate_font_text(&font, text)?;
             return Ok(font);
         }
-        let font = Arc::new(crate::font_source::load_editable_font(family, text)?);
+        let font = Arc::new(if bold || italic {
+            crate::font_source::load_editable_font_style(family, text, bold, italic)?
+        } else {
+            crate::font_source::load_editable_font(family, text)?
+        });
         let mut fonts = self.content_fonts.borrow_mut();
         let total: usize = fonts.values().map(|font| font.bytes.len()).sum();
         if total.saturating_add(font.bytes.len()) > MAX_FONT_BYTES {
@@ -918,6 +1137,9 @@ impl<'a> PdfEngine<'a> {
             original.font_family = current.font_family;
             original.font_size = current.font_size;
             original.fill_color = current.fill_color;
+            original.bold = current.bold;
+            original.italic = current.italic;
+            original.opacity = current.opacity;
             original.text_angle = current.text_angle;
             original.rendered_font_size = current.rendered_font_size;
             current_index += 1;
@@ -1003,7 +1225,20 @@ impl<'a> PdfEngine<'a> {
         self.store_image(pixels, None)
     }
 
+    #[cfg(test)]
     pub fn page_content_text(&self, reference: &PageRef) -> Result<String, String> {
+        self.page_text(reference, None)
+    }
+
+    pub(super) fn page_search_text(
+        &self,
+        reference: &PageRef,
+        query: &str,
+    ) -> Result<String, String> {
+        self.page_text(reference, Some(query))
+    }
+
+    fn page_text(&self, reference: &PageRef, query: Option<&str>) -> Result<String, String> {
         let mut output = self.copied_content_page(reference)?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;
         let mut fonts = ContentFontCache::default();
@@ -1013,7 +1248,10 @@ impl<'a> PdfEngine<'a> {
         if text.len() as usize > MAX_SEARCH_CHARS {
             return Err(invalid("页面文字超过查找预算。"));
         }
-        visible_text(&page, &text)
+        match query {
+            Some(query) => searchable_text(&page, &text, query),
+            None => visible_text(&page, &text),
+        }
     }
 
     pub(super) fn apply_content_edits(
@@ -1064,6 +1302,12 @@ impl<'a> PdfEngine<'a> {
             if let Some(color) = &edit.fill_color {
                 parse_color(color, 255)?;
             }
+            if let Some(opacity) = edit.opacity {
+                text_alpha(opacity)?;
+            }
+            if edit.font_family.is_none() && (edit.bold.is_some() || edit.italic.is_some()) {
+                return Err(font_error("粗体/斜体须明确选择本机字体。"));
+            }
             if let Some(family) = &edit.font_family {
                 if family.trim().is_empty()
                     || family.chars().count() > 64
@@ -1076,7 +1320,10 @@ impl<'a> PdfEngine<'a> {
                 && (edit.text.is_some()
                     || edit.font_family.is_some()
                     || edit.font_size.is_some()
-                    || edit.fill_color.is_some())
+                    || edit.fill_color.is_some()
+                    || edit.bold.is_some()
+                    || edit.italic.is_some()
+                    || edit.opacity.is_some())
             {
                 return Err(invalid("此图片对象不支持文字属性。"));
             }
@@ -1117,24 +1364,14 @@ impl<'a> PdfEngine<'a> {
                     .unwrap_or(text_object.unscaled_font_size().value);
                 let color = text_object.fill_color().map_err(pdf_error)?;
                 if let Some(family) = &edit.font_family {
-                    let font = self.content_font(family, new_text)?;
-                    let key = font.family.to_lowercase();
-                    let token = if let Some(token) = fonts.tokens.get(&key) {
-                        *token
-                    } else {
-                        if fonts.total_bytes.saturating_add(font.bytes.len()) > MAX_FONT_BYTES {
-                            return Err(font_error(
-                                "输出文档的替代字体超过 64 MiB，请减少字体种类。",
-                            ));
-                        }
-                        let token = output
-                            .fonts_mut()
-                            .load_true_type_from_bytes(&font.bytes, true)
-                            .map_err(pdf_error)?;
-                        fonts.total_bytes += font.bytes.len();
-                        fonts.tokens.insert(key, token);
-                        token
-                    };
+                    let token = self.editable_font_token_style(
+                        output,
+                        fonts,
+                        family,
+                        new_text,
+                        edit.bold.unwrap_or(false),
+                        edit.italic.unwrap_or(false),
+                    )?;
                     let matrix = object.matrix().map_err(pdf_error)?;
                     let mut replacement =
                         PdfPageTextObject::new(output, new_text, token, PdfPoints::new(size))
@@ -1169,9 +1406,15 @@ impl<'a> PdfEngine<'a> {
                             .map_err(pdf_error)?;
                     }
                 }
-                if let Some(color_value) = &edit.fill_color {
+                if edit.fill_color.is_some() || edit.opacity.is_some() {
                     object
-                        .set_fill_color(parse_color(color_value, color.alpha())?)
+                        .set_fill_color(parse_color(
+                            edit.fill_color.as_deref().unwrap_or(&color_string(color)),
+                            edit.opacity
+                                .map(text_alpha)
+                                .transpose()?
+                                .unwrap_or(color.alpha()),
+                        )?)
                         .map_err(pdf_error)?;
                 }
                 // Refresh PDFium's cached text bounds after changing font size
