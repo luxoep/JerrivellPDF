@@ -31,11 +31,12 @@ export interface PageNavigation { id: string; sequence: number }
 type PageControls = (page: WorkspacePage, ready: boolean, loading: boolean, onPreview: (placement: PageOverlay | null) => void) => ReactNode;
 
 /** Exact-size virtual pages preserve native wheel scrolling without rendering the entire PDF. */
-export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false }: {
+export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false, pinnedPageId }: {
   pages: WorkspacePage[]; zoom: ViewerZoom; navigation: PageNavigation | null;
   onZoom: (zoom: ViewerZoom) => void; onSize: (size: ViewportSize) => void;
   onActiveChange: (id: string) => void; controls: PageControls;
   interactionBlocked?: boolean;
+  pinnedPageId?: string;
 }) {
   const { t } = useI18n();
   const viewport = useRef<HTMLDivElement>(null);
@@ -125,6 +126,8 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
   }, []);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
   const mountedRows = visibleRows(layout.pages, scroll.top - 350, scroll.top + size.height + 350);
+  const pinned = pinnedPageId && layout.pages.find(row => row.id === pinnedPageId);
+  if (pinned && !mountedRows.some(row => row.id === pinned.id)) mountedRows.push(pinned);
   return <div ref={viewport} className="page-viewport continuous-viewport" role="region" aria-label={t('PDF 连续阅读视口，Ctrl 加滚轮缩放', 'Continuous PDF reader; Ctrl plus wheel zooms')} tabIndex={0}
     onPointerDownCapture={event => { if (event.target instanceof HTMLElement && !event.target.closest('button, input, select, textarea, [role="button"]')) event.currentTarget.focus({ preventScroll: true }); }}
     onKeyDown={event => {

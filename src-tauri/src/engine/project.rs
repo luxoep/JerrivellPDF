@@ -586,6 +586,7 @@ impl<'a> PdfEngine<'a> {
                     document: reopened,
                     path: None,
                     size: writer.data.len() as u64,
+                    copy_allowed: source.copy_allowed,
                 },
             );
             rebase_source_edits(self, &snapshot, &id, &mut pages, &refs)?;
@@ -724,6 +725,7 @@ impl<'a> PdfEngine<'a> {
                 return Err(invalid("嵌入 PDF 合计超过 64 MiB。"));
             }
             let length = pdf.len() as u64;
+            let copy_allowed = super::selection::copy_permission(&pdf);
             let document = candidate
                 .pdfium
                 .load_pdf_from_byte_vec(pdf, None)
@@ -760,6 +762,7 @@ impl<'a> PdfEngine<'a> {
                     document,
                     path: None,
                     size: length,
+                    copy_allowed,
                 },
             );
             document_mapping.insert(source.id, id);

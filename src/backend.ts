@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ImageAsset, ObjectPreviewLayers, PageRef, RenderedPage, RenderedPageLayers } from './types';
+import type { PageText } from './textSelection';
 
 export const isDesktop = () => '__TAURI_INTERNALS__' in window;
 
@@ -66,6 +67,8 @@ function enqueue<T>(command: string, args: Record<string, unknown> | undefined, 
 // background; only operations that consume these assets await registration.
 // Waiting takes place BEFORE queueing IPC, so a save cannot deadlock behind it.
 const imageAssets = new Map<string, ImageAsset>();
+const textPages = new Map<string, { promise: Promise<PageText>; bytes: number }>();
+let textBytes = 0;
 const stagedImages = new Map<string, { promise: Promise<ImageAsset>; nativeId?: string; error?: unknown }>();
 const stagedData = new Map<string, string>();
 let imageSequence = 0;
@@ -101,7 +104,7 @@ function rememberImage(value: unknown, command: string) {
   }
   imageAssets.set(asset.id, { id: asset.id, dataUrl: asset.dataUrl, width: asset.width, height: asset.height });
 }
-function clearImageAssets() { imageAssets.clear(); stagedImages.clear(); stagedData.clear(); }
+function clearImageAssets() { imageAssets.clear(); stagedImages.clear(); stagedData.clear(); textPages.clear(); textBytes = 0; }
 export const previewImageAsset = (id: string) => imageAssets.get(id);
 /** Called only after a project has been completely validated and loaded. */
 export function hydrateImageAssets(assets: ImageAsset[]) {
@@ -239,6 +242,26 @@ export function renderPage(page: PageRef, targetWidth: number, thumbnail = false
 
 /** Overlay placement/opacity/history do not change the expensive native raster. */
 export function rasterReference(page: PageRef): PageRef { return pageReference({ ...page, overlays: [] }); }
+/** Character geometry is independent of zoom and added image placement. */
+export function getPageText(page: PageRef): Promise<PageText> {
+  const reference = rasterReference(page), key = JSON.stringify(reference);
+  const cached = textPages.get(key);
+  if (cached) { textPages.delete(key); textPages.set(key, cached); return cached.promise; }
+  const generation = requestGeneration;
+  const record = { promise: null! as Promise<PageText>, bytes: 0 };
+  record.promise = backend<PageText>('get_page_text', { page: reference }, 1).then(result => {
+    if (generation !== requestGeneration) throw new Error(cancelledRequest);
+    record.bytes = result.glyphs.length * 120 + result.text.length * 2;
+    if (textPages.get(key) === record) textBytes += record.bytes;
+    while (textBytes > 12 * 1024 * 1024 || textPages.size > 16) {
+      const [oldKey, old] = textPages.entries().next().value!;
+      textPages.delete(oldKey); textBytes -= old.bytes;
+    }
+    return result;
+  }).catch(error => { if (textPages.get(key) === record) { textPages.delete(key); textBytes -= record.bytes; } throw error; });
+  textPages.set(key, record);
+  return record.promise;
+}
 export function cachedPageLayers(page: PageRef, targetWidth: number): RenderedPageLayers | undefined {
   const key = `${JSON.stringify(rasterReference(page))}:${Math.max(80,Math.round(targetWidth))}`;
   const cached = layerCache.get(key); if (cached) touchCache('layers', key); return cached;

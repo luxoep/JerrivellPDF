@@ -34,12 +34,76 @@ pub enum PrintOrientation {
     Landscape,
 }
 
+#[derive(Debug, Copy, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PrintPaper {
+    #[default]
+    Printer,
+    A3,
+    A4,
+    A5,
+    B5,
+    Letter,
+    Legal,
+}
+
+impl PrintPaper {
+    fn dimensions_mm(self) -> Option<(f64, f64)> {
+        match self {
+            Self::Printer => None,
+            Self::A3 => Some((297.0, 420.0)),
+            Self::A4 => Some((210.0, 297.0)),
+            Self::A5 => Some((148.0, 210.0)),
+            Self::B5 => Some((182.0, 257.0)),
+            Self::Letter => Some((215.9, 279.4)),
+            Self::Legal => Some((215.9, 355.6)),
+        }
+    }
+    fn windows_id(self) -> Option<i16> {
+        match self {
+            Self::Printer => None,
+            Self::A3 => Some(8),
+            Self::A4 => Some(9),
+            Self::A5 => Some(11),
+            Self::B5 => Some(13),
+            Self::Letter => Some(1),
+            Self::Legal => Some(5),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PrintColor {
+    #[default]
+    Printer,
+    Color,
+    Grayscale,
+}
+
+/// The same buffer is inspected by the no-spool raster verifier and sent to GDI.
+fn apply_print_color(pixels: &mut [u8], color: PrintColor) {
+    if color == PrintColor::Grayscale {
+        for p in pixels.chunks_exact_mut(4) {
+            let gray = ((u32::from(p[2]) * 77 + u32::from(p[1]) * 150 + u32::from(p[0]) * 29 + 128)
+                >> 8) as u8;
+            p[0] = gray;
+            p[1] = gray;
+            p[2] = gray;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrintOptions {
     pub scale: PrintScale,
     pub orientation: PrintOrientation,
     pub copies: u16,
+    #[serde(default)]
+    pub paper_size: PrintPaper,
+    #[serde(default)]
+    pub color: PrintColor,
 }
 
 impl PrintOptions {
@@ -358,6 +422,30 @@ fn bitmap_size(width: f64, height: f64, print_scale: f64) -> Result<(i32, i32, b
     Ok((output_width, output_height, reduction < 0.999_999))
 }
 
+fn validate_paper_metrics(
+    metrics: PrinterMetrics,
+    paper: PrintPaper,
+    orientation: i16,
+) -> Result<(), String> {
+    let Some((width, height)) = paper.dimensions_mm() else {
+        return Ok(());
+    };
+    if metrics.dpi_x <= 0 || metrics.dpi_y <= 0 {
+        return Err("PRINT_ERROR: 打印机纸张尺寸不可用。".into());
+    }
+    let (width, height) = if orientation == 2 {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let actual_width = metrics.physical_width as f64 / metrics.dpi_x as f64 * 25.4;
+    let actual_height = metrics.physical_height as f64 / metrics.dpi_y as f64 * 25.4;
+    if (actual_width - width).abs() > 3.0 || (actual_height - height).abs() > 3.0 {
+        return Err(format!("PRINT_ERROR: 打印机未接受所选纸张（要求 {width:.1}×{height:.1} mm，驱动返回 {actual_width:.1}×{actual_height:.1} mm）。请选择该打印机支持的纸张，或使用“跟随打印机设置”。"));
+    }
+    Ok(())
+}
+
 #[cfg(not(windows))]
 mod native {
     use super::*;
@@ -383,6 +471,11 @@ mod native {
     const PD_COLLATE: u32 = 0x10;
     const PD_HIDEPRINTTOFILE: u32 = 0x100000;
     const DM_ORIENTATION: u32 = 1;
+    const DM_PAPERSIZE: u32 = 2;
+    const DM_PAPERLENGTH: u32 = 4;
+    const DM_PAPERWIDTH: u32 = 8;
+    const DM_COLOR: u32 = 0x800;
+    const DM_FORMNAME: u32 = 0x10000;
     const DM_COPIES: u32 = 0x100;
     const DM_COLLATE: u32 = 0x8000;
 
@@ -599,12 +692,28 @@ mod native {
         }
     }
 
-    fn configure_mode(mode: &mut DevMode, orientation: i16) {
+    fn configure_mode(mode: &mut DevMode, orientation: i16, options: &PrintOptions) {
         mode.fields |= DM_ORIENTATION | DM_COPIES | DM_COLLATE;
         mode.orientation = orientation;
         // Application-side copies and collation, never driver-side duplication.
         mode.copies = 1;
         mode.collate = 0;
+        if let Some(paper) = options.paper_size.windows_id() {
+            mode.fields =
+                (mode.fields & !(DM_PAPERLENGTH | DM_PAPERWIDTH | DM_FORMNAME)) | DM_PAPERSIZE;
+            mode.paper_size = paper;
+            mode.paper_length = 0;
+            mode.paper_width = 0;
+            mode.form_name = [0; 32];
+        }
+        if options.color != PrintColor::Printer {
+            mode.fields |= DM_COLOR;
+            mode.color = if options.color == PrintColor::Grayscale {
+                1
+            } else {
+                2
+            };
+        }
     }
 
     fn choose_device(
@@ -628,7 +737,7 @@ mod native {
         }
         if !dialog.devmode.is_null() {
             let _ = with_mode(dialog.devmode, |mode| {
-                configure_mode(mode, first_orientation);
+                configure_mode(mode, first_orientation, &job.options);
                 Ok(())
             });
         }
@@ -747,7 +856,7 @@ mod native {
             return Err("PRINT_ERROR: 无法取得虚拟打印机设置。".into());
         }
         device.dc = with_mode(memory, |mode| {
-            configure_mode(mode, orientation);
+            configure_mode(mode, orientation, &job.options);
             let driver = wide("WINSPOOL");
             let dc = unsafe { CreateDCW(driver.as_ptr(), name.as_ptr(), null(), mode) };
             if dc.is_null() {
@@ -856,6 +965,7 @@ mod native {
             page_layout(width_pt, height_pt, synthetic, PrintScale::Actual)?;
             let (width, height, reduced) = bitmap_size(width_pt, height_pt, 1.0)?;
             let mut pixels = render_bgra(&page, width, height)?;
+            apply_print_color(&mut pixels, options.color);
             // Convert the exact GDI buffer to a PNG for independent inspection.
             for pixel in pixels.chunks_exact_mut(4) {
                 pixel.swap(0, 2);
@@ -884,7 +994,7 @@ mod native {
         }
         let manifest = json!({"status": "rendered", "createdSpoolJob": false,
             "configuration": "Production PDFium print config; opaque BGRA; print quality; 300dpi bounded sampling",
-            "pages": records});
+            "paperSize": options.paper_size, "color": options.color, "pages": records});
         OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -956,7 +1066,7 @@ mod native {
         // ResetDC is required even for the first page: the system dialog may
         // have changed its DEVMODE, and driver-side copies must be cleared.
         with_mode(device.devmode, |mode| {
-            configure_mode(mode, first_orientation);
+            configure_mode(mode, first_orientation, &job.options);
             let dc = unsafe { ResetDCW(device.dc, mode) };
             if dc.is_null() {
                 Err(failure("无法应用打印机设置"))
@@ -965,6 +1075,11 @@ mod native {
                 Ok(())
             }
         })?;
+        validate_paper_metrics(
+            metrics(device.dc),
+            job.options.paper_size,
+            first_orientation,
+        )?;
         let name = wide(&clean_job_name(&job.job_name));
         let output = job
             .test_output_path
@@ -1011,7 +1126,7 @@ mod native {
             let orientation = desired_orientation(&job.options, page_width, page_height);
             if orientation != previous_orientation {
                 with_mode(device.devmode, |mode| {
-                    configure_mode(mode, orientation);
+                    configure_mode(mode, orientation, &job.options);
                     let dc = unsafe { ResetDCW(device.dc, mode) };
                     if dc.is_null() {
                         Err(failure("无法切换打印纸张方向"))
@@ -1028,10 +1143,12 @@ mod native {
                 metrics(device.dc),
                 job.options.scale,
             )?;
+            validate_paper_metrics(metrics(device.dc), job.options.paper_size, orientation)?;
             clipped |= layout.clipped;
             let (width, height, did_reduce) = bitmap_size(page_width, page_height, layout.scale)?;
             reduced |= did_reduce;
-            let pixels = render_bgra(&page, width, height)?;
+            let mut pixels = render_bgra(&page, width, height)?;
+            apply_print_color(&mut pixels, job.options.color);
             let bitmap_info = BitmapInfo {
                 header: BitmapInfoHeader {
                     size: size_of::<BitmapInfoHeader>() as u32,
@@ -1107,6 +1224,36 @@ mod native {
         assert_eq!(size_of::<DocInfo>(), 40);
         assert_eq!(size_of::<BitmapInfoHeader>(), 40);
     }
+
+    #[cfg(test)]
+    #[test]
+    fn explicit_paper_and_color_reach_devmode_without_losing_driver_data() {
+        let mut mode: DevMode = unsafe { zeroed() };
+        mode.fields = DM_PAPERLENGTH | DM_PAPERWIDTH | DM_FORMNAME;
+        mode.driver_extra = 256;
+        mode.paper_length = 4000;
+        mode.paper_width = 2000;
+        let options = PrintOptions {
+            scale: PrintScale::Fit,
+            orientation: PrintOrientation::Auto,
+            copies: 2,
+            paper_size: PrintPaper::A3,
+            color: PrintColor::Grayscale,
+        };
+        configure_mode(&mut mode, 2, &options);
+        assert_eq!(mode.paper_size, 8);
+        assert_eq!(mode.color, 1);
+        assert_eq!(mode.orientation, 2);
+        assert_eq!(mode.copies, 1);
+        assert_eq!(mode.collate, 0);
+        assert_eq!(mode.driver_extra, 256);
+        assert_eq!(
+            mode.fields & (DM_PAPERLENGTH | DM_PAPERWIDTH | DM_FORMNAME),
+            0
+        );
+        assert_ne!(mode.fields & DM_COLOR, 0);
+        assert_ne!(mode.fields & DM_PAPERSIZE, 0);
+    }
 }
 
 #[cfg(test)]
@@ -1124,6 +1271,26 @@ mod tests {
             dpi_x: 600,
             dpi_y: 600,
         }
+    }
+
+    #[test]
+    fn paper_validation_color_and_backward_compatible_defaults() {
+        let options: PrintOptions =
+            serde_json::from_str(r#"{"scale":"fit","orientation":"auto","copies":1}"#).unwrap();
+        assert_eq!(options.paper_size, PrintPaper::Printer);
+        assert_eq!(options.color, PrintColor::Printer);
+        assert!(validate_paper_metrics(printer(), PrintPaper::Letter, 1).is_ok());
+        assert!(validate_paper_metrics(printer(), PrintPaper::A4, 1).is_err());
+        assert!(validate_paper_metrics(printer(), PrintPaper::Letter, 2).is_err());
+        let original = vec![20, 60, 200, 255, 255, 255, 255, 255, 0, 0, 0, 255];
+        let mut pixels = original.clone();
+        apply_print_color(&mut pixels, PrintColor::Color);
+        assert_eq!(pixels, original);
+        apply_print_color(&mut pixels, PrintColor::Grayscale);
+        assert_eq!(pixels[0], pixels[1]);
+        assert_eq!(pixels[1], pixels[2]);
+        assert_eq!(pixels[3], 255);
+        assert_eq!(&pixels[4..], &original[4..]);
     }
 
     #[test]
@@ -1168,21 +1335,27 @@ mod tests {
         assert!(PrintOptions {
             scale: PrintScale::Fit,
             orientation: PrintOrientation::Auto,
-            copies: 0
+            copies: 0,
+            paper_size: PrintPaper::Printer,
+            color: PrintColor::Printer
         }
         .validate(1)
         .is_err());
         assert!(PrintOptions {
             scale: PrintScale::Fit,
             orientation: PrintOrientation::Auto,
-            copies: 99
+            copies: 99,
+            paper_size: PrintPaper::Printer,
+            color: PrintColor::Printer
         }
         .validate(5000)
         .is_err());
         assert!(PrintOptions {
             scale: PrintScale::Fit,
             orientation: PrintOrientation::Auto,
-            copies: 1
+            copies: 1,
+            paper_size: PrintPaper::Printer,
+            color: PrintColor::Printer
         }
         .validate(0)
         .is_err());

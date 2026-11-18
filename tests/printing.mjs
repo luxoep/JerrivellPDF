@@ -140,6 +140,14 @@ assert.equal(walk(host.tree, node => node.type === 'img').length, 0);
 currentPreview.resolve({ dataUrl: 'current-page', width: 700, height: 990 }); await settle(); host.render();
 assert.equal(walk(host.tree, node => node.type === 'img')[0].props.src, 'current-page');
 
+// Explicit paper/color are independent settings and change the preview without a native render.
+const renderCount = renders.length;
+const paperSetting = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Paper size')[0];
+paperSetting.props.onChange({target:{value:'a3'}});host.render();
+const colorSetting = walk(host.tree, node => node.type === 'select' && node.props['aria-label'] === 'Print color')[0];
+colorSetting.props.onChange({target:{value:'grayscale'}});host.render();
+assert.equal(walk(host.tree,node=>node.type==='img')[0].props.style.filter,'grayscale(1)');
+assert.equal(renders.length,renderCount,'Paper/color do not rerender the PDF for a preview');
 // Native cancellation is normal, keeps the dialog open and releases busy once.
 const beforeCalls = calls.length;
 const pendingCancel = deferred(); printReply = () => pendingCancel.promise;
@@ -151,6 +159,7 @@ assert.equal(button(host, 'Choose printer and print').props.disabled, true);
 assert.deepEqual(host.busy, [true]);
 assert.deepEqual(plain(calls.at(-1).args.pages), [{ documentId: 'first-pdf', pageIndex: 0, rotation: 0, overlays: pages[4].overlays }]);
 assert.equal(calls.at(-1).args.options.copies, 1);
+assert.equal(calls.at(-1).args.options.paperSize, 'a3');assert.equal(calls.at(-1).args.options.color, 'grayscale');
 assert.equal(calls.at(-1).args.jobName, 'Unicode 中文.pdf');
 let escapePrevented = 0, escapeStopped = 0;
 walk(host.tree, node => node.props?.role === 'dialog')[0].props.onKeyDown({ key: 'Escape', preventDefault: () => escapePrevented++, stopPropagation: () => escapeStopped++ });

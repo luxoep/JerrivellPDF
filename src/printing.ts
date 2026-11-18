@@ -4,10 +4,19 @@ import type { WorkspacePage } from './types';
 
 export type PrintScope = 'all' | 'current' | 'selected' | 'range';
 export type PrintSubset = 'all' | 'odd' | 'even';
+export type PrintPaper = 'printer' | 'a3' | 'a4' | 'a5' | 'b5' | 'letter' | 'legal';
+export type PrintColor = 'printer' | 'color' | 'grayscale';
+export const PRINT_PAPERS: { id: PrintPaper; name: string; width: number; height: number }[] = [
+  { id: 'a3', name: 'A3', width: 297, height: 420 }, { id: 'a4', name: 'A4', width: 210, height: 297 },
+  { id: 'a5', name: 'A5', width: 148, height: 210 }, { id: 'b5', name: 'B5 (JIS)', width: 182, height: 257 },
+  { id: 'letter', name: 'Letter', width: 215.9, height: 279.4 }, { id: 'legal', name: 'Legal', width: 215.9, height: 355.6 },
+];
 export interface PrintOptions {
   scale: 'fit' | 'actual';
   orientation: 'auto' | 'portrait' | 'landscape';
   copies: number;
+  paperSize?: PrintPaper;
+  color?: PrintColor;
 }
 export interface PrintResult { status: 'printed' | 'cancelled'; pageCount: number; copies: number; warnings?: string[] }
 

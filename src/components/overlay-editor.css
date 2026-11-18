@@ -26,3 +26,5 @@
 .oe-text-frame-tools>.oe-action{min-height:34px;white-space:normal}
 .oe-frame-hint{margin-top:8px;margin-bottom:14px}
 .oe-field input[aria-invalid=true]{border-color:#ba6848}
+
+.oe-draw-text{width:100%;min-height:38px;margin-bottom:8px;gap:7px}

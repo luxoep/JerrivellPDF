@@ -28,6 +28,7 @@ const canvas = {
   createTextPng: (...args) => { drawnFonts.push(['text', ...args]); return { dataUrl: 'data:image/png;base64,AA==', width: 200, height: 100 }; },
 };
 const require = name => {
+  if (name === './InlineTextInput') return {InlineTextInput:'InlineTextInput'};
   if (name === '../imageGeometry') return imageGeometry;
   if (name === './ImageEditDialog') return {ImageEditDialog:'ImageEditDialog'};
   if (name === './RegionSelection') return {RegionSelection:'RegionSelection'};

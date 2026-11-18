@@ -130,6 +130,7 @@ assert.equal(nodes[1][0].props.style.mixBlendMode, 'multiply');
 assert.equal(nodes[1][1].props['data-live-overlay'], 'second');
 assert.equal(nodes[2][0].props['data-pdf-foreground'], 0, 'Native decorations/annotations stay above all marks');
 const handles = load('../src/components/OverlayHandles.tsx', { require(name) {
+  if (name === './InlineTextInput') return {InlineTextInput:'InlineTextInput'};
   if (name === 'react') return react;
   if (name === 'react/jsx-runtime') return jsx;
   if (name === '../i18n') return {useI18n:()=>({t:(zh,en)=>en??zh})};
@@ -143,7 +144,7 @@ const handleHost={cursor:0,slots:[],effects:[]}, changes=[], previews=[];
 const surface={getBoundingClientRect:()=>({width:600,height:800}),focus(){},setPointerCapture(){},hasPointerCapture:()=>true,releasePointerCapture(){}};
 const handleProps={overlays:page.overlays,onChange:value=>changes.push(value),onPreview:value=>previews.push(value),pageWidth:600,pageHeight:800};
 const pointer=(x,y)=>({button:0,pointerId:1,clientX:x,clientY:y,currentTarget:surface,preventDefault(){},stopPropagation(){}});
-function renderHandle(){host=handleHost;host.cursor=0;host.effects=[];const tree=handles.OverlayHandles(handleProps);tree.props.ref.current=surface;return tree.props.children[0];}
+function renderHandle(){host=handleHost;host.cursor=0;host.effects=[];const tree=handles.OverlayHandles(handleProps);tree.props.ref.current=surface;return tree.props.children[0][0];}
 let handle=renderHandle();handle.props.onPointerDown(pointer(100,100));handle=renderHandle();handle.props.onPointerMove(pointer(160,180));
 assert.ok(Math.abs(previews.at(-1).x-.2)<1e-10);assert.ok(Math.abs(previews.at(-1).y-.3)<1e-10);assert.equal(changes.length,0,'Live drag does not create history on every move');
 handle=renderHandle();handle.props.onPointerUp(pointer(160,180));assert.equal(changes.length,1);assert.equal(previews.at(-1),null);

@@ -52,6 +52,7 @@ impl<'a> PdfEngine<'a> {
                 document,
                 path: None,
                 size,
+                copy_allowed: Some(true),
             },
         );
         Ok(info)

@@ -32,13 +32,13 @@ fn font_error(message: impl std::fmt::Display) -> String {
 }
 
 #[derive(Clone, Copy)]
-struct PageSpace {
+pub(super) struct PageSpace {
     forward: PdfMatrix,
     inverse: PdfMatrix,
 }
 
 impl PageSpace {
-    fn new(page: &PdfPage<'_>) -> Result<Self, String> {
+    pub(super) fn new(page: &PdfPage<'_>) -> Result<Self, String> {
         let config = PdfRenderConfig::new().set_target_size(10_000, 10_000);
         let (ox, oy) = page.pixels_to_points(0, 0, &config).map_err(pdf_error)?;
         let (rx, ry) = page
@@ -84,6 +84,43 @@ impl PageSpace {
             return Err(invalid("对象边界不是有效数值。"));
         }
         Ok(result)
+    }
+
+    pub(super) fn text_bounds(&self, bounds: PdfRect) -> Option<ContentBounds> {
+        let points = [
+            (bounds.left(), bounds.bottom()),
+            (bounds.left(), bounds.top()),
+            (bounds.right(), bounds.bottom()),
+            (bounds.right(), bounds.top()),
+        ]
+        .map(|(x, y)| self.inverse.apply_to_points(x, y));
+        let left = points
+            .iter()
+            .map(|p| p.0.value)
+            .fold(f32::INFINITY, f32::min)
+            .max(0.0);
+        let right = points
+            .iter()
+            .map(|p| p.0.value)
+            .fold(f32::NEG_INFINITY, f32::max)
+            .min(1.0);
+        let top = points
+            .iter()
+            .map(|p| p.1.value)
+            .fold(f32::INFINITY, f32::min)
+            .max(0.0);
+        let bottom = points
+            .iter()
+            .map(|p| p.1.value)
+            .fold(f32::NEG_INFINITY, f32::max)
+            .min(1.0);
+        ([left, right, top, bottom].iter().all(|n| n.is_finite()) && right > left && bottom > top)
+            .then_some(ContentBounds {
+                x: left,
+                y: top,
+                width: right - left,
+                height: bottom - top,
+            })
     }
 
     fn place(&self, object: &mut PdfPageObject<'_>, target: &ContentBounds) -> Result<(), String> {
@@ -1061,7 +1098,10 @@ impl<'a> PdfEngine<'a> {
         )
     }
 
-    fn copied_content_page(&self, reference: &PageRef) -> Result<PdfDocument<'a>, String> {
+    pub(super) fn copied_content_page(
+        &self,
+        reference: &PageRef,
+    ) -> Result<PdfDocument<'a>, String> {
         let source = self.source(reference)?;
         let mut output = self.pdfium.create_new_pdf().map_err(pdf_error)?;
         output

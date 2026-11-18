@@ -17,6 +17,7 @@ mod image_edit;
 mod operations;
 mod preview;
 mod project;
+mod selection;
 use assets::ImageAsset;
 
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -33,6 +34,7 @@ struct Source<'a> {
     document: PdfDocument<'a>,
     path: Option<PathBuf>,
     size: u64,
+    copy_allowed: Option<bool>,
 }
 
 pub struct PdfEngine<'a> {
@@ -164,6 +166,7 @@ impl<'a> PdfEngine<'a> {
             return Err("读取期间文件大小超过限制。".into());
         }
         let file_size = bytes.len() as u64;
+        let copy_allowed = selection::source_copy_permission(self.pdfium, &bytes, password);
         let document = self
             .pdfium
             .load_pdf_from_byte_vec(bytes, password)
@@ -218,6 +221,7 @@ impl<'a> PdfEngine<'a> {
                 document,
                 path: Some(path),
                 size: file_size,
+                copy_allowed,
             },
         );
         Ok(info)
@@ -757,6 +761,10 @@ impl<'a> PdfEngine<'a> {
             "inspect_page_content" => {
                 let p: Inspect = parse(&request.args)?;
                 self.inspect_page_content(&p.page).map(|v| json!(v))
+            }
+            "get_page_text" => {
+                let p: Inspect = parse(&request.args)?;
+                self.get_page_text(&p.page)
             }
             "search_pages" => {
                 let p: SearchPages = parse(&request.args)?;

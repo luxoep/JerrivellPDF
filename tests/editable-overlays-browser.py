@@ -129,7 +129,7 @@ HTML = '''<!doctype html><html><head><meta charset="utf-8"><title>Annotation int
 *{box-sizing:border-box}body{margin:0;background:#e8edf0;color:#243f50;font:14px Arial,sans-serif}header{height:50px;padding:16px 40px;display:flex;gap:20px}header span{color:#687f8c}#sheet{position:relative;width:600px;height:800px;margin:10px 0 30px 40px;background:#fff;box-shadow:0 2px 20px #35516425}aside{position:absolute;left:690px;top:70px;width:430px;padding:20px;background:#fff;border-radius:8px}#errors{color:#a43827}button{font:inherit}
 </style></head><body><div id="root"></div><script type="module" src="./annotation-harness.tsx"></script></body></html>'''
 
-SOURCES = ['src/components/OverlayHandles.tsx','src/components/LivePageImage.tsx','src/components/MarkLayer.tsx',
+SOURCES = ['src/inlineTextGeometry.ts','src/components/InlineTextInput.tsx','src/components/inline-text-input.css','src/components/OverlayHandles.tsx','src/components/LivePageImage.tsx','src/components/MarkLayer.tsx',
            'src/components/EditableMarkHandles.tsx','src/components/overlayCanvas.ts','src/textFrame.ts',
            'src/placementGeometry.ts','src/editableOverlays.ts','src/markGeometry.ts','src/backend.ts',
            'src/overlayGeometry.ts','src/viewerGeometry.ts','src/types.ts',
@@ -313,7 +313,7 @@ def main():
     log=(folder/'annotation-vite.log').open('w',encoding='utf-8')
     server=subprocess.Popen(['node','node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',str(port),'--strictPort'],cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     try:
-        url=f'http://127.0.0.1:{port}/test-results/0.8.4/annotation-harness.html'
+        url=f'http://127.0.0.1:{port}/test-results/{VERSION}/annotation-harness.html'
         for _ in range(100):
             try:
                 urllib.request.urlopen(url,timeout=.3).close();break

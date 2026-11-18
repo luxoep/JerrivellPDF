@@ -29,6 +29,9 @@ export type Overlay = PageOverlay;
 export type { PageOverlay };
 export type RegisteredImage = ImageAsset;
 export interface OverlayEditorProps {
+  onDrawText?: () => void;
+  drawingText?: boolean;
+  onTextStyleChange?: (style: TextOverlaySource) => void;
   pageWidth: number;
   pageHeight: number;
   overlays: Overlay[];
@@ -168,6 +171,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     ...(textWrap ? { frame: { width: Math.min(Math.max(textPadding === undefined ? 24 : 1, textBoxWidth * POINTS_PER_MM), Math.floor(props.pageWidth * 2) / 2),
       height: Math.min(Math.max(textPadding === undefined ? 12 : 1, textBoxHeight * POINTS_PER_MM), Math.floor(props.pageHeight * 2) / 2), autoHeight: textAutoHeight } } : {}),
   }), [text, textColor, fontSize, bold, textFont, italic, underline, strikeout, textAlignment, charSpacing, lineHeight, textWrap, textBoxWidth, textBoxHeight, textAutoHeight, textPadding, props.pageWidth, props.pageHeight]);
+  useEffect(() => { props.onTextStyleChange?.(textSource); }, [textSource, props.onTextStyleChange]);
   useEffect(() => {
     let cancelled = false;
     if (!textSource.content.trim()) { setTextPreview(null); setTextPreviewError(''); return; }
@@ -542,6 +546,8 @@ export function OverlayEditor(props: OverlayEditorProps) {
     <div className="oe-scroll">
       {libraryUnavailable && <p className="oe-storage-warning" role="status">{t('本机库暂不可用。已保留原有数据；重新启动后可重试，添加到页面仍可使用。', 'The local library is unavailable. Existing data is preserved. Restart to retry; adding content to the page remains available.')}</p>}
       {tab === 'text' && <section className="oe-section"><h3>{t('多行文字框', 'Multiline text box')}</h3>
+        {props.onDrawText && <><button className={`button ${props.drawingText?'primary':'secondary'} oe-draw-text`} aria-pressed={props.drawingText} disabled={locked} onClick={props.onDrawText}><Type size={16}/>{props.drawingText?t('取消画文字框','Cancel drawing'):t('在页面上画文字框','Draw text box on page')}</button><p className="oe-note">{t('拖出框后直接输入，点击框外自动完成；双击页面上的已有文字可再次编辑。字号由下方设置，拉框不缩放字形。','Drag a frame and type directly. Click outside to finish; double-click existing added text to edit again. The settings below determine font size; drawing does not stretch glyphs.')}</p></>}
+
         <label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={4000} rows={5} value={text} disabled={locked} placeholder={t('输入中文或英文，支持多行与自动换行…', 'Enter text, including multiple lines…')} onChange={event => setText(event.target.value)} /></label>
         <FontPicker value={textFont} onChange={setTextFont} disabled={locked} sample={text}/>
         <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input {...sizeInput} disabled={locked}/></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label></div>

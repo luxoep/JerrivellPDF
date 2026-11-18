@@ -75,7 +75,14 @@ if data.get('mode') == 'headless-raster':
             expected_height = int(item['pageHeightPoints'] / 72 * 300)
             assert not item['reducedByBudget']
             assert rendered.size == (expected_width, expected_height), (rendered.size, expected_width, expected_height)
-            pages.append({'page': index + 1, 'sizeAt300dpi': list(rendered.size), **compare_colors(expected_image, rendered)})
+            if output['name']=='grayscale':
+                r,g,b=rendered.split();assert ImageChops.difference(r,g).getbbox() is None and ImageChops.difference(g,b).getbbox() is None
+                expected_gray=expected_image.convert('L').resize(rendered.size,Image.Resampling.BILINEAR)
+                mean_error=ImageStat.Stat(ImageChops.difference(r,expected_gray)).mean[0]
+                assert mean_error<4,mean_error
+                pages.append({'page':index+1,'sizeAt300dpi':list(rendered.size),'rgbChannelsEqual':True,'grayReferenceMeanError':mean_error})
+            else:
+                pages.append({'page': index + 1, 'sizeAt300dpi': list(rendered.size), **compare_colors(expected_image, rendered)})
         cases.append({'name': output['name'], 'pages': pages})
     result = {'status': 'PASS', 'mode': 'headless-raster', 'createdSpoolJob': False,
               'independentEngine': 'pypdf + Pillow + Poppler', 'cases': cases,

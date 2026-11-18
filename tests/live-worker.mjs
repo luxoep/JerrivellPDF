@@ -43,6 +43,11 @@ try{
   const source=join(root,'fixtures/sample.pdf'),original=hash(await readFile(source));
   const doc=await api.backend('open_document',{path:source});
   const page={documentId:doc.id,pageIndex:0,rotation:0};
+  const selectable=await api.getPageText(page);assert.equal(selectable.status,'ready');assert.ok(selectable.text.includes('Make room'));
+  assert.ok(selectable.glyphs.length>20);assert.ok(selectable.glyphs.every(g=>g.start<g.end&&g.bounds.x>=0&&g.bounds.y>=0));
+  const extractionCalls=calls.filter(call=>call.command==='get_page_text').length;
+  assert.equal(await api.getPageText({...page,overlays:[{id:'not-native-text',assetId:'ignored',x:.1,y:.1,width:.1,height:.1,opacity:1}]}),selectable);
+  assert.equal(calls.filter(call=>call.command==='get_page_text').length,extractionCalls,'Image placement does not re-extract text');
   const base=await api.renderPageLayers(page,800),thumb=await api.renderPageLayers(page,154,true);
   assert.ok(base.foreground.length);const initialRasterCalls=calls.filter(call=>call.command==='render_page_layers').length;
   // An asset is usable only when both the native worker AND the live reader
@@ -70,7 +75,7 @@ try{
   assert.equal(hash(await readFile(source)),original);
   const image=await api.renderPage(plan,800);await writeFile(join(output,'native-export-preview.png'),Buffer.from(image.dataUrl.split(',')[1],'base64'));
   const summary={status:'PASS',executable:exe,overlayChanges:20,nativeRasterCalls:initialRasterCalls,nativeRasterCallsAfterEdits:initialRasterCalls,
-    immediateSaveIncludesBothMarks:true,unresolvedIdsInNativeIpc:false,sourceUnchanged:true,bytes:report.totalBytes};
+    selectablePdfText:true,textGeometryReusedAcrossOverlayEdits:true,immediateSaveIncludesBothMarks:true,unresolvedIdsInNativeIpc:false,sourceUnchanged:true,bytes:report.totalBytes};
   api.resetBackendQueue();await api.backend('close_all_documents');assert.equal(api.previewImageAsset(yellow.id),undefined);
   await assert.rejects(api.renderPageLayers(page,800));
   await writeFile(join(output,'results.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary,null,2));

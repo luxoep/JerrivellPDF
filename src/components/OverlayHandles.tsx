@@ -9,6 +9,7 @@ import { measureTextFrame, resizeTextFrame } from '../textFrame';
 import type { OverlayChangeOptions } from '../editableOverlays';
 import type { PageOverlay } from '../types';
 import './overlay-handles.css';
+import { InlineTextInput } from './InlineTextInput';
 
 type Gesture = { id: string; kind: 'move' | ResizeHandle; startX: number; startY: number; original: PageOverlay; preview: PageOverlay;
   bounds: DOMRect; pointerId: number; moveLinked: boolean; invalid: boolean };
@@ -18,7 +19,7 @@ const directions: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 /** Gestures preview locally; one release produces one history entry. */
 export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth = 595, pageHeight = 842, selectedId, onSelect,
   freeResize = false, onPreview, onError, onEditingChange }: {
-  overlays: PageOverlay[]; onChange: (next: PageOverlay[], options?: OverlayChangeOptions) => void;
+  overlays: PageOverlay[]; onChange: (next: PageOverlay[], options?: OverlayChangeOptions) => boolean | void;
   onPreview?: (placement: PageOverlay | null) => void; disabled?: boolean; pageWidth?: number; pageHeight?: number;
   selectedId?: string; onSelect?: (id: string) => void; freeResize?: boolean; onError?: (message: string) => void;
   onEditingChange?: (active: boolean) => void;
@@ -35,7 +36,7 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
   const show = (item: PageOverlay, invalid: boolean) => { setPreview(item); setOverflow(invalid); const shown = { ...item, previewMoveLinked: gesture.current?.moveLinked }; onPreview?.(shown); };
   useEffect(() => () => { cancelAnimationFrame(frame.current); onPreview?.(null); if (editingActive.current) onEditingChange?.(false); }, []);
   useEffect(() => { if (disabled) { gesture.current = null; if (editingActive.current) { editingActive.current = false; onEditingChange?.(false); } setEditing(null); clear(); } }, [disabled]);
-  const startEditing = (item: PageOverlay) => { editingActive.current = true; onEditingChange?.(true); setEditing({ id: item.id, content: item.textSource!.content }); };
+  const startEditing = (item: PageOverlay) => { setEditing({ id: item.id, content: item.textSource!.content }); };
   const begin = (event: PointerEvent<HTMLDivElement>, item: PageOverlay, kind: Gesture['kind']) => {
     if (event.button !== 0 || !root.current || editing) return;
     event.preventDefault(); event.stopPropagation(); event.currentTarget.focus({ preventScroll: true }); select(item.id);
@@ -92,19 +93,6 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
     if (current.invalid) { onError?.(t('文字框空间不足。请加宽或加高，文字字号保持不变。', 'The text does not fit. Widen or heighten the frame; its font size stays unchanged.')); return; }
     if (JSON.stringify(current.preview) !== JSON.stringify(current.original)) onChange(latest.current.overlays.map(item => item.id === current.id ? current.preview : item), { moveLinked: current.moveLinked });
   };
-  const finishEditing = (cancel = false, autoHeight = false) => {
-    const edit = editing; if (!edit) return;
-    const item = latest.current.overlays.find(item => item.id === edit.id);
-    let next = item;
-    if (!cancel && !disabled && item?.textSource && !item.locked && (item.textSource.content !== edit.content || autoHeight)) {
-      if (!edit.content.trim()) { onError?.(t('文字不能为空；删除对象请使用 Delete。', 'Text cannot be empty. Use Delete to remove the object.')); return; }
-      next = { ...item, textSource: { ...item.textSource, content: edit.content, ...(autoHeight && item.textSource.frame ? { frame: { ...item.textSource.frame, autoHeight: true } } : {}) } };
-      try { if (measureTextFrame(next, pageWidth, pageHeight).overflow) throw new Error(); }
-      catch { onError?.(t('文字溢出，输入内容已保留。可选择“自动加高并完成”，或减少文字。', 'Text overflows; your draft is retained. Choose Auto-height and finish, or reduce the text.')); return; }
-    }
-    editingActive.current = false; onEditingChange?.(false); setEditing(null); clear();
-    if (!cancel && !disabled && next && next !== item) onChange(latest.current.overlays.map(value => value.id === next!.id ? next! : value));
-  };
   return <div ref={root} className="overlay-interaction-layer" aria-label={t('添加内容的位置控制', 'Added content placement controls')}>
     {overlays.map((item, index) => {
       const placed = preview?.id === item.id ? preview : item, isEditing = editing?.id === item.id;
@@ -131,12 +119,12 @@ export function OverlayHandles({ overlays, onChange, disabled = false, pageWidth
         {!disabled && !item.locked && !isEditing && (item.textSource ? directions : ['se'] as ResizeHandle[]).map(direction => <div key={direction} role="button" aria-label={t(`调整${direction}方向文字框`, `Resize ${direction} frame`)} className={`overlay-resize-handle handle-${direction}`} tabIndex={0}
           title={item.textSource ? t('调整文字框，字号不变；双击文字编辑；Alt 拖动整体移动引线', 'Resize without changing font size; double-click edits; Alt-drag moves the leader too') : freeResize ? t('拖动调整宽高，Shift 保持比例', 'Drag to resize; Shift keeps proportions') : t('拖动等比调整大小', 'Drag to resize proportionally')}
           onPointerDown={event => begin(event, item, direction)} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onLostPointerCapture={event => finish(event, true)} />)}
-        {isEditing && <div className="inline-text-editor" onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
-          <textarea autoFocus aria-label={t('直接编辑文字', 'Edit text in place')} maxLength={4000} value={editing.content} onChange={event => setEditing({ ...editing, content: event.target.value })} onBlur={() => finishEditing()}
-            onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); finishEditing(true); } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); finishEditing(); } }}/>
-          <span>{t('Ctrl+Enter 完成 · Esc 取消', 'Ctrl+Enter finishes · Esc cancels')}</span><button type="button" onPointerDown={event => event.preventDefault()} onClick={() => finishEditing(false, true)}>{t('自动加高并完成', 'Auto-height and finish')}</button>
-        </div>}
+
       </div>;
     })}
+    {editing && overlays.filter(item=>item.id===editing.id&&item.textSource).map(item=><InlineTextInput key={item.id} item={item} pageWidth={pageWidth} pageHeight={pageHeight}
+      onPreview={onPreview} onError={onError} onEditingChange={active=>{if(editingActive.current!==active){editingActive.current=active;onEditingChange?.(active);}}}
+      onCommit={next=>{const result=onChange(latest.current.overlays.map(value=>value.id===next.id?next:value));if(result!==false){setEditing(null);clear();}return result;}}
+      onCancel={()=>{setEditing(null);clear();}}/>)}
   </div>;
 }

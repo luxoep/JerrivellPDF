@@ -191,6 +191,11 @@ async fn search_pages(
 }
 
 #[tauri::command]
+async fn get_page_text(state: State<'_, Backend>, page: PageRef) -> Result<Value, String> {
+    call(state, "get_page_text", json!({"page": page})).await
+}
+
+#[tauri::command]
 async fn save_document(
     state: State<'_, Backend>,
     output_path: String,
@@ -397,8 +402,18 @@ async fn close_all_documents(state: State<'_, Backend>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn save_editable_project(state: State<'_, Backend>, path: String, pages: Vec<Value>, title: String) -> Result<Value, String> {
-    call(state, "save_editable_project", json!({"path":path,"pages":pages,"title":title})).await
+async fn save_editable_project(
+    state: State<'_, Backend>,
+    path: String,
+    pages: Vec<Value>,
+    title: String,
+) -> Result<Value, String> {
+    call(
+        state,
+        "save_editable_project",
+        json!({"path":path,"pages":pages,"title":title}),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -471,6 +486,7 @@ pub fn run() {
             search_document,
             search_pages,
             inspect_page_content,
+            get_page_text,
             save_document,
             prepare_export,
             validate_document,

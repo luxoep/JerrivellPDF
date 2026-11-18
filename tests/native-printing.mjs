@@ -123,7 +123,7 @@ try {
 
 const base = { pdfPath: source, options: { scale: 'fit', orientation: 'auto', copies: 1 }, owner: 0, jobName: '页澜 PDF 打印验收 · Original color targets' };
 const checks = [];
-for (const [name, options] of [['copies-zero', { copies: 0 }], ['copies-over-limit', { copies: 100 }], ['bad-scale', { scale: 'invalid' }], ['bad-orientation', { orientation: 'invalid' }]]) {
+for (const [name, options] of [['copies-zero', { copies: 0 }], ['copies-over-limit', { copies: 100 }], ['bad-scale', { scale: 'invalid' }], ['bad-orientation', { orientation: 'invalid' }], ['bad-paper', { paperSize:'invalid' }], ['bad-color', {color:'invalid'}]]) {
   const reply = await runPrint({ ...base, options: { ...base.options, ...options }, testOutputPath: path.join(directory, `${name}.pdf`) });
   assert.equal(reply.result, null); assert.ok(reply.error, name); checks.push(`${name} rejected before any spool job`);
 }
@@ -137,15 +137,15 @@ checks.push('existing output file overwrite rejected with bytes unchanged');
 
 if (rasterOnly) {
   const outputs = [];
-  for (const [name, input] of [['original', source], ['multiply', multiplied]]) {
+  for (const [name, input] of [['original', source], ['multiply', multiplied], ['grayscale', source]]) {
     const rasters = path.join(directory, `rasters-${name}`);
     await mkdir(rasters);
-    const reply = await runPrint({ ...base, pdfPath: input, testRasterDirectory: rasters });
+    const reply = await runPrint({ ...base, pdfPath: input, options: {...base.options, color: name==='grayscale'?'grayscale':'color', paperSize:'a4'}, testRasterDirectory: rasters });
     assert.equal(reply.error, null, reply.error);
     assert.equal(reply.result.status, 'rendered');
     assert.equal(reply.result.pageCount, 3);
     const manifest = JSON.parse(await readFile(path.join(rasters, 'rasters.json'), 'utf8'));
-    assert.equal(manifest.createdSpoolJob, false);
+    assert.equal(manifest.createdSpoolJob, false);assert.equal(manifest.paperSize,'a4');assert.equal(manifest.color,name==='grayscale'?'grayscale':'color');
     assert.equal(manifest.pages.length, 3);
     outputs.push({ name, input, directory: rasters, result: reply.result, pages: manifest.pages });
   }
