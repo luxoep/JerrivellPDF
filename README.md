@@ -7,12 +7,12 @@ An open-source, local PDF workspace for Windows, with document editing, page org
 
 ## 下载与安装
 
-**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.12.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell%20PDF_0.12.0_x64-setup.exe)**
+**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.12.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell.PDF_0.12.0_x64-setup.exe)**
 
 [历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载；通常建议使用最新的 0.12.0。历史归档保留当时的许可：**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。当前仓库许可不会追溯改写旧归档。
 
 1. 准备 Windows x64 和 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装包不附带、也不自动下载 WebView2。
-2. 下载 Release 中的 `Jerrivell PDF_0.12.0_x64-setup.exe`，按向导安装。
+2. 下载 Release 中的 `Jerrivell.PDF_0.12.0_x64-setup.exe`，按向导安装。
 3. 从开始菜单打开 **Jerrivell PDF**。普通使用不需要 Rust、Node.js、Visual Studio 或开发服务器。
 
 当前为未配置代码签名证书的开发构建。请从本仓库 Release 获取文件，并核对随版本提供的 SHA-256。升级前保存 PDF 副本和可编辑项目，正常退出旧版后安装；安装器不自动替你修改 PDF 默认打开方式。

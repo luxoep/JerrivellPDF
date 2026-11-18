@@ -18,7 +18,7 @@ Windows x64 的本地开源 PDF 工作台。本次发布将“统一图幅”用
 
 | 文件 | 用途 |
 | --- | --- |
-| `Jerrivell PDF_0.12.0_x64-setup.exe` | Windows x64 完整安装包 |
+| `Jerrivell.PDF_0.12.0_x64-setup.exe` | Windows x64 完整安装包 |
 | `Jerrivell-PDF-0.12.0-source.zip` | 本版本项目源码与文档归档 |
 | `JerrivellPDF-0.12.0-third-party-sources.zip` | 已登记的第三方对应源码补充，保留上游各自条款 |
 

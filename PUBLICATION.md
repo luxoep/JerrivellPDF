@@ -8,3 +8,5 @@ This is a public documentation/packaging edition of the original local 0.12.0 so
 - Original code license of this version: **MIT OR Apache-2.0**. See LICENSE and source headers; later license choices do not overwrite earlier archive terms.
 
 No private PDFs, installed-app backups, local logs, credential helper output, dependency caches or user font programs are published. PDFium runtime is prepared from the pinned upstream by the included build script; binary releases include its own notices. Exact dependency versions and source/provenance links are in the lockfiles and retained license inventory. See the corresponding Release for all downloadable materials and checksums.
+
+GitHub normalizes spaces in installer asset filenames to periods. Public download names use Jerrivell.PDF_<version>_x64-setup.exe; installer bytes are unchanged. The 0.12.0 source ZIP includes this follow-up documentation commit after the original version tag. The Release manifest separately records source commit and releaseTagCommit; no runtime or upstream-license file changed.

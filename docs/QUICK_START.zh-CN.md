@@ -5,7 +5,7 @@
 
 ## 安装和升级
 
-从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.12.0 的文件为 [`Jerrivell PDF_0.12.0_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell%20PDF_0.12.0_x64-setup.exe)。
+从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.12.0 的文件为 [`Jerrivell.PDF_0.12.0_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.12.0/Jerrivell.PDF_0.12.0_x64-setup.exe)。
 
 需要旧版时可在 [全部 Jerrivell Releases](https://github.com/luxoep/JerrivellPDF/releases) 选择对应版本，使用前查看该版本发布说明与随包 LICENSE；旧归档不会自动采用当前版本的许可。
 
