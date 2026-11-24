@@ -66,6 +66,7 @@ def numeric(page):
     before=page.evaluate('harness.snapshot().stats.calls');size.fill('');page.wait_for_timeout(250);assert size.input_value()==''
     assert page.evaluate('harness.snapshot().stats.calls')==before,'Clearing must not register invalid text'
     size.fill('1');page.wait_for_timeout(80);assert size.input_value()=='1';size.fill('12.5');assert size.input_value()=='12.5'
+    page.get_by_text('Layout and frame',exact=True).click()
     for name,value,partial in [('Line spacing','1.25','.'),('Character spacing (pt)','-0.5','-'),('Box width (mm)','60.5',''),('Padding (pt)','0','')]:
         field=page.get_by_role('spinbutton',name=name,exact=True);field.fill('');page.wait_for_timeout(80);assert field.input_value()=='';field.fill(partial);assert field.input_value()==partial;field.fill(value);assert field.input_value()==value
     page.get_by_role('checkbox',name='Grow height to fit text').uncheck();height=page.get_by_role('spinbutton',name='Box height (mm)',exact=True);height.fill('');page.wait_for_timeout(80);assert height.input_value()=='';height.fill('20.5');height.press('Tab');assert height.input_value()=='20.5'
@@ -74,12 +75,18 @@ def numeric(page):
     return {'font':12.5,'negativeSpacing':-.5,'emptyAndPartialFields':True}
 
 def fit_and_spacing(page):
-    before=page.evaluate("harness.reset('legacy')");old=page.evaluate('harness.layout()');page.get_by_role('button',name='Fit to text',exact=True).click();page.wait_for_function('harness.snapshot().stats.commits>=1');after=page.evaluate('harness.snapshot()');layout=page.evaluate('harness.layout()');source=after['items'][0]['textSource'];assert source['padding']==0 and source['fontSize']==24
+    before=page.evaluate("harness.reset('legacy')");old=page.evaluate('harness.layout()');
+    layout_details=page.locator('.oe-text-options');
+    if layout_details.get_attribute('open') is None: layout_details.locator('summary').click()
+    page.get_by_role('button',name='Fit to text',exact=True).click();page.wait_for_function('harness.snapshot().stats.commits>=1');after=page.evaluate('harness.snapshot()');layout=page.evaluate('harness.layout()');source=after['items'][0]['textSource'];assert source['padding']==0 and source['fontSize']==24
     assert source['frame']['height']<before['items'][0]['textSource']['frame']['height']*.75;assert source['frame']['width']<before['items'][0]['textSource']['frame']['width']*.6
     oldbase=old['overlay']['y']*800+old['layoutLines'][0]['y'];newbase=layout['overlay']['y']*800+layout['layoutLines'][0]['y'];assert abs(oldbase-newbase)<.01
-    area=page.locator('.oe-text-actions');area.scroll_into_view_if_needed();a=area.locator('>.oe-action').bounding_box();row=area.locator('.oe-button-row').bounding_box();assert row['y']-(a['y']+a['height'])>=10
-    buttons=area.locator('.oe-button-row >button');b0=buttons.nth(0).bounding_box();b1=buttons.nth(1).bounding_box();assert b1['x']-(b0['x']+b0['width'])>=8;assert min(b0['height'],b1['height'])>=36
-    return {'fontUnchanged':24,'compactHeightPoints':source['frame']['height'],'compactWidthPoints':source['frame']['width'],'actionRowGap':row['y']-a['y']-a['height']}
+    area=page.locator('.oe-text-actions');assert area.locator('button').count()==1
+    assert page.get_by_role('button',name='Update selected text',exact=True).count()==0
+    textarea=page.get_by_role('textbox',name='Text',exact=True);textarea.fill('12')
+    page.wait_for_function("harness.snapshot().items[0].textSource.content==='12'");assert textarea.input_value()=='12'
+    assert page.evaluate('harness.snapshot().stats.commits')==after['stats']['commits']+1
+    return {'fontUnchanged':24,'compactHeightPoints':source['frame']['height'],'compactWidthPoints':source['frame']['width'],'autoApplied':True,'oneTextAction':True}
 
 def page_edges(page):
     page.evaluate("harness.reset('compact')");item=page.locator('.overlay-placement-handle').first;box=item.bounding_box();sheet=page.locator('#sheet').bounding_box()

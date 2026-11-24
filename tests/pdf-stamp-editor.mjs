@@ -77,6 +77,7 @@ vm.runInNewContext(compiled, {
     };
     if (name === './overlayCanvas') return { DEFAULT_FONT_FAMILY: 'Microsoft YaHei UI', ensureFontReady: async () => {} };
     if (name === './FontPicker') return { FontPicker: 'FontPicker' };
+    if (name === 'react-dom') return { flushSync: callback => callback() };
     if (name === '../overlayGeometry') return geometry;
     if (name === '../textFrame') return {};
     if (name === '../useNumberDraft') return numbers;

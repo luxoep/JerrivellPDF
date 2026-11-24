@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { RegionSelection } from './RegionSelection';
 import { PreviewZoom } from './PreviewZoom';
@@ -18,7 +19,7 @@ import { useI18n } from '../i18n';
 import type { ImageAsset, PageOverlay, PdfStampImage } from '../types';
 import { cleanLibraryName, LibraryError, loadStampLibrary, MAX_LIBRARY_ITEMS, pngFileName, saveStampLibrary } from '../stampLibrary';
 import type { LibraryItem, LibraryKind } from '../stampLibrary';
-import { createStampPng, createTextPng, DEFAULT_FONT_FAMILY, ensureFontReady, trimmedSignature } from './overlayCanvas';
+import { createStampPng, createTextPng, DEFAULT_FONT_FAMILY, ensureFontReady, finishInlineTextEvent, trimmedSignature } from './overlayCanvas';
 import type { StampShape, TextOverlaySource } from './overlayCanvas';
 import { FontPicker } from './FontPicker';
 import { alignedOverlay, duplicatedOverlay, MIN_OVERLAY_SIDE, normalizedOverlay, overlayStep, POINTS_PER_MM, resizeOverlay, rotatedOverlay90, translatedOverlay } from '../overlayGeometry';
@@ -40,10 +41,11 @@ export interface OverlayEditorProps {
   onDrawText?: () => void;
   drawingText?: boolean;
   onTextStyleChange?: (style: TextOverlaySource) => void;
+  onTextEditingChange?: (editing: boolean) => void;
   pageWidth: number;
   pageHeight: number;
   overlays: Overlay[];
-  onChange: (overlays: Overlay[]) => void;
+  onChange: (overlays: Overlay[]) => boolean | void;
   disabled?: boolean;
   onError: (message: string) => void;
   onClose: () => void;
@@ -174,13 +176,32 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const [textBoxHeight, setTextBoxHeight] = useState(30);
   const [textAutoHeight, setTextAutoHeight] = useState(true);
   const [textPadding, setTextPadding] = useState<number | undefined>(0);
+  const selectedObject = props.overlays.find(item => item.id === selectedOverlay);
+  const selectedTextSource = selectedObject?.textSource;
+  const pendingText = useRef<{ id: string; source: TextOverlaySource } | null>(null);
+  const [hasTextDraft, setHasTextDraft] = useState(false);
+  const [composingText, setComposingText] = useState(false);
+  const [textCommitError, setTextCommitError] = useState('');
+  const textPreviewSource = useRef<TextOverlaySource | null>(null);
+  const finishTextRef = useRef<() => boolean>(() => true);
+  const editText = <T,>(setter: (value: T) => void) => (value: T) => {
+    if (selectedTextSource && !selectedObject?.locked && !props.drawingText) {
+      if (!pendingText.current) {
+        pendingText.current = { id: selectedOverlay, source: selectedTextSource };
+        setHasTextDraft(true);
+        props.onTextEditingChange?.(true);
+      }
+      if (textCommitError) setTextCommitError('');
+    }
+    setter(value);
+  };
   const numberKey = selectedOverlay;
-  const sizeInput = useNumberDraft(fontSize, setFontSize, { min: 6, max: 144, resetKey: numberKey });
-  const leadingInput = useNumberDraft(lineHeight, setLineHeight, { min: .8, max: 3, step: .05, resetKey: numberKey });
-  const spacingInput = useNumberDraft(charSpacing, setCharSpacing, { min: -2, max: 20, step: .1, resetKey: numberKey });
-  const widthInput = useNumberDraft(textBoxWidth, setTextBoxWidth, { min: 1 / POINTS_PER_MM, max: props.pageWidth / POINTS_PER_MM, step: .1, resetKey: numberKey });
-  const heightInput = useNumberDraft(textBoxHeight, setTextBoxHeight, { min: 1 / POINTS_PER_MM, max: props.pageHeight / POINTS_PER_MM, step: .1, resetKey: numberKey });
-  const paddingInput = useNumberDraft(textPadding ?? Math.ceil(Math.max(16, fontSize * .5)) / 2, setTextPadding, { min: 0, max: 24, step: .5, resetKey: numberKey });
+  const sizeInput = useNumberDraft(fontSize, editText(setFontSize), { min: 6, max: 144, resetKey: numberKey });
+  const leadingInput = useNumberDraft(lineHeight, editText(setLineHeight), { min: .8, max: 3, step: .05, resetKey: numberKey });
+  const spacingInput = useNumberDraft(charSpacing, editText(setCharSpacing), { min: -2, max: 20, step: .1, resetKey: numberKey });
+  const widthInput = useNumberDraft(textBoxWidth, editText(setTextBoxWidth), { min: 1 / POINTS_PER_MM, max: props.pageWidth / POINTS_PER_MM, step: .1, resetKey: numberKey });
+  const heightInput = useNumberDraft(textBoxHeight, editText(setTextBoxHeight), { min: 1 / POINTS_PER_MM, max: props.pageHeight / POINTS_PER_MM, step: .1, resetKey: numberKey });
+  const paddingInput = useNumberDraft(textPadding ?? Math.ceil(Math.max(16, fontSize * .5)) / 2, editText(setTextPadding), { min: 0, max: 24, step: .5, resetKey: numberKey });
   const [textPreview, setTextPreview] = useState<ReturnType<typeof createTextPng> | null>(null);
   const [textPreviewError, setTextPreviewError] = useState('');
   const textSource = useMemo<TextOverlaySource>(() => ({ content: text, color: textColor, fontSize, bold, fontFamily: textFont,
@@ -196,6 +217,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
       void ensureFontReady(textSource.fontFamily, textSource.content, textSource.bold, textSource.italic).then(() => {
         if (cancelled) return;
         const result = createTextPng(textSource.content, textSource.color, textSource.fontSize, textSource.bold, textSource.fontFamily, textSource);
+        textPreviewSource.current = textSource;
         setTextPreview(result); setTextPreviewError('');
       }).catch(error => { if (!cancelled) { setTextPreview(null); setTextPreviewError(error instanceof Error ? error.message : 'TEXT_LAYOUT_LIMIT'); } });
     }, 160);
@@ -210,10 +232,12 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (source.frame) { setTextBoxWidth(source.frame.width / POINTS_PER_MM); setTextBoxHeight(source.frame.height / POINTS_PER_MM); setTextAutoHeight(source.frame.autoHeight); }
     else { setTextAutoHeight(true); if (source.wrapWidth !== undefined) setTextBoxWidth((source.wrapWidth + Math.ceil(Math.max(16, source.fontSize * .5))) / POINTS_PER_MM); }
   };
-  const selectedTextSource = props.overlays.find(item => item.id === selectedOverlay)?.textSource;
   // A page drag can change the frame without touching the editor controls. Keep
   // those controls current so a later format change cannot restore an old size.
-  useEffect(() => { if (selectedTextSource) loadTextSettings(selectedTextSource); }, [selectedOverlay, selectedTextSource]);
+  useEffect(() => {
+    cancelTextDraft();
+    if (selectedTextSource) loadTextSettings(selectedTextSource);
+  }, [selectedOverlay, selectedTextSource]);
   const [stampTitle, setStampTitle] = useState('');
   const [stampSubtitle, setStampSubtitle] = useState('');
   const [stampShape, setStampShape] = useState<StampShape>('round');
@@ -231,7 +255,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const pdfDialog=useRef<HTMLElement>(null);
   const [pdfStampOpen, setPdfStampOpen] = useState(false), [pdfStampShape, setPdfStampShape] = useState<SelectionShape>('rectangle');
   const [pdfStampGhost, setPdfStampGhost] = useState<PdfStampCrop | null>(null);
-  const [imageEdit, setImageEdit] = useState<RegisteredImage | null>(null);
+  const [imageEdit, setImageEdit] = useState<{ id: string; asset: RegisteredImage } | null>(null);
   useEffect(()=>{if(pdfStampOpen)pdfDialog.current?.focus();},[pdfStampOpen]);
 
   const [pdfStampRemoveWhite, setPdfStampRemoveWhite] = useState(false);
@@ -261,6 +285,62 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const cache = useRef(new Map<string, RegisteredImage>());
   const objectClipboard = useRef<Overlay | null>(null);
   const locked = Boolean(props.disabled || working);
+  const textLocked = locked || Boolean(selectedObject?.locked && selectedTextSource && !props.drawingText);
+
+  function cancelTextDraft() {
+    if (!pendingText.current) return;
+    pendingText.current = null;
+    setHasTextDraft(false); setTextCommitError('');
+    latest.current.onTextEditingChange?.(false);
+  }
+
+  function applyTextDraft(): boolean {
+    const pending = pendingText.current;
+    if (!pending) return true;
+    const current = latest.current.overlays.find(item => item.id === pending.id);
+    if (!current || selectedOverlay !== pending.id || current.textSource !== pending.source || current.locked) {
+      cancelTextDraft();
+      return true;
+    }
+    if (textLocked || composingText) return false;
+    if (!text.trim() || textPreviewError || (textPreviewSource.current === textSource && textPreview?.overflow)) {
+      setTextCommitError(t('文字为空或超出文本框。请调整内容，或按 Esc 放弃本次修改。', 'Text is empty or does not fit. Adjust the text or press Esc to discard this edit.'));
+      return false;
+    }
+    if (!textPreview || textPreviewSource.current !== textSource) return false;
+
+    const { pageWidth, pageHeight, overlays, onChange } = latest.current;
+    const quarterTurn = Math.abs(current.rotation ?? 0) % 180 === 90;
+    const width = (quarterTurn ? textPreview.height : textPreview.width) / (2 * pageWidth);
+    const height = (quarterTurn ? textPreview.width : textPreview.height) / (2 * pageHeight);
+    if (width > 1 || height > 1) {
+      setTextCommitError(t('文字超出页面。请缩短内容或按 Esc 放弃修改。', 'Text exceeds the page. Shorten it or press Esc to discard this edit.'));
+      return false;
+    }
+    const source = textSource.frame ? { ...textSource, frame: { ...textSource.frame, width: textPreview.width / 2, height: textPreview.height / 2 } } : textSource;
+    const overlay = normalizedOverlay({ ...current, width, height, textSource: source });
+    if (onChange(overlays.map(item => item.id === overlay.id ? overlay : item)) === false) {
+      setTextCommitError(t('文字修改尚未应用。请调整内容，或按 Esc 放弃本次修改。', 'Text changes were not applied. Adjust the text or press Esc to discard this edit.'));
+      return false;
+    }
+    cancelTextDraft();
+    return true;
+  }
+  finishTextRef.current = applyTextDraft;
+  useEffect(() => {
+    if (!hasTextDraft || composingText || textLocked || textPreviewSource.current !== textSource) return;
+    const timer = window.setTimeout(() => finishTextRef.current(), 400);
+    return () => window.clearTimeout(timer);
+  }, [hasTextDraft, textSource, textPreview, composingText, textLocked]);
+  useEffect(() => {
+    if (!latest.current.onTextEditingChange) return;
+    const finish = () => { if (pendingText.current) flushSync(() => { finishTextRef.current(); }); };
+    window.addEventListener(finishInlineTextEvent, finish);
+    return () => {
+      window.removeEventListener(finishInlineTextEvent, finish);
+      if (pendingText.current) { pendingText.current = null; latest.current.onTextEditingChange?.(false); }
+    };
+  }, []);
 
   const libraryError = (error: unknown): string => {
     const fragmentErrors: Record<string, [string, string]> = {
@@ -565,6 +645,14 @@ export function OverlayEditor(props: OverlayEditorProps) {
     onKeyDown={event => {
       const target = event.target as HTMLElement;
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
+      if (hasTextDraft && !composingText && event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation(); cancelTextDraft();
+        if (selectedTextSource) loadTextSettings(selectedTextSource);
+        return;
+      }
+      if (hasTextDraft && (event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault(); event.stopPropagation(); applyTextDraft(); return;
+      }
       if (typing) { if (!event.ctrlKey && !event.metaKey) event.stopPropagation(); return; }
       const modifier = event.ctrlKey || event.metaKey;
       if (modifier && ['c', 'v', 'd'].includes(event.key.toLowerCase()) && current) {
@@ -584,24 +672,26 @@ export function OverlayEditor(props: OverlayEditorProps) {
     <nav className="oe-tabs" aria-label={t('添加内容类型', 'Content type')}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} className={id === tab ? 'active' : ''} aria-pressed={id === tab} onClick={() => { setTab(id); setMessage(''); }}><Icon size={16} /><span>{label}</span></button>)}</nav>
     <div className="oe-scroll">
       {libraryUnavailable && <p className="oe-storage-warning" role="status">{t('本机库暂不可用。已保留原有数据；重新启动后可重试，添加到页面仍可使用。', 'The local library is unavailable. Existing data is preserved. Restart to retry; adding content to the page remains available.')}</p>}
-      {tab === 'text' && <section className="oe-section"><h3>{t('多行文字框', 'Multiline text box')}</h3>
-        {props.onDrawText && <><button className={`button ${props.drawingText?'primary':'secondary'} oe-draw-text`} aria-pressed={props.drawingText} disabled={locked} onClick={props.onDrawText}><Type size={16}/>{props.drawingText?t('取消画文字框','Cancel drawing'):t('在页面上画文字框','Draw text box on page')}</button><p className="oe-note">{t('拖出框后直接输入，点击框外自动完成；双击页面上的已有文字可再次编辑。字号由下方设置，拉框不缩放字形。','Drag a frame and type directly. Click outside to finish; double-click existing added text to edit again. The settings below determine font size; drawing does not stretch glyphs.')}</p></>}
-
-        <label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={4000} rows={5} value={text} disabled={locked} placeholder={t('输入中文或英文，支持多行与自动换行…', 'Enter text, including multiple lines…')} onChange={event => setText(event.target.value)} /></label>
-        <FontPicker value={textFont} onChange={setTextFont} disabled={locked} sample={text}/>
-        <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input {...sizeInput} disabled={locked}/></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={locked} onChange={event => setTextColor(event.target.value)} /></label></div>
-        <div className="oe-text-styles">{[{ label: t('加粗', 'Bold'), value: bold, change: setBold }, { label: t('斜体', 'Italic'), value: italic, change: setItalic }, { label: t('下划线', 'Underline'), value: underline, change: setUnderline }, { label: t('删除线', 'Strikeout'), value: strikeout, change: setStrikeout }].map(style => <label className="oe-check" key={style.label}><input type="checkbox" checked={style.value} disabled={locked} onChange={event => style.change(event.target.checked)}/>{style.label}</label>)}</div>
-        <div className="oe-fields"><label className="oe-field"><span>{t('段内对齐', 'Line alignment')}</span><select value={textAlignment} disabled={locked} onChange={event => setTextAlignment(event.target.value as typeof textAlignment)}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label><label className="oe-field"><span>{t('行距倍数', 'Line spacing')}</span><input {...leadingInput} disabled={locked}/></label></div>
-        <div className="oe-fields"><label className="oe-field"><span>{t('字距（pt）', 'Character spacing (pt)')}</span><input {...spacingInput} disabled={locked}/></label><label className="oe-field"><span>{t('框宽（mm）', 'Box width (mm)')}</span><input {...widthInput} disabled={locked || !textWrap}/></label></div>
-        <label className="oe-check"><input type="checkbox" checked={textWrap} disabled={locked} onChange={event => setTextWrap(event.target.checked)}/>{t('按框宽自动换行', 'Wrap to box width')}</label>
-        {textWrap && <><label className="oe-check"><input type="checkbox" checked={textAutoHeight} disabled={locked} onChange={event => setTextAutoHeight(event.target.checked)}/>{t('高度随文字自动增长', 'Grow height to fit text')}</label><label className="oe-field"><span>{t('框高（mm）', 'Box height (mm)')}</span><input {...heightInput} disabled={locked || textAutoHeight}/></label></>}
-        <div className="oe-text-frame-tools"><label className="oe-field"><span>{t('内边距（pt）', 'Padding (pt)')}</span><input {...paddingInput} disabled={locked}/></label>{current?.textSource && <button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError} title={t('收紧文字边框，保留字号与文字位置；去除旧版透明留白。', 'Tighten the frame without changing font size or text position; remove legacy transparent insets.')} onClick={() => void addText(current.id, true)}>{t('贴合文字', 'Fit to text')}</button>}</div>
+      {tab === 'text' && <section className="oe-section oe-active-text" data-inline-text-edit
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) applyTextDraft(); }}>
+        <h3>{selectedTextSource && !props.drawingText ? t('编辑选中文字', 'Edit selected text') : t('多行文字框', 'Multiline text box')}</h3>
+        {props.onDrawText && <button className={`button ${props.drawingText?'primary':'secondary'} oe-draw-text`} aria-pressed={props.drawingText} disabled={locked} onClick={() => { if (applyTextDraft()) props.onDrawText?.(); }}><Type size={16}/>{props.drawingText?t('取消画文字框','Cancel drawing'):t('在页面上画文字框','Draw text box on page')}</button>}
+        <label className="oe-field"><span>{t('文字内容', 'Text')}</span><textarea maxLength={4000} rows={3} value={text} disabled={textLocked} placeholder={t('输入中文或英文…', 'Enter text…')} onCompositionStart={() => setComposingText(true)} onCompositionEnd={() => setComposingText(false)} onChange={event => editText(setText)(event.target.value)} /></label>
+        {textCommitError ? <p className="oe-note oe-text-edit-status" role="alert">{textCommitError}</p> : selectedTextSource && !props.drawingText && <p className="oe-note oe-text-edit-status">{hasTextDraft ? t('正在更新…', 'Updating…') : t('修改自动应用，可撤销。', 'Changes apply automatically and can be undone.')}</p>}
+        <FontPicker value={textFont} onChange={editText(setTextFont)} disabled={textLocked} sample={text} resolveDefault={!selectedTextSource} compact/>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字号（pt）', 'Size (pt)')}</span><input {...sizeInput} disabled={textLocked}/></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={textColor} disabled={textLocked} onChange={event => editText(setTextColor)(event.target.value)} /></label></div>
+        <div className="oe-text-styles">{[{ label: t('加粗', 'Bold'), value: bold, change: setBold }, { label: t('斜体', 'Italic'), value: italic, change: setItalic }, { label: t('下划线', 'Underline'), value: underline, change: setUnderline }, { label: t('删除线', 'Strikeout'), value: strikeout, change: setStrikeout }].map(style => <label className="oe-check" key={style.label}><input type="checkbox" checked={style.value} disabled={textLocked} onChange={event => editText(style.change)(event.target.checked)}/>{style.label}</label>)}</div>
+        <details className="oe-text-options"><summary>{t('排版与边框', 'Layout and frame')}</summary>
+        <div className="oe-fields"><label className="oe-field"><span>{t('段内对齐', 'Line alignment')}</span><select value={textAlignment} disabled={textLocked} onChange={event => editText(setTextAlignment)(event.target.value as typeof textAlignment)}><option value="left">{t('左对齐', 'Left')}</option><option value="center">{t('居中', 'Center')}</option><option value="right">{t('右对齐', 'Right')}</option></select></label><label className="oe-field"><span>{t('行距倍数', 'Line spacing')}</span><input {...leadingInput} disabled={textLocked}/></label></div>
+        <div className="oe-fields"><label className="oe-field"><span>{t('字距（pt）', 'Character spacing (pt)')}</span><input {...spacingInput} disabled={textLocked}/></label><label className="oe-field"><span>{t('框宽（mm）', 'Box width (mm)')}</span><input {...widthInput} disabled={textLocked || !textWrap}/></label></div>
+        <label className="oe-check"><input type="checkbox" checked={textWrap} disabled={textLocked} onChange={event => editText(setTextWrap)(event.target.checked)}/>{t('按框宽自动换行', 'Wrap to box width')}</label>
+        {textWrap && <><label className="oe-check"><input type="checkbox" checked={textAutoHeight} disabled={textLocked} onChange={event => editText(setTextAutoHeight)(event.target.checked)}/>{t('高度随文字自动增长', 'Grow height to fit text')}</label><label className="oe-field"><span>{t('框高（mm）', 'Box height (mm)')}</span><input {...heightInput} disabled={textLocked || textAutoHeight}/></label></>}
+        <div className="oe-text-frame-tools"><label className="oe-field"><span>{t('内边距（pt）', 'Padding (pt)')}</span><input {...paddingInput} disabled={textLocked}/></label>{current?.textSource && <button className="oe-action" disabled={textLocked || hasTextDraft || !text.trim() || !!textPreviewError} title={t('收紧文字边框，保留字号与文字位置。', 'Tighten the frame while retaining font size and position.')} onClick={() => void addText(current.id, true)}>{t('贴合文字', 'Fit to text')}</button>}</div>
         <p className="oe-note oe-frame-hint">{t('内边距可设为 0，文字可贴近页边；超出 PDF 的部分不能提交。数值输入可清空后重填。', 'Use zero padding to position text at page edges. Content must stay inside the PDF. Numeric fields can be cleared and retyped.')}</p>
         <div className="oe-checker oe-text-preview">{textPreview ? <PreviewZoom width={textPreview.width} height={textPreview.height} resetKey="added-text" label={t('文字排版预览', 'Text layout preview')}><img src={textPreview.dataUrl} alt={t('修改后文字', 'Edited text')}/></PreviewZoom> : <span>{textPreviewError ? t('排版超出限制，请调整字号或文本框。', 'Layout exceeds limits. Adjust size or box width.') : t('输入文字后显示预览', 'Enter text to preview')}</span>}</div>
         {textPreview && <p className="oe-note" role={textPreview.overflow ? 'alert' : undefined}>{textPreview.overflow ? t(`文字溢出：至少需要 ${(textPreview.requiredHeight / POINTS_PER_MM).toFixed(1)} mm 高度。请增高文本框或启用自动高度。`, `Text overflows: at least ${(textPreview.requiredHeight / POINTS_PER_MM).toFixed(1)} mm height is required. Enlarge the box or enable automatic height.`) : t(`共 ${textPreview.lineCount} 行 · 拖动框边改变排版，字号保持不变`, `${textPreview.lineCount} lines · Resizing the frame reflows text without changing its font size`)}</p>}
-        <div className="oe-text-actions"><button className="oe-action primary wide" disabled={locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText()}><Plus size={15}/>{t('添加到当前页', 'Add to this page')}</button>
-        {current?.textSource && <div className="oe-button-row"><button className="oe-action" disabled={locked || current.locked} onClick={() => loadTextSettings(current.textSource!)}>{t('载入选中文字', 'Load selected text')}</button><button className="oe-action" disabled={locked || current.locked || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText(current.id)}>{t('更新选中文字', 'Update selected text')}</button></div>}</div>
-        <p className="oe-note">{t('拖动文字框改变排版，字号不变；双击文字可直接编辑。保存 .jvp 项目可保留文字和折点；导出 PDF 中的新增文字仍为图像。可搜索原文请使用“原文编辑 / 文字行编辑”。', 'Drag a text frame to reflow without changing font size; double-click to edit. Save a .jvp project to retain text and path nodes. Added text in exported PDFs is an image; use original text or text line editing for searchable text.')}</p>
+        </details>
+        <div className="oe-text-actions"><button className="oe-action primary wide" disabled={locked || hasTextDraft || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText()}><Plus size={15}/>{selectedTextSource ? t('另加一份文字', 'Add another text box') : t('添加到当前页', 'Add to this page')}</button></div>
       </section>}
       {tab === 'image' && <section className="oe-section"><h3>{t('添加图片', 'Add an image')}</h3><div className="oe-empty-symbol"><ImagePlus size={34} /></div><p className="oe-description">{t('选择本机 PNG 或 JPEG 图片，放到当前页面上。PNG 透明背景会保留。', 'Choose a local PNG or JPEG image and place it on this page. PNG transparency is preserved.')}</p><button className="oe-action primary" disabled={locked} onClick={() => void execute(() => importAsset())}><Upload size={15} />{t('选择图片', 'Choose image')}</button><p className="oe-note">{t('导入图像会进行尺寸与格式检查，最长边不超过 2400 像素。', 'Imported images are validated and limited to a 2400-pixel longest edge.')}</p></section>}
       {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}{stampMode === 'pdf' && <FragmentTray items={fragments} disabled={locked} onChange={setFragments} onPlace={(items, drop) => void execute(() => placeFragmentItems(items, drop))} onSave={item => void execute(async () => { saveFragmentItems([item]); setMessage(t('已保存到本机库。', 'Saved to the local library.')); })} onExport={item => void exportLibraryItem({ id: item.id, name: item.name, kind: 'stamp', dataUrl: item.image.dataUrl, width: item.image.width, height: item.image.height, blendMode: item.blendMode, createdAt: '' })}/>}</section>}
@@ -625,7 +715,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
             <label className="oe-field oe-opacity"><span>{t('不透明度', 'Opacity')} <b>{Math.round(editable.opacity * 100)}%</b></span><input type="range" min="5" max="100" value={Math.round(editable.opacity * 100)} disabled={locked || Boolean(current.locked)} onChange={event => updateDraft({ opacity: Number(event.target.value) / 100 })}/></label>
             <button className="oe-action primary wide" disabled={locked || Boolean(current.locked) || !draftChanged} onClick={applyDraft}><Check size={14}/>{t('应用位置与大小', 'Apply position and size')}</button>
             <div className="oe-align-grid" aria-label={t('相对页面对齐', 'Align relative to page')}>{alignments.map(alignment => <button key={alignment.id} disabled={locked || Boolean(current.locked)} onClick={() => commitOverlay(alignedOverlay(editable, alignment.id))}>{alignment.label}</button>)}</div>
-            <button className="oe-action wide" disabled={locked || Boolean(current.locked)} onClick={() => void execute(async () => { const asset = await backend<RegisteredImage>('get_image_asset',{assetId:current.assetId},3); setImageEdit(asset); })}>{t('裁切 / 橡皮擦','Crop / Eraser')}</button>
+            {!current.textSource && !current.markSource && !current.leaderFor && <button className="oe-action wide" disabled={locked || Boolean(current.locked)} onClick={() => void execute(async () => { const asset = await backend<RegisteredImage>('get_image_asset',{assetId:current.assetId},3); if (alive.current) setImageEdit({ id: current.id, asset }); })}>{t('裁切 / 橡皮擦','Crop / Eraser')}</button>}
             <div className="oe-object-tools"><button className="oe-action" disabled={locked || props.overlays.length >= 30} onClick={() => duplicate()}><Copy size={13}/>{t('复制对象', 'Duplicate object')}</button><button className="oe-action" disabled={locked || Boolean(current.locked)} onClick={() => commitOverlay(rotatedOverlay90(editable, props.pageWidth, props.pageHeight))}><RotateCw size={13}/>{t('旋转 90°', 'Rotate 90°')}</button></div>
             <label className="oe-check oe-object-lock"><input type="checkbox" checked={Boolean(current.locked)} disabled={locked} onChange={event => props.onChange(props.overlays.map(item => item.id === current.id ? { ...item, locked: event.target.checked } : item))}/><LockKeyhole size={12}/>{t('锁定对象，防止移动和误删', 'Lock object against movement and deletion')}</label>
             <div className="oe-button-row"><button className="oe-action" title={t('向下一层', 'Move one layer down')} disabled={locked || Boolean(current.locked) || props.overlays[0].id === editable.id} onClick={() => moveCurrent(-1)}><ChevronDown size={14}/>{t('下移', 'Lower')}</button><button className="oe-action" title={t('向上一层', 'Move one layer up')} disabled={locked || Boolean(current.locked) || props.overlays.at(-1)?.id === editable.id} onClick={() => moveCurrent(1)}><ChevronUp size={14}/>{t('上移', 'Raise')}</button><button className="oe-action oe-danger" disabled={locked || Boolean(current.locked)} onClick={() => props.onChange(props.overlays.filter(item => item.id !== editable.id))}><Trash2 size={14}/>{t('移除', 'Remove')}</button></div>
@@ -636,7 +726,11 @@ export function OverlayEditor(props: OverlayEditorProps) {
       </section>
     </div>
     {working && <div className="oe-working" role="status"><LoaderCircle size={15} className="spin" />{t('正在处理内容…', 'Processing content…')}</div>}
-    {imageEdit && current && <ImageEditDialog image={imageEdit} title={labels[current.id] || t('当前图像对象', 'Current image object')} onClose={() => setImageEdit(null)} onBusyChange={props.onBusyChange} onApply={image => { props.onChange(props.overlays.map(item => item.id === current.id ? { ...item, assetId: image.id, textSource: undefined, markSource: undefined, leaderFor: undefined } : item)); setPreviews(previous => ({ ...previous, [image.id]: image.dataUrl })); }}/>} 
+    {imageEdit && <ImageEditDialog image={imageEdit.asset} title={labels[imageEdit.id] || t('当前图像对象', 'Current image object')} onClose={() => setImageEdit(null)} onBusyChange={props.onBusyChange} onApply={image => {
+      const { overlays, onChange } = latest.current;
+      if (!overlays.some(item => item.id === imageEdit.id && item.assetId === imageEdit.asset.id && !item.locked && !item.textSource && !item.markSource && !item.leaderFor)) return;
+      if (onChange(overlays.map(item => item.id === imageEdit.id ? { ...item, assetId: image.id } : item)) !== false) setPreviews(previous => ({ ...previous, [image.id]: image.dataUrl }));
+    }}/>} 
     {pdfStampOpen && <div className="image-workbench-backdrop" onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && ['s','o','p'].includes(event.key.toLowerCase())) event.preventDefault(); if (event.key === 'Escape' && !locked) setPdfStampOpen(false); }}><section ref={pdfDialog} tabIndex={-1} className="image-workbench pdf-fragment-workbench" role="dialog" aria-modal="true" aria-label={t('PDF 片段工作台', 'PDF fragment workspace')}>
       <header><div><h2>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h2><p>{t('矩形、椭圆、多边形或自由套索，最多 16 区；默认每个选区独立生成。', 'Select up to 16 rectangle, ellipse, polygon or freehand regions. Each becomes a separate fragment by default.')}</p></div><button disabled={locked} onClick={() => setPdfStampOpen(false)} aria-label={t('关闭片段工作台','Close fragment workspace')}><X size={20}/></button></header>
       <div className="image-workbench-body"><aside className="image-workbench-options">

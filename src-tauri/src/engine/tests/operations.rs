@@ -458,7 +458,7 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
         styled_info
             .objects
             .iter()
-            .filter(|object| object.kind == "unsupported")
+            .filter(|object| object.kind == "path")
             .count(),
         2,
         "underline and strikeout must be vector paths"

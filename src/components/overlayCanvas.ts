@@ -2,10 +2,19 @@
 // Original geometry and user-supplied text; no third-party artwork or bundled font.
 export type StampShape = 'round' | 'rectangle';
 
-export const DEFAULT_FONT_FAMILY = 'Microsoft YaHei UI';
+export const DEFAULT_FONT_FAMILY = 'Century Gothic';
+export const finishInlineTextEvent = 'jerrivell-finish-inline-text';
+const DEFAULT_FONT_FALLBACKS = ['Microsoft YaHei UI', 'Microsoft YaHei', '微软雅黑', 'Segoe UI', 'Arial'];
+
+export function preferredSystemFont(families: string[]): string | undefined {
+  const byName = new Map(families.map(family => [family.toLowerCase(), family]));
+  return [DEFAULT_FONT_FAMILY, ...DEFAULT_FONT_FALLBACKS].map(family => byName.get(family.toLowerCase())).find(Boolean) ?? families[0];
+}
+
 export function cssFontFamily(family: string): string {
   const safe = family.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 128).trim() || DEFAULT_FONT_FAMILY;
-  return `${JSON.stringify(safe)}, sans-serif`;
+  const stack = safe.toLowerCase() === DEFAULT_FONT_FAMILY.toLowerCase() ? [safe, ...DEFAULT_FONT_FALLBACKS] : [safe];
+  return `${stack.map(value => JSON.stringify(value)).join(', ')}, sans-serif`;
 }
 
 /** Wait for WebView's font resolution before measuring or drawing the export. */

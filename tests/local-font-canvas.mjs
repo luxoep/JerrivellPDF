@@ -18,10 +18,12 @@ const document = {
 };
 const output = {};
 vm.runInNewContext(ts.transpileModule(await readFile(new URL('../src/components/overlayCanvas.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: output, document, setTimeout, clearTimeout });
-const { cssFontFamily, createTextPng, createStampPng, ensureFontReady } = output;
+const { cssFontFamily, createTextPng, createStampPng, ensureFontReady, preferredSystemFont } = output;
 assert.equal(cssFontFamily('仿宋'), '"仿宋", sans-serif');
 assert.equal(cssFontFamily('Quoted "Font"'), '"Quoted \\"Font\\"", sans-serif');
-assert.equal(cssFontFamily('\n\r'), '"Microsoft YaHei UI", sans-serif');
+assert.match(cssFontFamily('\n\r'), /^"Century Gothic", "Microsoft YaHei UI",.*sans-serif$/);
+assert.equal(preferredSystemFont(['Arial','Microsoft YaHei UI','century gothic']), 'century gothic');
+assert.equal(preferredSystemFont(['Arial','Microsoft YaHei UI']), 'Microsoft YaHei UI');
 await ensureFontReady('仿宋', '中文 TEST', true);
 assert.equal(loads.length, 1);
 assert.equal(loads[0][0], '600 24px "仿宋", sans-serif');

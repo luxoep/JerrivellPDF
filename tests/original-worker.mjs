@@ -73,7 +73,7 @@ try {
   const inspection = await call('inspect_page_content', { page });
   const title = inspection.objects.find(object => object.text === 'Make room for clarity.');
   assert.equal(title?.editable, true, JSON.stringify(title));
-  assert.ok(inspection.objects.some(object => object.kind === 'unsupported'));
+  assert.ok(inspection.objects.some(object => object.kind === 'path'));
   passed.push('real top-level text and vector inspection');
 
   const english = { ...page, contentEdits: [patch(title, { text: 'Original text revised.', fontSize: 24, fillColor: '#156D72' })] };

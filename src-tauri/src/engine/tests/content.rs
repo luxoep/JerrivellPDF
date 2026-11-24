@@ -1,5 +1,6 @@
 use super::*;
 use image::{Rgba, RgbaImage};
+use lopdf::dictionary;
 
 fn base_pdf(turn: u16, crop: bool) -> Vec<u8> {
     let stream = "0 0 0 rg BT /F1 18 Tf 60 80 Td (AlphaOld) Tj ET\nBT /F1 14 Tf 60 130 Td (KeepText) Tj ET\n0 0 1 rg 240 200 70 30 re f";
@@ -139,7 +140,7 @@ fn original_objects_edit_search_geometry_images_delete_and_round_trip() {
         assert!(text.editable, "{:?}", text.reason);
         assert!(image.editable, "{:?}", image.reason);
         assert!(
-            inspection.objects.iter().any(|o| o.kind == "unsupported"),
+            inspection.objects.iter().any(|o| o.kind == "path"),
             "The original vector must stay an object"
         );
         let asset = engine
@@ -216,7 +217,7 @@ fn original_objects_edit_search_geometry_images_delete_and_round_trip() {
         assert!(reopened_info
             .objects
             .iter()
-            .any(|o| o.kind == "unsupported"));
+            .any(|o| o.kind == "path"));
 
         // Native removal, not overpainting. The deleted original identity stays
         // in inspection results for restoring the immutable plan.
@@ -254,6 +255,290 @@ fn original_objects_edit_search_geometry_images_delete_and_round_trip() {
             .save_document(source.to_str().unwrap(), &[edited])
             .is_err());
     }
+}
+
+#[test]
+fn native_pixel_erase_preserves_raster_resolution_and_page_objects_on_save() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let pdfium = native_pdfium();
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("mixed-drawing.pdf");
+    let mut document = lopdf::Document::load_mem(&base_pdf(0, false)).unwrap();
+    let dimensions = (3200, 128);
+    let stripes = RgbaImage::from_fn(dimensions.0, dimensions.1, |x, _| {
+        if x % 2 == 0 {
+            Rgba([240, 20, 30, 255])
+        } else {
+            Rgba([40, 150, 55, 255])
+        }
+    });
+    let rgb = stripes
+        .pixels()
+        .flat_map(|p| [p.0[0], p.0[1], p.0[2]])
+        .collect();
+    let image_id = document.add_object(lopdf::Stream::new(dictionary! {
+        "Type" => "XObject", "Subtype" => "Image", "Width" => i64::from(dimensions.0),
+        "Height" => i64::from(dimensions.1), "ColorSpace" => "DeviceRGB", "BitsPerComponent" => 8,
+    }, rgb));
+    let page_id = document.get_pages()[&1];
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .get_mut(b"Resources")
+        .unwrap()
+        .as_dict_mut()
+        .unwrap()
+        .set("XObject", dictionary! {"ImShared" => image_id});
+    document
+        .add_page_contents(
+            page_id,
+            b"q 120 0 0 45 210 60 cm /ImShared Do Q\nq 120 0 0 30 210 20 cm /ImShared Do Q\n"
+                .to_vec(),
+        )
+        .unwrap();
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    fs::write(&source, &bytes).unwrap();
+
+    let mut engine = PdfEngine::new(pdfium);
+    let opened = engine
+        .open_document(source.to_str().unwrap(), None)
+        .unwrap();
+    let reference = plan(&opened, 0);
+    let objects = engine.inspect_page_content(&reference).unwrap().objects;
+    let image = objects
+        .iter()
+        .find(|o| o.kind == "image" && o.editable)
+        .unwrap();
+    let path = objects
+        .iter()
+        .find(|o| o.kind == "path" && o.editable)
+        .unwrap();
+    assert!(engine
+        .extract_content_image(&reference, path.object_index, &path.fingerprint)
+        .is_err());
+    let selected = engine
+        .extract_content_image(&reference, image.object_index, &image.fingerprint)
+        .unwrap();
+    let asset_pixels = |info: &ImageAssetInfo| {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(info.data_url.split_once(',').unwrap().1)
+            .unwrap();
+        image::load_from_memory_with_format(&bytes, ImageFormat::Png)
+            .unwrap()
+            .into_rgba8()
+    };
+    assert_eq!((selected.width, selected.height), dimensions);
+    assert_eq!(
+        asset_pixels(&selected),
+        stripes,
+        "intrinsic one-pixel stripes stay intact"
+    );
+    let erase = |x| EraseStroke {
+        mode: EraseMode::Transparent,
+        points: vec![ImagePoint { x, y: 0.5 }],
+        width: 24.0,
+    };
+    let first_edit = engine
+        .edit_image_asset(&selected.id, None, &[erase(0.5)])
+        .unwrap();
+    let mut edited = reference.clone();
+    edited.content_edits = vec![patch(image, json!({"replacementAssetId":first_edit.id}))];
+    let repeated = engine
+        .extract_content_image(&edited, image.object_index, &image.fingerprint)
+        .unwrap();
+    assert_eq!(
+        repeated.id, first_edit.id,
+        "a second erase uses the same retained full-size asset"
+    );
+    let second_edit = engine
+        .edit_image_asset(&repeated.id, None, &[erase(0.75)])
+        .unwrap();
+    let expected = asset_pixels(&second_edit);
+    assert_eq!(expected.dimensions(), dimensions);
+    assert_eq!(expected.get_pixel(1600, 64).0[3], 0);
+    assert_eq!(expected.get_pixel(2400, 64).0[3], 0);
+    for x in 10..200 {
+        assert_eq!(expected.get_pixel(x, 64), stripes.get_pixel(x, 64));
+    }
+
+    let workspace = json!({"id":"mixed","documentId":opened.id,"pageIndex":0,"rotation":0,
+    "width":opened.pages[0].width,"height":opened.pages[0].height,"sourceName":"mixed.pdf",
+    "overlays":[],"decorations":[],"contentEdits":[{
+        "objectIndex":image.object_index,"fingerprint":image.fingerprint,"replacementAssetId":second_edit.id
+    }]});
+    let project = directory.path().join("mixed.jvp");
+    engine
+        .save_editable_project(project.to_str().unwrap(), vec![workspace], "Mixed drawing")
+        .unwrap();
+    let restored = engine
+        .load_editable_project(project.to_str().unwrap())
+        .unwrap();
+    let restored_ref = super::super::project::page_reference(&restored["workspace"][0]).unwrap();
+    let original_image = engine
+        .inspect_page_content(&restored_ref)
+        .unwrap()
+        .objects
+        .into_iter()
+        .find(|o| o.kind == "image" && o.editable)
+        .unwrap();
+    let restored_asset = engine
+        .extract_content_image(
+            &restored_ref,
+            original_image.object_index,
+            &original_image.fingerprint,
+        )
+        .unwrap();
+    assert_eq!(asset_pixels(&restored_asset), expected);
+
+    let export = directory.path().join("edited.pdf");
+    engine
+        .save_document(export.to_str().unwrap(), &[restored_ref])
+        .unwrap();
+    let reopened = engine
+        .open_document(export.to_str().unwrap(), None)
+        .unwrap();
+    let reopened_ref = plan(&reopened, 0);
+    assert!(engine
+        .page_content_text(&reopened_ref)
+        .unwrap()
+        .contains("KeepText"));
+    let inspection = engine.inspect_page_content(&reopened_ref).unwrap();
+    assert!(inspection
+        .objects
+        .iter()
+        .any(|object| object.kind == "path"));
+    let mut images = inspection
+        .objects
+        .iter()
+        .filter(|o| o.kind == "image" && o.editable);
+    let image = images.next().unwrap();
+    let sibling = images.next().unwrap();
+    let exported_asset = engine
+        .extract_content_image(&reopened_ref, image.object_index, &image.fingerprint)
+        .unwrap();
+    let exported_pixels = asset_pixels(&exported_asset);
+    assert_eq!(exported_pixels.dimensions(), dimensions);
+    assert_eq!(exported_pixels.get_pixel(1600, 64).0[3], 0);
+    assert_eq!(exported_pixels.get_pixel(2400, 64).0[3], 0);
+    for x in 10..200 {
+        assert_eq!(exported_pixels.get_pixel(x, 64), expected.get_pixel(x, 64));
+    }
+    let sibling_asset = engine
+        .extract_content_image(&reopened_ref, sibling.object_index, &sibling.fingerprint)
+        .unwrap();
+    assert_eq!(
+        asset_pixels(&sibling_asset),
+        stripes,
+        "the second draw of the shared image stays unchanged"
+    );
+    let path = inspection
+        .objects
+        .iter()
+        .find(|o| o.kind == "path" && o.editable)
+        .unwrap();
+    let mut invalid_path = reopened_ref.clone();
+    invalid_path.content_edits = vec![patch(path, json!({"bounds":path.bounds}))];
+    assert!(engine.inspect_page_content(&invalid_path).is_err());
+    let mut removed = reopened_ref.clone();
+    removed.content_edits = vec![patch(path, json!({"deleted":true}))];
+    let destination = directory.path().join("removed-path.pdf");
+    engine
+        .save_document(destination.to_str().unwrap(), &[removed])
+        .unwrap();
+    let reopened = engine
+        .open_document(destination.to_str().unwrap(), None)
+        .unwrap();
+    let after_removal = plan(&reopened, 0);
+    assert!(engine
+        .page_content_text(&after_removal)
+        .unwrap()
+        .contains("KeepText"));
+    let remaining = engine.inspect_page_content(&after_removal).unwrap().objects;
+    assert_eq!(remaining.len() + 1, inspection.objects.len());
+    assert!(remaining.iter().any(|object| object.kind == "image"));
+    assert_eq!(fs::read(source).unwrap(), bytes);
+}
+
+#[test]
+fn page_region_erase_keeps_text_paths_and_original_image_resolution() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("layers.pdf");
+    let mut doc = lopdf::Document::load_mem(&base_pdf(0, false)).unwrap();
+    let rgb = [238, 51, 34].repeat(3400 * 32);
+    let image = doc.add_object(lopdf::Stream::new(dictionary! {
+        "Type" => "XObject", "Subtype" => "Image", "Width" => 3400,
+        "Height" => 32, "ColorSpace" => "DeviceRGB", "BitsPerComponent" => 8,
+    }, rgb));
+    let form = doc.add_object(lopdf::Stream::new(dictionary! {
+        "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+        "Resources" => dictionary! {},
+    }, b"0 0.7 0 rg 0 0 100 100 re f".to_vec()));
+    let page = doc.get_pages()[&1];
+    doc.get_dictionary_mut(page).unwrap()
+        .get_mut(b"Resources").unwrap().as_dict_mut().unwrap()
+        .set("XObject", dictionary! {"Raster" => image, "Nested" => form});
+    let mut stream = b"q 140 0 0 50 45 50 cm /Raster Do Q\nq 1 0 0 1 260 60 cm /Nested Do Q\n".to_vec();
+    stream.extend(doc.get_page_content(page));
+    doc.change_page_content(page, stream).unwrap();
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+    fs::write(&source, &bytes).unwrap();
+
+    let mut engine = PdfEngine::new(native_pdfium());
+    let opened = engine.open_document(source.to_str().unwrap(), None).unwrap();
+    let start = plan(&opened, 0);
+    let rect = |x0, y0, x1, y1| vec![
+        ImagePoint { x: x0, y: y0 }, ImagePoint { x: x1, y: y0 },
+        ImagePoint { x: x1, y: y1 }, ImagePoint { x: x0, y: y1 },
+    ];
+    assert!(engine.erase_regions(&start, &[rect(0.1, 0.25, 0.5, 0.5)]).is_err());
+    let edited = engine.generate_pages(&GeneratePages::EraseRegions {
+        page: start.clone(),
+        regions: vec![rect(0.13, 0.67, 0.22, 0.81), rect(0.20, 0.69, 0.27, 0.81), rect(0.70, 0.55, 0.82, 0.70)],
+    }).unwrap();
+    let edited = plan(&edited, 0);
+    let rendered = |engine: &PdfEngine<'_>, page: &PageRef| pixels(engine.render_page(page, 800).unwrap());
+    let original = rendered(&engine, &start);
+    let after = rendered(&engine, &edited);
+    let pixel = |image: &RgbaImage, x: f32, y: f32| {
+        image.get_pixel((x * image.width() as f32) as u32, (y * image.height() as f32) as u32).0
+    };
+    for (x, y) in [(0.16, 0.79), (0.21, 0.79), (0.25, 0.79), (0.74, 0.60)] {
+        assert_ne!(pixel(&original, x, y), [255; 4]);
+        assert_eq!(pixel(&after, x, y), [255; 4], "masked region at {x}, {y}");
+    }
+    for (x, y) in [(0.31, 0.79), (0.86, 0.60), (0.68, 0.26), (0.2, 0.92)] {
+        assert_eq!(pixel(&after, x, y), pixel(&original, x, y));
+    }
+    let objects = engine.inspect_page_content(&edited).unwrap().objects;
+    assert!(objects.iter().any(|object| object.editable && object.kind == "path"));
+    let text = objects.iter().find(|object| object.text.as_deref() == Some("AlphaOld")).unwrap();
+    assert!(text.editable, "text stays editable where it overlaps the masked image");
+    assert!(engine.page_content_text(&edited).unwrap().contains("AlphaOld"));
+
+    let rotated = PageRef { rotation: 90, ..edited };
+    let erased_again = engine.erase_regions(&rotated, &[rect(0.18, 0.29, 0.23, 0.37)]).unwrap();
+    let mut export = plan(&erased_again, 0);
+    let previous = rendered(&engine, &rotated);
+    let result = rendered(&engine, &export);
+    assert_ne!(pixel(&previous, 0.21, 0.32), [255; 4]);
+    assert_eq!(pixel(&result, 0.21, 0.32), [255; 4]);
+    let stamp = engine.register_image(&png_data_url([25, 100, 200, 255])).unwrap();
+    export.overlays = vec![serde_json::from_value(json!({"id":"stamp","assetId":stamp.id,"x":0.05,"y":0.05,"width":0.08,"height":0.08,"opacity":1})).unwrap()];
+    let destination = directory.path().join("export.pdf");
+    engine.save_document(destination.to_str().unwrap(), &[export.clone()]).unwrap();
+    let reopened = engine.open_document(destination.to_str().unwrap(), None).unwrap();
+    let reopened = plan(&reopened, 0);
+    assert_eq!(rendered(&engine, &export), rendered(&engine, &reopened));
+    assert_eq!(pixel(&rendered(&engine, &reopened), 0.21, 0.32), [255; 4]);
+    assert!(engine.page_content_text(&reopened).unwrap().contains("KeepText"));
+    let exported = lopdf::Document::load(&destination).unwrap();
+    assert!(exported.objects.values().filter_map(|value| value.as_stream().ok()).any(|stream| {
+        stream.dict.get(b"Width").and_then(lopdf::Object::as_i64).ok() == Some(3400)
+    }));
+    assert_eq!(fs::read(&source).unwrap(), bytes);
 }
 
 #[test]

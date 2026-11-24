@@ -367,12 +367,14 @@ fn inspect_object(
         "text"
     } else if object.as_image_object().is_some() {
         "image"
+    } else if object.as_path_object().is_some() {
+        "path"
     } else {
         reason = Some(
             if object.as_x_object_form_object().is_some() {
                 "嵌套 Form 内容暂不支持直接编辑；它可能包含文字或图像。"
             } else {
-                "矢量路径、轮廓字或其他对象暂不支持原文编辑。"
+                "此对象类型暂不支持直接编辑。"
             }
             .into(),
         );
@@ -381,7 +383,7 @@ fn inspect_object(
     if reason.is_none() && object.get_clip_path().is_some_and(|path| !path.is_empty()) {
         reason = Some("带裁剪路径的对象暂不支持精确修改。".into());
     }
-    if reason.is_none() && !object.matrix().map(simple_matrix).unwrap_or(false) {
+    if reason.is_none() && kind != "path" && !object.matrix().map(simple_matrix).unwrap_or(false) {
         reason = Some("斜切或任意角度对象暂不支持精确修改。".into());
     }
     if reason.is_none() && !is_in_page(&bounds) {
@@ -1210,27 +1212,44 @@ impl<'a> PdfEngine<'a> {
         object_index: u32,
         fingerprint: &str,
     ) -> Result<ImageAssetInfo, String> {
-        let inspection = self.inspect_page_content(reference)?;
-        let selected = inspection
-            .objects
-            .iter()
-            .find(|o| {
-                o.object_index == object_index
-                    && o.fingerprint == fingerprint
-                    && o.kind == "image"
-                    && o.editable
-                    && !o.deleted
+        if object_index as usize >= MAX_CONTENT_OBJECTS
+            || reference.content_edits.iter().any(|edit| {
+                edit.object_index == object_index && edit.deleted == Some(true)
             })
-            .ok_or_else(|| invalid("请选择当前页面可编辑的图片对象。"))?;
-        let _ = selected;
+        {
+            return Err(invalid("请选择当前页面中可见的图片对象。"));
+        }
         let mut output = self.copied_content_page(reference)?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;
+        {
+            let object = page.objects().get(object_index as usize).map_err(pdf_error)?;
+            if object.as_image_object().is_none() {
+                return Err(invalid("只有图片对象可使用像素橡皮擦。"));
+            }
+            let info = inspect_object(object_index, &object, PageSpace::new(&page)?, &page)?;
+            if !info.editable || info.fingerprint != fingerprint {
+                return Err(invalid("所选图片已变化或不支持像素编辑，请重新选择。"));
+            }
+            // Object-level compositing would be baked into the extracted pixels,
+            // then reapplied when writing those pixels back. A bitmap's own alpha
+            // mask is separate from this graphics state and remains supported.
+            if object.has_transparency() {
+                return Err(invalid("此图片使用特殊混合、对象蒙版或透明度，暂不支持像素修改。"));
+            }
+        }
         self.apply_content_edits(
             &mut output,
             &mut page,
             reference,
             &mut ContentFontCache::default(),
         )?;
+        if let Some(asset_id) = reference.content_edits.iter()
+            .find(|edit| edit.object_index == object_index)
+            .and_then(|edit| edit.replacement_asset_id.as_deref())
+        {
+            // A subsequent erase uses the exact pixels already stored in the edit.
+            return self.get_image_asset(asset_id);
+        }
         let index = object_index as usize
             - reference
                 .content_edits
@@ -1241,24 +1260,17 @@ impl<'a> PdfEngine<'a> {
         let image = object
             .as_image_object_mut()
             .ok_or_else(|| invalid("所选对象不是图片。"))?;
-        let (width, height) = (
-            image.width().map_err(pdf_error)? as f32,
-            image.height().map_err(pdf_error)? as f32,
-        );
-        if width <= 0.0 || height <= 0.0 {
-            return Err(invalid("图片尺寸无效。"));
-        }
-        let scale = (2400.0 / width.max(height)).min(1.0);
-        let (w, h) = (
-            (width * scale).round().max(1.0) as i32,
-            (height * scale).round().max(1.0) as i32,
-        );
+        let (w, h) = (image.width().map_err(pdf_error)?, image.height().map_err(pdf_error)?);
+        assets::check_image_dimensions(w.max(0) as u32, h.max(0) as u32)?;
         image
             .reset_matrix(PdfMatrix::new(w as f32, 0.0, 0.0, h as f32, 0.0, 0.0))
             .map_err(pdf_error)?;
         let pixels = image
             .get_processed_image_with_size(&output, w, h)
             .map_err(pdf_error)?;
+        if (pixels.width(), pixels.height()) != (w as u32, h as u32) {
+            return Err(invalid("引擎无法取得原始尺寸的图片，已取消修改以保留清晰度。"));
+        }
         drop(object);
         drop(page);
         drop(output);
@@ -1365,7 +1377,10 @@ impl<'a> PdfEngine<'a> {
                     || edit.italic.is_some()
                     || edit.opacity.is_some())
             {
-                return Err(invalid("此图片对象不支持文字属性。"));
+                return Err(invalid("此对象不支持文字属性。"));
+            }
+            if original.kind == "path" && edit.bounds.is_some() {
+                return Err(invalid("矢量路径当前仅支持删除和恢复。"));
             }
             if original.kind != "image" && edit.replacement_asset_id.is_some() {
                 return Err(invalid("仅图片对象支持替换图像。"));
@@ -1394,6 +1409,9 @@ impl<'a> PdfEngine<'a> {
                 continue;
             }
             let mut object = page.objects().get(index).map_err(pdf_error)?;
+            if object.as_path_object().is_some() {
+                continue;
+            }
             if object.as_text_object().is_some() {
                 let text_object = object.as_text_object().unwrap();
                 let old_text = object_text(page, text_object)?;
@@ -1473,12 +1491,24 @@ impl<'a> PdfEngine<'a> {
                 let image = image::load_from_memory_with_format(&asset.png, ImageFormat::Png)
                     .map_err(pdf_error)?;
                 let matrix = object.matrix().map_err(pdf_error)?;
-                object
-                    .as_image_object_mut()
-                    .unwrap()
-                    .set_image(&image)
-                    .map_err(pdf_error)?;
-                object.reset_matrix(matrix).map_err(pdf_error)?;
+                if object.has_transparency() {
+                    // Existing image replacements can carry an object's blend
+                    // state. The pixel eraser refuses those objects at extraction.
+                    object.as_image_object_mut().unwrap().set_image(&image).map_err(pdf_error)?;
+                    object.reset_matrix(matrix).map_err(pdf_error)?;
+                } else {
+                    // A PDF image resource may be drawn in several places. A
+                    // fresh image isolates this instance at the same paint index.
+                    let active = object.is_active().map_err(pdf_error)?;
+                    let mut replacement = PdfPageImageObject::new(output, &image).map_err(pdf_error)?;
+                    replacement.reset_matrix(matrix).map_err(pdf_error)?;
+                    drop(object);
+                    drop(page.objects_mut().remove_object_at_index(index).map_err(pdf_error)?);
+                    object = page.objects_mut().insert_object_at_index(index, PdfPageObject::Image(replacement)).map_err(pdf_error)?;
+                    if !active {
+                        object.set_inactive().map_err(pdf_error)?;
+                    }
+                }
             }
             if let Some(target) = &edit.bounds {
                 space.place(&mut object, target)?;

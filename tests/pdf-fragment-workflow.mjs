@@ -61,6 +61,7 @@ const editor=await module('src/components/OverlayEditor.tsx',{require(name){
  if(name==='../useNumberDraft')return numbers;
  if(name==='./overlayCanvas')return{DEFAULT_FONT_FAMILY:'Microsoft YaHei UI',ensureFontReady:async()=>{}};
  if(name==='./FontPicker')return{FontPicker:'FontPicker'};
+ if(name==='react-dom')return{flushSync:callback=>callback()};
  if(name.endsWith('.css'))return{};throw new Error(name);
 }});
 const editable=await module('src/editableOverlays.ts',{require(){return{};}});

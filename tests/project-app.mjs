@@ -23,7 +23,7 @@ function label(node) {
   return Array.isArray(node) ? node.map(label).join('') : label(node.props?.children);
 }
 const changed = (before, after) => !before || before.length !== after.length || after.some((value, n) => !Object.is(value, before[n]));
-async function fixture({ prepare } = {}) {
+async function fixture({ prepare, generate } = {}) {
   const slots = [], effects = [], listeners = new Map(), nativeEvents = new Map(), pendingFiles = [], calls = [], timers = new Map(), dialogs = [], events = [], cachedImages = new Map();
   let cursor = 0, pending = [], needsRender = true, tree, nextId = 0, timerId = 0, resets = 0;
   let pickerPaths = ['C:\\input.pdf'], pickerDeferred, retainDeferred, savePath = 'C:\\draft.jvp', saveFailure, loadFailure, closeListener;
@@ -73,6 +73,7 @@ async function fixture({ prepare } = {}) {
       if (command === 'retain_documents') { if (retainDeferred) await retainDeferred; return; }
       if (command === 'save_editable_project') { if (saveFailure) throw saveFailure; return { path: args.path, pageCount: args.pages.length }; }
       if (command === 'load_editable_project') { if (loadFailure) throw loadFailure; return clone(project); }
+      if (command === 'generate_pages' && generate) return generate(args.request);
       throw new Error(`Unexpected native command: ${command}`);
     },
   };
@@ -362,3 +363,49 @@ async function fixture({ prepare } = {}) {
   ui.cleanup();
 }
 console.log('Project App workflow: inline-draft guards; inactive-tab staged rollback during deferred native retention; copied-page undo/redo; distinct save/export paths; non-destructive project tabs and aliases; per-tab history/save locations; modal/duplicate external queues; native picker target ownership and cancellation passed.');
+
+{
+  let fail = true;
+  const ui = await fixture({ generate(request) {
+    assert.equal(request.kind, 'eraseRegions');
+    if (fail) throw new Error('Unsupported page clip');
+    return { id: 'erased-page-source', path: 'memory://generated/erased.pdf', fileName: 'erased.pdf',
+      pageCount: 1, warnings: [], pages: [{ index: 0, width: 595, height: 842, rotation: 0 }] };
+  } });
+  await ui.open(['C:\\drawing.jvp']);
+  const before = clone(ui.pages());
+  ui.button('Mark').props.onClick(); await ui.settle();
+  const toolbar = ui.component('MarkToolbar');
+  assert.equal(toolbar.props.selected, undefined);
+  toolbar.props.onEraseRegions(); await ui.settle();
+  let dialog = ui.component('PageEraseDialog');
+  assert.deepEqual(clone(dialog.props.page), before[0]);
+  dialog.props.onClose(); await ui.settle();
+  assert.equal(ui.component('PageEraseDialog'), undefined);
+  assert.equal(ui.counts('generate_pages'), 0, 'Cancelling a selection leaves the current page unchanged');
+  assert.deepEqual(clone(ui.pages()), before);
+  toolbar.props.onEraseRegions(); await ui.settle(); dialog = ui.component('PageEraseDialog');
+  const regions = [[{ x: .1, y: .2 }, { x: .4, y: .2 }, { x: .4, y: .5 }, { x: .1, y: .5 }],
+    [{ x: .6, y: .55 }, { x: .8, y: .55 }, { x: .75, y: .8 }]];
+  await assert.rejects(dialog.props.onApply(regions), /Unsupported page clip/); await ui.settle();
+  assert.ok(ui.component('PageEraseDialog'));
+  assert.deepEqual(clone(ui.pages()), before, 'A native failure leaves pages and undo history intact');
+  assert.equal(ui.isDirty(), false);
+  fail = false;
+  await dialog.props.onApply(regions); await ui.settle();
+  const request = ui.calls.filter(call => call.command === 'generate_pages').at(-1).args.request;
+  assert.deepEqual(clone(request.regions), regions);
+  assert.equal(request.page.documentId, before[0].documentId);
+  assert.equal(ui.component('PageEraseDialog'), undefined);
+  const after = clone(ui.pages());
+  assert.equal(after[0].id, before[0].id, 'Replacing the native backing keeps the workspace page identity');
+  assert.equal(after[0].documentId, 'erased-page-source');
+  assert.deepEqual(after[0].overlays, before[0].overlays, 'Added text remains separately editable');
+  assert.equal(ui.isDirty(), true);
+  ui.button('撤销').props.onClick(); await ui.settle();
+  assert.deepEqual(clone(ui.pages()), before);
+  ui.button('重做').props.onClick(); await ui.settle();
+  assert.deepEqual(clone(ui.pages()), after);
+  ui.cleanup();
+}
+console.log('PASS: App pages eraser opens without an overlay, cancels without mutations, retries a failed apply, preserves editable overlays and uses one undo/redo step');

@@ -49,7 +49,7 @@ async function fixture(overlays = []) {
       };
     },
   };
-  const window = { setTimeout(callback, delay) { assert.equal(delay, 160); const id = ++timerSequence; timers.set(id, callback); return id; }, clearTimeout(id) { timers.delete(id); } };
+  const window = { setTimeout(callback, delay) { assert.ok([160,400].includes(delay)); const id = ++timerSequence; timers.set(id, callback); return id; }, clearTimeout(id) { timers.delete(id); } };
   const canvas = load('../src/components/overlayCanvas.ts', () => {}, { document,
     setTimeout(callback) { const id = ++timerSequence; fontTimeouts.set(id, callback); return id; }, clearTimeout(id) { fontTimeouts.delete(id); },
   });
@@ -68,6 +68,7 @@ async function fixture(overlays = []) {
   const fragments = load('../src/pdfFragments.ts', name => name === './imageGeometry' ? imageGeometry : geometry, {crypto:{randomUUID:()=>`fragment-${++ids}`}});
   const editor = load('../src/components/OverlayEditor.tsx', name => {
     if (name === 'react') return react;
+    if (name === 'react-dom') return { flushSync: callback => callback() };
     if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === './overlayCanvas') return canvas;
     if (name === '../overlayGeometry') return geometry;
@@ -102,6 +103,7 @@ async function fixture(overlays = []) {
     setText(value) { find(node => node.type === 'textarea').props.onChange({ target: { value } }); render(); },
     setFont(value) { find(node => node.type === 'FontPicker').props.onChange(value); render(); },
     setOverlays(value) { props.overlays = value; needsRender = true; render(); },
+    blurText() { find(node => node.type === 'section' && node.props['data-inline-text-edit']).props.onBlur({ currentTarget: { contains: () => false }, relatedTarget: null }); render(); },
     runTimers() { for (const [id, callback] of [...timers]) { timers.delete(id); callback(); } },
     deferFonts(value = true) { deferFont = value; },
     cleanup() { for (const effect of effects) effect?.cleanup?.(); },
@@ -141,17 +143,22 @@ for (const rotation of [90, 270]) {
   const before = { id: 'selected', assetId: 'previous-asset', x: .5, y: .2, width: .2, height: .3, opacity: .42, rotation, blendMode: 'multiply',
     textSource: { content: 'Original', color: '#234567', fontSize: 12, bold: false, fontFamily: 'Arial', italic: true, alignment: 'right', charSpacing: .5, lineHeight: 1.6 } };
   const originalSnapshot = JSON.stringify(before);
-  const ui = await fixture([before]); await ui.click('Load selected text');
-  assert.equal(ui.button('Update selected text').props.disabled, false);
-  ui.setText('Updated\nTwo lines'); await ui.click('Update selected text');
-  const after = ui.props.overlays[0], image = JSON.parse(Buffer.from(ui.nativeCalls.at(-1).args.dataUrl.split(',')[1], 'base64').toString());
+  const ui = await fixture([before]);
+  assert.equal(ui.button('Update selected text'), undefined);
+  assert.equal(ui.button('Load selected text'), undefined);
+  ui.setText('Updated\nTwo lines'); assert.equal(ui.changes.length, 0);
+  ui.runTimers(); await ui.settle();
+  ui.runTimers(); await ui.settle();
+  const after = ui.props.overlays[0], image = ui.canvasResults.at(-1);
+  assert.equal(ui.changes.length, 1); assert.equal(ui.nativeCalls.length, 0, 'The normal workspace commit stages the resulting raster');
   assert.equal(after.id, before.id); assert.equal(after.opacity, .42); assert.equal(after.rotation, rotation); assert.equal(after.blendMode, 'multiply');
   assert.equal(after.textSource.content, 'Updated\nTwo lines'); assert.equal(after.textSource.fontSize, 12);
   near(after.width * ui.props.pageWidth, image.height / 2);
   near(after.height * ui.props.pageHeight, image.width / 2);
   assert.equal(JSON.stringify(before), originalSnapshot, 'Updating must not mutate the undo snapshot');
-  ui.setOverlays(ui.changes[0].before); await ui.click('Load selected text');
-  ui.runTimers(); await ui.settle(); assert.ok(ui.preview());
+  ui.setOverlays(ui.changes[0].before); await ui.settle();
+  ui.runTimers(); await ui.settle(); ui.runTimers(); await ui.settle(); assert.ok(ui.preview());
+  assert.equal(ui.changes.length, 1, 'Undo must not trigger a new automatic text update');
   assert.equal(ui.props.overlays[0].assetId, 'previous-asset'); assert.equal(ui.props.overlays[0].textSource.content, 'Original');
   ui.cleanup();
 }
@@ -174,10 +181,10 @@ for (const rotation of [90, 270]) {
     frame: { width: 240, height: 70, autoHeight: true } };
   const ui = await fixture([{ id: 'selected', assetId: 'old', x: .1, y: .1, width: .48, height: .1, opacity: 1, textSource: source }]);
   ui.setOverlays([{ ...ui.props.overlays[0], width: .3, textSource: { ...source, frame: { width: 150, height: 70, autoHeight: true } } }]);
-  await ui.settle(); ui.setText('Changed after dragging'); await ui.click('Update selected text');
+  await ui.settle(); ui.setText('Changed after dragging'); ui.runTimers(); await ui.settle(); ui.blurText(); await ui.settle();
   near(ui.props.overlays[0].textSource.frame.width, 150);
   assert.equal(ui.props.overlays[0].textSource.fontSize, 12);
-  const image = JSON.parse(Buffer.from(ui.nativeCalls.at(-1).args.dataUrl.split(',')[1], 'base64').toString());
+  const image = ui.canvasResults.at(-1);
   assert.equal(image.width, 300); ui.cleanup();
 }
 

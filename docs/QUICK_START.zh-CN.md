@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Jerrivell PDF 快速开始
 
-适用版本：0.13.0，Windows x64。
+适用版本：0.14.1，Windows x64。
 
 ## 安装和升级
 
-从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.13.0 的文件为 [`Jerrivell.PDF_0.13.0_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/Jerrivell.PDF_0.13.0_x64-setup.exe)。
+从 [最新 Release](https://github.com/luxoep/JerrivellPDF/releases/latest) 下载安装包。0.14.1 的文件为 [`Jerrivell.PDF_0.14.1_x64-setup.exe`](https://github.com/luxoep/JerrivellPDF/releases/download/v0.14.1/Jerrivell.PDF_0.14.1_x64-setup.exe)。
 
 需要旧版时可在 [全部 Jerrivell Releases](https://github.com/luxoep/JerrivellPDF/releases) 选择对应版本，使用前查看该版本发布说明与随包 LICENSE；旧归档不会自动采用当前版本的许可。
 
@@ -35,6 +35,10 @@
 “编辑原文”和“文字行”用于可识别的原有 PDF 对象与文字。PDF 可能把文字拆成小对象、转为轮廓或只保留扫描图像，不能把原文编辑理解为所有 PDF 都能像普通文档一样重排。替换本机字体时，字体及其嵌入使用仍应遵守相应许可。
 
 图章支持制作和导入导出；从 PDF 制作内容片段时可选择多个区域，生成独立图片片段后分别插入或在列表中管理。片段为图像化内容；图章和手写签名图片不提供证书数字签名的身份保证。
+
+## 页面局部擦除
+
+打开「标记 → 页面局部擦除」，在页面预览画出一个或多个区域，再点击「擦除选区」。此操作裁掉选区内图片和受支持的嵌套内容的显示，保留原始清晰度。可编辑的顶层文字和矢量仍可在「编辑原文」按对象处理。修复一张图片的底色时，从图片对象打开像素橡皮擦。[页面局部擦除与文字编辑](0.14.1-局部擦除与文字编辑.md)
 
 ## 图纸对比
 

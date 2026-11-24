@@ -7,12 +7,12 @@ An open-source, local PDF workspace for Windows, with document editing, page org
 
 ## 下载与安装
 
-**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.13.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/Jerrivell.PDF_0.13.0_x64-setup.exe)**
+**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.14.1 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.14.1/Jerrivell.PDF_0.14.1_x64-setup.exe)**
 
-[历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载；通常建议使用最新的 0.13.0。历史归档保留当时的许可：**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。当前仓库许可不会追溯改写旧归档。
+[历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载；通常建议使用最新的 0.14.1。历史归档保留当时的许可：**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。当前仓库许可不会追溯改写旧归档。
 
 1. 准备 Windows x64 和 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装包不附带、也不自动下载 WebView2。
-2. 下载 Release 中的 `Jerrivell.PDF_0.13.0_x64-setup.exe`，按向导安装。
+2. 下载 Release 中的 `Jerrivell.PDF_0.14.1_x64-setup.exe`，按向导安装。
 3. 从开始菜单打开 **Jerrivell PDF**。普通使用不需要 Rust、Node.js、Visual Studio 或开发服务器。
 
 当前为未配置代码签名证书的开发构建。请从本仓库 Release 获取文件，并核对随版本提供的 SHA-256。升级前保存 PDF 副本和可编辑项目，正常退出旧版后安装；安装器不自动替你修改 PDF 默认打开方式。
@@ -31,6 +31,12 @@ An open-source, local PDF workspace for Windows, with document editing, page org
 | 打印与保存 | PDF 副本和可编辑项目分别保存；导出预检；打印纸张、彩色/黑白及自动/150/300/600 DPI 选择 |
 | 图纸对比 | 独立工作区、单页和多页配对、150/300/600 DPI 视觉差分、区域与细点定位、自动/手动平移、忽略区、局部复核、复核项目保存与续审、PNG 与 CSV 报告 |
 | 界面 | 简体中文与英文切换 |
+
+## 0.14.1 页面局部擦除与文字编辑
+
+在「标记」中直接圈选图片及受支持的嵌套绘制内容。擦除按选区裁剪显示，图片保持原始清晰度，可编辑的顶层文字和矢量可继续选中和处理。
+
+已添加文字支持直接修改和自动应用。新文字优先使用本机 Century Gothic，编辑原文时默认选择可嵌入的本机字体。顶部导航更紧凑。[操作指南](docs/0.14.1-局部擦除与文字编辑.md)
 
 ## 0.13.0 图纸复核项目
 
@@ -72,7 +78,7 @@ Jerry 有权许可的原创代码、文档和合成样本使用 **MIT OR Apache-
 - [MIT 全文](LICENSE-MIT)
 - [Apache License 2.0 全文](LICENSE-APACHE)
 
-第三方组件保留各自许可，参见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [licenses/](licenses/)。Release 同时提供 [0.13.0 第三方对应源码补充](https://github.com/luxoep/JerrivellPDF/releases/download/v0.13.0/JerrivellPDF-0.13.0-third-party-sources.zip)；其中的 MPL 文件级组件、安装器组件和其他上游材料不改称项目自有许可。Windows、WebView2、用户文档和字体也有各自条款。
+第三方组件保留各自许可，参见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [licenses/](licenses/)。Release 同时提供 [0.14.1 第三方对应源码补充](https://github.com/luxoep/JerrivellPDF/releases/download/v0.14.1/JerrivellPDF-0.14.1-third-party-sources.zip)；其中的 MPL 文件级组件、安装器组件和其他上游材料不改称项目自有许可。Windows、WebView2、用户文档和字体也有各自条款。
 
 ## 反馈
 

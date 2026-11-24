@@ -3,6 +3,7 @@ use image::{ImageDecoder, ImageReader, Limits};
 
 const MAX_ASSET_INPUT_BYTES: u64 = 24 * 1024 * 1024;
 const MAX_ASSET_PIXELS: u64 = 16 * 1024 * 1024;
+const MAX_DECODE_SIDE: u32 = 8192;
 const MAX_ASSET_SIDE: u32 = 2400;
 const MAX_ASSET_COUNT: usize = 64;
 const MAX_ASSET_MEMORY: usize = 64 * 1024 * 1024;
@@ -21,7 +22,19 @@ fn invalid(message: impl std::fmt::Display) -> String {
     format!("ASSET_INVALID: {message}")
 }
 
-pub(super) fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<DynamicImage, String> {
+pub(super) fn check_image_dimensions(width: u32, height: u32) -> Result<(), String> {
+    if width == 0
+        || height == 0
+        || width > MAX_DECODE_SIDE
+        || height > MAX_DECODE_SIDE
+        || u64::from(width) * u64::from(height) > MAX_ASSET_PIXELS
+    {
+        return Err(invalid("图片尺寸超过限制；最多 1600 万像素，单边最多 8192 像素。"));
+    }
+    Ok(())
+}
+
+pub(super) fn decode_image(bytes: &[u8], expected_png: bool) -> Result<DynamicImage, String> {
     let format =
         image::guess_format(bytes).map_err(|_| invalid("图片格式无效，请选择 PNG 或 JPEG。"))?;
     if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg)
@@ -32,20 +45,11 @@ pub(super) fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<Dynam
     let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
         .map_err(|e| invalid(format!("无法读取图片尺寸：{e}")))?;
-    if width == 0
-        || height == 0
-        || width > 8192
-        || height > 8192
-        || width as u64 * height as u64 > MAX_ASSET_PIXELS
-    {
-        return Err(invalid(
-            "图片尺寸超过限制；最多 1600 万像素，单边最多 8192 像素。",
-        ));
-    }
+    check_image_dimensions(width, height)?;
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
     let mut decoder = reader
@@ -57,7 +61,12 @@ pub(super) fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<Dynam
     let mut image =
         DynamicImage::from_decoder(decoder).map_err(|e| invalid(format!("无法解码图片：{e}")))?;
     image.apply_orientation(orientation);
-    let image = if width > MAX_ASSET_SIDE || height > MAX_ASSET_SIDE {
+    Ok(image)
+}
+
+pub(super) fn normalized_image(bytes: &[u8], expected_png: bool) -> Result<DynamicImage, String> {
+    let image = decode_image(bytes, expected_png)?;
+    let image = if image.width() > MAX_ASSET_SIDE || image.height() > MAX_ASSET_SIDE {
         image.resize(
             MAX_ASSET_SIDE,
             MAX_ASSET_SIDE,

@@ -44,4 +44,112 @@ runTimers();assert.equal(requests.length,1);assert.equal(requests[0].command,'pr
 pixel.button('Undo edit').props.onClick();pixel.render();requests[0].resolve({dataUrl:'stale-repair',width:200,height:200});await new Promise(resolve=>setImmediate(resolve));pixel.render();assert.equal(walk(pixel.owner.tree,node=>node.type==='image'&&node.props.href==='stale-repair').length,0,'Undo discards a late repair result');
 svg=walk(pixel.owner.tree,node=>node.props.className==='pixel-erase-surface')[0];svg.props.onPointerDown(pointer(40,40));svg.props.onPointerUp(pointer(45,45));pixel.render();runTimers();requests[1].resolve({dataUrl:'fresh-repair',width:200,height:200});await new Promise(resolve=>setImmediate(resolve));pixel.render();assert.equal(pixel.button('Apply edits').props.disabled,false);assert.equal(walk(pixel.owner.tree,node=>node.type==='image'&&node.props.href==='fresh-repair').length,2);
 svg=walk(pixel.owner.tree,node=>node.props.className==='pixel-erase-surface')[0];svg.props.onPointerDown(pointer(80,80));svg.props.onPointerUp(pointer(85,85));pixel.render();runTimers();requests[2].reject(new Error('Invalid native preview'));await new Promise(resolve=>setImmediate(resolve));pixel.render();assert.equal(pixel.button('Apply edits').props.disabled,true);assert.ok(label(pixel.owner.tree).includes('Invalid native preview'));pixel.button('Retry repair preview').props.onClick();pixel.render();runTimers();requests[3].resolve({dataUrl:'retry-repair',width:200,height:200});await new Promise(resolve=>setImmediate(resolve));pixel.render();assert.equal(pixel.button('Apply edits').props.disabled,false);pixel.cleanup();assert.equal(timers.size,0);
-console.log('PASS: disjoint/overlapping region unions, independent mask geometry, bounds transform, additive/replace/undo/clear/16-region guards, repair default, zero per-move IPC, debounced native preview and stale-result rejection');
+const largeImage={...props.image,id:'high-resolution',dataUrl:'original-full-size',width:3200,height:2100};
+const highRes=harness(editor.ImageEditDialog,{image:largeImage,initialMode:'erase',title:'Large image',onApply(){},onClose(){}});
+let surfaceTree=walk(highRes.render(),node=>node.props.className==='pixel-erase-surface')[0];
+surfaceTree.props.onPointerDown(pointer(20,20));surfaceTree.props.onPointerUp(pointer(90,90));highRes.render();runTimers();
+requests.at(-1).resolve({dataUrl:'small-repair-preview',width:1000,height:656});
+await new Promise(resolve=>setImmediate(resolve));
+surfaceTree=walk(highRes.render(),node=>node.props.className==='pixel-erase-surface')[0];
+const highResImages=walk(surfaceTree,node=>node.type==='image');
+assert.equal(highResImages[0].props.href,'original-full-size','Repair is composited over the original-resolution base');
+assert.equal(highResImages[0].props.width,3200);
+assert.equal(highResImages[1].props.href,'small-repair-preview');
+assert.match(highResImages[1].props.mask,/-repair\)/,'Only the repaired area uses thumbnail pixels');
+highRes.cleanup();assert.equal(timers.size,0);
+
+// Page erasure uses the same real selection gestures, and submits polygons
+// only after the user deliberately applies the complete set of regions.
+const markGeometry=load('../src/markGeometry.ts',()=>{});
+const icons=new Proxy({},{get:(_,key)=>String(key)});
+const toolbar=load('../src/components/MarkToolbar.tsx',name=>({
+  'react/jsx-runtime':jsx,'lucide-react':icons,'../i18n':i18n,'../markGeometry':markGeometry,
+})[name]);
+let pageEraseOpens=0;
+const markProps={settings:markGeometry.DEFAULT_MARK,disabled:false,onEraseRegions:()=>pageEraseOpens++,onEditPixels(){}};
+const markUi=harness(toolbar.MarkToolbar,markProps);
+markUi.render();
+assert.equal(markUi.button('Erase page regions').props.disabled,false,'Page erasure is available without selecting an overlay');
+markUi.button('Erase page regions').props.onClick();
+assert.equal(pageEraseOpens,1);
+assert.equal(walk(markUi.owner.tree,node=>node.props['aria-label']==='Crop or erase the selected mark').length,0,'Selected overlay erasure is a separate tool');
+markProps.settings={...markProps.settings,tool:'select'};
+markUi.render();
+assert.equal(walk(markUi.owner.tree,node=>node.props['aria-label']==='Crop or erase the selected mark')[0].props.disabled,true);
+
+const erasureCalls=[];
+let finishPreview, rejectApply;
+const pageEraser=load('../src/components/PageEraseDialog.tsx',name=>({
+  react,'react/jsx-runtime':jsx,'lucide-react':icons,'../i18n':i18n,'../imageGeometry':geometry,
+  './RegionSelection':region,'./image-workbench.css':{},
+  '../backend':{errorMessage:error=>error.message,renderPage:(page,width)=>new Promise(resolve=>{
+    erasureCalls.push({command:'render',page,width});finishPreview=resolve;
+  })},
+})[name]);
+let closeCount=0;
+const page={id:'workspace-page',documentId:'source-document',pageIndex:2,rotation:90};
+const pageEditor=harness(pageEraser.PageEraseDialog,{
+  page,onClose:()=>closeCount++,onApply:regions=>{
+    erasureCalls.push({command:'apply',regions:plain(regions)});
+    if (erasureCalls.filter(call=>call.command==='apply').length===1) return new Promise((_,reject)=>{rejectApply=reject;});
+    return Promise.resolve();
+  },
+});
+pageEditor.render();
+assert.equal(pageEditor.button('Erase selected regions').props.disabled,true);
+assert.equal(erasureCalls.length,1);
+assert.equal(erasureCalls[0].page,page);
+assert.equal(erasureCalls[0].width,1800);
+finishPreview({width:200,height:200,dataUrl:'source-page'});
+await new Promise(resolve=>setImmediate(resolve));
+
+const pageSelectionProps={};
+const pageSelection=harness(region.RegionSelection,pageSelectionProps);
+const selectionTree=()=>{
+  const renderer=walk(pageEditor.render(),node=>node.type===region.RegionSelection)[0];
+  Object.assign(pageSelectionProps,renderer.props);
+  return pageSelection.render();
+};
+const eraserSurface=()=>{
+  const node=walk(selectionTree(),item=>item.props.role==='group')[0];
+  node.props.ref.current=surface;
+  return node;
+};
+const keyEvent=key=>({key,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}});
+assert.equal(walk(selectionTree(),node=>node.type==='PreviewZoom')[0].props.resetKey,page.id);
+let regionCanvas=eraserSurface();
+regionCanvas.props.onPointerDown(pointer(20,40));
+for(let step=0;step<60;step++)regionCanvas.props.onPointerMove(pointer(20+step,40+step));
+assert.equal(erasureCalls.length,1,'Dragging a selection never re-renders the page or prepares a native erasure');
+regionCanvas.props.onPointerUp(pointer(80,100));
+walk(pageEditor.render(),node=>node.type==='select')[0].props.onChange({target:{value:'polygon'}});
+for(const [x,y] of [[120,110],[160,110],[155,160]])eraserSurface().props.onPointerDown(pointer(x,y));
+const drawEscape=keyEvent('Escape');selectionTree().props.onKeyDown(drawEscape);
+assert.ok(drawEscape.prevented&&drawEscape.stopped,'Escape cancels the open polygon without closing the dialog');
+assert.equal(closeCount,0);
+for(const [x,y] of [[120,110],[160,110],[155,160]])eraserSurface().props.onPointerDown(pointer(x,y));
+selectionTree().props.onKeyDown(keyEvent('Enter'));
+pageEditor.render();
+const applyErase=pageEditor.button('Erase selected regions');
+assert.equal(applyErase.props.disabled,false);
+applyErase.props.onClick();applyErase.props.onClick();pageEditor.render();
+assert.deepEqual(erasureCalls.map(call=>call.command),['render','apply'],'Apply submits once and does not request another preview');
+assert.deepEqual(erasureCalls[1].regions.map(points=>points.length),[4,3]);
+assert.deepEqual(erasureCalls[1].regions[0][0],{x:.1,y:.2});
+assert.deepEqual(erasureCalls[1].regions[1][0],{x:.6,y:.55});
+assert.equal(walk(selectionTree(),node=>node.type==='PreviewZoom')[0].props.disabled,true,'Applying locks preview interaction');
+pageEditor.owner.tree.props.onKeyDown(keyEvent('Escape'));
+assert.equal(closeCount,0,'An in-flight native operation cannot be closed with Escape');
+rejectApply(new Error('Synthetic erase validation failure'));
+await new Promise(resolve=>setImmediate(resolve));pageEditor.render();
+assert.match(label(walk(pageEditor.owner.tree,node=>node.props.role==='alert')[0]),/Synthetic erase validation failure/);
+assert.equal(pageEditor.button('Erase selected regions').props.disabled,false,'A failed erase keeps every region available for retry');
+pageEditor.button('Erase selected regions').props.onClick();
+await new Promise(resolve=>setImmediate(resolve));pageEditor.render();
+assert.deepEqual(erasureCalls[2].regions,erasureCalls[1].regions);
+assert.equal(walk(pageEditor.owner.tree,node=>node.props.role==='alert').length,0);
+pageEditor.owner.tree.props.onKeyDown(keyEvent('Escape'));
+assert.equal(closeCount,1);
+pageSelection.cleanup();pageEditor.cleanup();markUi.cleanup();
+console.log('PASS: region unions, pointer frames, native debounce, stale preview rejection and sharp image pixels outside the repair stroke');
+console.log('PASS: page eraser entry; zoomable page preview; rectangle and polygon payloads; no native traffic while drawing; Escape, double-apply guard, validation failure and retry');

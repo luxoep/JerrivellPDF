@@ -68,6 +68,10 @@ pub enum GeneratePages {
         pages: Vec<PageRef>,
         bounds: ContentBounds,
     },
+    EraseRegions {
+        page: PageRef,
+        regions: Vec<Vec<ImagePoint>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,6 +12,7 @@ use tempfile::NamedTempFile;
 
 mod assets;
 mod content;
+mod erase_regions;
 mod export;
 mod image_edit;
 mod operations;

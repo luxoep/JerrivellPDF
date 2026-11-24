@@ -26,6 +26,8 @@ import { I18nProvider, useI18n, translate as t } from './i18n';
 import { PageRangeError, parsePageRange } from './pageRanges';
 import { rotatePageClockwise } from './pageOperations';
 import { ImageEditDialog } from './components/ImageEditDialog';
+import { PageEraseDialog } from './components/PageEraseDialog';
+import type { ImagePoint } from './imageGeometry';
 import { WindowsSettingsDialog } from './components/WindowsSettingsDialog';
 import { DeferredDialog } from './components/DeferredDialog';
 import { OverlayEditor } from './components/OverlayEditor';
@@ -40,7 +42,7 @@ import { OverlayHandles } from './components/OverlayHandles';
 import { PrintDialog } from './components/PrintDialog';
 import { OriginalContentEditor } from './components/OriginalContentEditor';
 import { OriginalContentHandles } from './components/OriginalContentHandles';
-import type { ContentEdit, ContentInspection } from './originalContent';
+import type { ContentEdit, ContentInspection, ContentLayer } from './originalContent';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -116,7 +118,9 @@ function AppWorkspace() {
     const [originalOpen, setOriginalOpen] = useState(false);
     const [originalSelected, setOriginalSelected] = useState('');
     const [originalEraseMode,setOriginalEraseMode] = useState(false);
-    const [pixelEdit,setPixelEdit] = useState<{page:WorkspacePage;image:ImageAsset;overlayId?:string}|null>(null);
+    const [originalLayer, setOriginalLayer] = useState<ContentLayer>('all');
+    const [pixelEdit,setPixelEdit] = useState<{page:WorkspacePage;image:ImageAsset;overlayId:string}|null>(null);
+    const [erasePage, setErasePage] = useState<WorkspacePage | null>(null);
     const [originalInspection, setOriginalInspection] = useState<{ key: string; data: ContentInspection } | null>(null);
     const originalInspectionRef = useRef<{ key: string; data: ContentInspection } | null>(null);
     const [originalLoading, setOriginalLoading] = useState(false);
@@ -179,6 +183,10 @@ function AppWorkspace() {
     const searchField = useRef<HTMLInputElement>(null);
     const busyRef = useRef(false);
     const inlineEditingRef = useRef(false);
+    const inlineEditingChanged = useCallback((value: boolean) => {
+        inlineEditingRef.current = value;
+        setInlineEditing(value);
+    }, []);
     const editorBusyRef = useRef(false);
     const closingRef = useRef(false);
     const live = useRef({ pages, sources, dirty: false });
@@ -208,7 +216,7 @@ function AppWorkspace() {
     const acknowledgedExitTabs = useRef(new Set<string>());
     const pendingFiles = useRef<string[][]>([]);
     const [pendingFilesVersion, setPendingFilesVersion] = useState(0);
-    const tabModalOpen = fileDialogOpen || printOpen || pageToolsOpen || lineOpen || Boolean(exportRequest || importRequest || passwordRequest || closeRequest || pixelEdit) || settingsOpen || showShortcuts;
+    const tabModalOpen = fileDialogOpen || printOpen || pageToolsOpen || lineOpen || Boolean(exportRequest || importRequest || passwordRequest || closeRequest || pixelEdit || erasePage) || settingsOpen || showShortcuts;
     const tabBlockedRef = useRef(false);
     tabBlockedRef.current = !!busy || tabModalOpen || inlineEditing;
     const totalBytes = sources.reduce((sum, source) => sum + source.fileSize, 0);
@@ -248,7 +256,9 @@ function AppWorkspace() {
         setActiveOverlayId('');
         setPrintOpen(false);
         setPixelEdit(null);
+        setErasePage(null);
         setOriginalEraseMode(false);
+        setOriginalLayer('all');
         setCloseRequest(null);
         setSources([]);
         setTitle('');
@@ -281,7 +291,7 @@ function AppWorkspace() {
         setNavigation(null); setViewRestore({ sequence: ++restoreSequence.current, view: value.view });
         setPageInput(String(Math.max(0, value.history.entries[value.history.cursor].findIndex(page => page.id === value.activeId)) + 1));
         setEditorOpen(false); setTextDrawMode(false); setOriginalOpen(false); setMarkOpen(false); setOriginalSelected('');
-        setOriginalInspection(null); originalInspectionRef.current = null; setOriginalError(''); setActiveOverlayId(''); setOriginalEraseMode(false); setShowWarnings(false);
+        setOriginalInspection(null); originalInspectionRef.current = null; setOriginalError(''); setActiveOverlayId(''); setOriginalEraseMode(false); setOriginalLayer('all'); setShowWarnings(false);
         live.current = { pages: value.history.entries[value.history.cursor], sources: value.sources, dirty: snapshotDirty(value) };
     }, []);
     const activateTab = useCallback((id: string) => {
@@ -377,6 +387,7 @@ function AppWorkspace() {
     };
     useEffect(() => { setPageInput(String(activeIndex + 1)); }, [activeIndex]);
     useEffect(() => { setOriginalSelected(''); }, [activeId]);
+    useEffect(() => { if (!originalOpen) setOriginalEraseMode(false); }, [originalOpen]);
     const pageOrderKey = useMemo(() => JSON.stringify(pages.map(page => page.id)), [pages]);
     useEffect(() => {
         if (!pages.some((page) => page.id === activeId) && pages.length)
@@ -804,11 +815,11 @@ function AppWorkspace() {
     const documentToolsBusy = useCallback((working: boolean) => {
         busyRef.current = working; setBusy(working ? t('正在处理文档方案…', 'Processing document plan…') : '');
     }, []);
-    const addGeneratedPages = (document: DocumentInfo, replaceIds: string[] | null, insertAt: number, overlays: PageOverlay[] = []) => {
+    const addGeneratedPages = (document: DocumentInfo, replaceIds: string[] | null, insertAt: number) => {
         const snapshot = live.current.pages;
         sourceRegistry.current.set(normalizePath(document.path), document);
         setSources(previous => [...previous.filter(source => source.id !== document.id), document]);
-        const fresh: WorkspacePage[] = document.pages.map(page => ({ id: nextId(), documentId: document.id, pageIndex: page.index, rotation: 0, width: page.width, height: page.height, sourceName: document.fileName, overlays, contentEdits: [], decorations: [] }));
+        const fresh: WorkspacePage[] = document.pages.map(page => ({ id: nextId(), documentId: document.id, pageIndex: page.index, rotation: 0, width: page.width, height: page.height, sourceName: document.fileName, overlays: [], contentEdits: [], decorations: [] }));
         if (!snapshot.length) {
             const value = workspaceSnapshot(fresh, [document], document.fileName); value.savedSignature = '';
             openTab(document.path, value); setPageToolsOpen(false); setLineOpen(false);
@@ -827,14 +838,16 @@ function AppWorkspace() {
         setPageToolsOpen(false); setLineOpen(false); setSelection(new Set());
         notify(t('页面方案已更新，可撤销；请保存副本。', 'Page plan updated. Undo is available; save a copy.'), 'success');
     };
-    const openPixelEdit = async (wholePage = false) => {
+    const openPixelEdit = async () => {
         if (busyRef.current || !currentPage) return;
         const page = currentPage, overlay = page.overlays?.find(value => value.id === activeOverlayId);
-        if (!wholePage && (!overlay || overlay.locked)) return;
+        if (!overlay || overlay.locked || overlay.textSource || overlay.leaderFor) return;
         editorBusyChanged(true);
         try {
-            const image = wholePage ? await backend<ImageAsset>('rasterize_page_asset',{page:pageReference(page)},3) : await backend<ImageAsset>('get_image_asset',{assetId:overlay!.assetId},3);
-            if (live.current.pages.some(value=>value.id===page.id && value.documentId===page.documentId)) { setPixelEdit({page,image,overlayId:wholePage?undefined:overlay!.id}); setOriginalOpen(false); }
+            const image = await backend<ImageAsset>('get_image_asset',{assetId:overlay.assetId},3);
+            if (live.current.pages.some(value=>value.id===page.id && value.documentId===page.documentId)) {
+                setPixelEdit({page,image,overlayId:overlay.id});
+            }
         } catch(reason) { notify(errorMessage(reason),'error'); }
         finally { editorBusyChanged(false); }
     };
@@ -842,14 +855,35 @@ function AppWorkspace() {
         if (!pixelEdit) return false;
         const target = live.current.pages.find(value=>value.id===pixelEdit.page.id);
         if (!target || JSON.stringify(pageReference(target))!==JSON.stringify(pageReference(pixelEdit.page))) throw new Error(t('页面已变化，请重新打开图像编辑。','The page changed. Reopen the image editor.'));
-        if (pixelEdit.overlayId) {
-            updatePageOverlays(target.id,(target.overlays??[]).map(value=>value.id===pixelEdit.overlayId?{...value,assetId:image.id,textSource:undefined,markSource:undefined,leaderFor:undefined}:value));
-        } else {
-            const dimensions=visiblePageSize(target);
-            const document=await backend<DocumentInfo>('generate_pages',{request:{kind:'blank',width:dimensions.width,height:dimensions.height,count:1}},3);
-            addGeneratedPages(document,[target.id],0,[{id:nextId(),assetId:image.id,x:0,y:0,width:1,height:1,opacity:1,blendMode:'normal'}]);
+        const overlay = target.overlays?.find(value=>value.id===pixelEdit.overlayId);
+        if (!overlay || overlay.locked || overlay.textSource || overlay.leaderFor) return false;
+        return updatePageOverlays(target.id,(target.overlays??[]).map(value=>value.id===pixelEdit.overlayId?{...value,assetId:image.id,markSource:undefined}:value));
+    };
+    const applyEraseRegions = async (regions: ImagePoint[][]) => {
+        if (!erasePage || busyRef.current) return;
+        const reference = pageReference(erasePage);
+        const match = () => live.current.pages.find(page => page.id === erasePage.id
+            && JSON.stringify(pageReference(page)) === JSON.stringify(reference));
+        const stale = () => new Error(t('页面已变化，请重新打开局部擦除。', 'The page changed. Reopen the region eraser.'));
+        if (!match()) throw stale();
+        documentToolsBusy(true);
+        try {
+            const document = await backend<DocumentInfo>('generate_pages', { request: { kind: 'eraseRegions', page: reference, regions } }, 3);
+            const target = match();
+            if (!target) throw stale();
+            setSources(previous => [...previous, document]);
+            sourceRegistry.current.set(normalizePath(document.path), document);
+            commit(live.current.pages.map(page => page === target
+                ? { ...page, documentId: document.id, pageIndex: 0, rotation: 0, width: document.pages[0].width, height: document.pages[0].height, contentEdits: [] }
+                : page));
+            setOriginalSelected('');
+            originalInspectionRef.current = null;
+            setOriginalInspection(null);
+            setErasePage(null);
+            notify(t('已擦除选区，可撤销。', 'Selected regions erased. Undo is available.'), 'success');
+        } finally {
+            documentToolsBusy(false);
         }
-        return true;
     };
     const quickDuplicate = () => {
         if (busyRef.current) return;
@@ -1268,7 +1302,7 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
         } }}/>{query && <button aria-label={t("清空查找")} onClick={() => setQuery('')}><X size={14}/></button>}</div><div className="search-results">{searching ? <div className="panel-message"><LoaderCircle size={20} className="spin"/><p>{t("正在查找\u2026")}</p></div> : searchError ? <div className="panel-message error"><CircleAlert size={20}/><p>{t(searchError)}</p></div> : !query ? <div className="panel-message"><Search size={28} strokeWidth={1.3}/><h3>{t("找到你需要的内容")}</h3><p>{t("搜索文档内的文字\uFF0C点击结果跳转到对应页面\u3002")}</p><span>{t("扫描图片中的文字暂不支持识别")}</span></div> : searchResults.length ? <><div className="search-summary">{t(`在 ${searchResults.length} 页中找到 ${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} 处结果`, `${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} matches on ${searchResults.length} pages`)}</div>{searchResults.map((result) => <button className={`search-result ${currentPage?.id === result.id ? 'active' : ''}`} key={result.id} onClick={() => navigateToId(result.id)}><span className="result-page">{t(`第 ${result.workspaceIndex + 1} 页`, `Page ${result.workspaceIndex + 1}`)}<span>{t(`${result.matchCount} 处`, `${result.matchCount} matches`)}</span></span><span className="result-preview">{result.preview || searchedQuery}</span></button>)}</> : <div className="panel-message"><Search size={24}/><h3>{t("没有找到匹配文字")}</h3><p>{t("试试更短的关键词\uFF0C或检查文档是否为扫描图片\u3002")}</p></div>}</div></>}
           </aside>
           <main className="reader"><div className="reader-top">{sidebarCollapsed && <button className="icon-button small sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')} title={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button>}<span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><button className={`tool-button text-select-toggle ${textSelectionActive ? 'active' : ''}`} aria-label={t('选字','Select text')} aria-pressed={textSelectionActive} disabled={!!busy} title={textSelectionActive ? t('选字已开启：拖选文字后按 Ctrl+C 复制，点击可关闭。','Text selection is on. Drag to select and Ctrl+C to copy. Click to turn off.') : t('选字已关闭：点击开启文字选择。','Text selection is off. Click to turn on.')} onClick={()=>{setEditorOpen(false);setTextDrawMode(false);setOriginalOpen(false);setMarkOpen(false);setSelectText(value=>editorOpen||markOpen||originalOpen?true:!value);}}><Copy size={14}/><span>{t('选字','Select text')}</span><span className="reader-mode-state" aria-hidden="true">{textSelectionActive ? t('已开启','On') : t('已关闭','Off')}</span></button><button className={`tool-button ${textDrawMode?'active':''}`} aria-pressed={textDrawMode} disabled={!!busy} onClick={()=>{setOriginalOpen(false);setMarkOpen(false);setEditorOpen(true);setTextDrawMode(value=>!value);}}><PenLine size={14}/><span>{t('文本框','Text box')}</span></button><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
-            {markOpen && <MarkToolbar onStyleChange={styleMark} onEditPixels={() => void openPixelEdit(false)} settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
+            {markOpen && <MarkToolbar onStyleChange={styleMark} onEditPixels={() => void openPixelEdit()} onEraseRegions={() => setErasePage(currentPage)} settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
             <PdfViewer captureView={captureReaderView} viewRestore={viewRestore} pinnedPageId={inlineEditing ? activeId : undefined} pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen || inlineEditing} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
                 const dimensions = visiblePageSize(page);
                 return <>
@@ -1279,7 +1313,7 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
                     {(editorOpen || markOpen && markSettings.tool === 'select') && <OverlayHandles key={`overlay-${page.id}`} overlays={page.overlays ?? []} freeResize={markOpen} selectedId={page.id === activeId ? activeOverlayId : ''} onSelect={id => { setActiveId(page.id); setActiveOverlayId(id); }} pageWidth={dimensions.width} pageHeight={dimensions.height} onChange={(next, options) => updatePageOverlays(page.id, next, options)} onPreview={onPreview} onError={message => notify(message, 'error')} onEditingChange={value => { inlineEditingRef.current = value; setInlineEditing(value); }} disabled={!!busy || !ready || loading}/>}
                     {(editorOpen || markOpen && markSettings.tool === 'select') && page.id === activeId && (page.overlays ?? []).filter(item => item.id === activeOverlayId && item.markSource).map(item => <EditableMarkHandles key={`nodes-${item.id}`} item={item} pageWidth={dimensions.width} pageHeight={dimensions.height} onPreview={onPreview} onChange={next => updatePageOverlays(page.id, (page.overlays ?? []).map(value => value.id === next.id ? next : value))} disabled={!!busy || !ready || loading}/>)}
                     {markOpen && markSettings.tool !== 'select' && <MarkLayer key={`mark-${page.id}`} settings={markSettings} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={!!busy || !ready || loading} onBegin={() => { setActiveId(page.id); setActiveOverlayId(''); }} onComplete={(mark, settings) => void addDrawnMark(page.id, mark, settings)}/>}
-                    {originalOpen && page.id === currentPage.id && <OriginalContentHandles key={currentPage.id} page={currentPage} rendering={loading} eraseMode={originalEraseMode} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={dimensions.width} pageHeight={dimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !ready || loading || originalLoading || !visibleOriginal}/>}
+                    {originalOpen && page.id === currentPage.id && <OriginalContentHandles key={currentPage.id} page={currentPage} rendering={loading} eraseMode={originalEraseMode} layer={originalLayer} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={dimensions.width} pageHeight={dimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !ready || loading || originalLoading || !visibleOriginal}/>}
                 </>;
             }}/>
             <div className="reader-bottom"><div className="page-navigation"><button className="icon-button small" disabled={activeIndex === 0} onClick={() => goToPage(activeIndex - 1)} aria-label={t("上一页")} title={t("上一页 \u00B7 \u2190")}><ChevronLeft size={17}/></button><input aria-label={t("页码")} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageInput} onKeyDown={(event) => { if (event.key === 'Enter') {
@@ -1313,9 +1347,10 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
         <div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setImportRequest(null); setImportError(''); }}>{t('取消', 'Cancel')}</button><button type="submit" className="button primary">{t('导入页面', 'Import pages')}<ChevronRight size={15}/></button></div>
     </form></div>}
     {closeRequest && !exportRequest && !busy && !closingRef.current && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{closeRequest === 'document' ? t('关闭 PDF 前保存修改？', 'Save changes before closing this PDF?') : t('退出前保存这次修改？', 'Save changes before quitting?')}</h2><p className="modal-description">{closeRequest === 'application' && <strong className="exit-tabs-note">{t(`将逐一检查未保存的选项卡，当前：${title}。`, `Unsaved tabs are checked one by one. Current: ${title}.`)}<br/></strong>}{t('保存项目可保留文字、折点和源 PDF，方便继续编辑；保存 PDF 副本会将新增内容输出为图像。', 'Save a project to retain editable text, path nodes and source PDFs. Saving a PDF copy exports added content as images.')}</p><div className="replace-actions"><button className="button primary" disabled={!!busy} onClick={async () => { const action = closeRequest; if (await saveProject()) { await finishCloseDecision(action); } }}>{t("保存项目后关闭", "Save project and close")}</button><button className="button secondary" onClick={async () => { const action = closeRequest; if (await saveCopy()) { await finishCloseDecision(action); } }} disabled={!!busy}>{closeRequest === 'document' ? t('保存副本并关闭', 'Save copy and close') : t('保存副本并退出', 'Save copy and quit')}</button><button className="button secondary" onClick={() => void finishCloseDecision(closeRequest)} disabled={!!busy}>{closeRequest === 'document' ? t('不保存，关闭 PDF', 'Close PDF without saving') : t('不保存，退出', 'Quit without saving')}</button><button className="text-button" onClick={() => setCloseRequest(null)} disabled={!!busy}>{t('继续编辑', 'Keep editing')}</button></div></div></div>}
-    {editorOpen && currentPage && <OverlayEditor fragments={fragments} onFragmentsChange={setFragments} onPlaceFragments={placeFragments} initialTab={contentTab} onTabChange={setContentTab} drawingText={textDrawMode} onDrawText={()=>setTextDrawMode(value=>!value)} onTextStyleChange={setTextToolStyle} key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); setTextDrawMode(false); }} onBusyChange={editorBusyChanged}/>}
-    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} onRasterEdit={() => void openPixelEdit(true)} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
-    {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={pixelEdit.overlayId?t('选中标记或图章','Selected mark or stamp'):t('当前页像素编辑','Current page pixels')} notice={pixelEdit.overlayId?undefined:t('应用后仅将当前页转换为图像。该页文字不再可搜索，链接、可编辑对象及批注结构不保留；其他页不变，可撤销恢复。','Applying converts only this page to an image. Its searchable text, links, editable objects and annotation structure are not retained. Other pages stay unchanged; undo restores the page.')} applyLabel={pixelEdit.overlayId?undefined:t('转换本页并应用','Convert this page and apply')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>} 
+    {editorOpen && currentPage && <OverlayEditor fragments={fragments} onFragmentsChange={setFragments} onPlaceFragments={placeFragments} initialTab={contentTab} onTabChange={setContentTab} drawingText={textDrawMode} onDrawText={()=>setTextDrawMode(value=>!value)} onTextStyleChange={setTextToolStyle} onTextEditingChange={inlineEditingChanged} key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); setTextDrawMode(false); }} onBusyChange={editorBusyChanged}/>}
+    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} layer={originalLayer} onLayerChange={layer => { setOriginalLayer(layer); setOriginalSelected(''); }} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onTextEditingChange={inlineEditingChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
+    {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={t('选中标记或图章','Selected mark or stamp')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>}
+    {erasePage && <DeferredDialog onCancel={() => setErasePage(null)}><PageEraseDialog page={erasePage} onApply={applyEraseRegions} onClose={() => setErasePage(null)}/></DeferredDialog>}
     {pageToolsOpen && <DeferredDialog onCancel={() => setPageToolsOpen(false)}><PageToolsDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => setPageToolsOpen(false)} onBusyChange={documentToolsBusy} onPlan={next => { commit(next); setPageToolsOpen(false); notify(t('页面方案已更新，可撤销。', 'Page plan updated. You can undo it.'), 'success'); }} onGenerated={addGeneratedPages} onExport={parts => { setPageToolsOpen(false); void requestExport(parts); }}/></DeferredDialog>}
     {lineOpen && currentPage && <DeferredDialog onCancel={() => setLineOpen(false)}><TextLineEditor page={currentPage} objects={visibleOriginal?.objects ?? []} loading={originalLoading || !visibleOriginal} onClose={() => setLineOpen(false)} onBusyChange={documentToolsBusy} onApplied={document => addGeneratedPages(document, [currentPage.id], 0)}/></DeferredDialog>}
     {exportRequest && <DeferredDialog onCancel={cancelExport}><ExportDialog parts={exportRequest.parts} onClose={cancelExport} onSaved={finishedExport} onBusyChange={documentToolsBusy}/></DeferredDialog>}

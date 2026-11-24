@@ -27,4 +27,14 @@
 .oe-frame-hint{margin-top:8px;margin-bottom:14px}
 .oe-field input[aria-invalid=true]{border-color:#ba6848}
 
+.oe-active-text .oe-field { margin-bottom: 9px; }
+.oe-active-text .oe-field textarea { min-height: 62px; }
+.oe-active-text .oe-text-styles { margin-bottom: 8px; }
+.oe-active-text .oe-check { margin-bottom: 6px; }
+.oe-text-edit-status { margin: -3px 0 8px; }
+.oe-text-edit-status[role="alert"] { color: #a24827; }
+.oe-text-options, .oe-font-details { margin: 7px 0 10px; }
+.oe-text-options > summary, .oe-font-details > summary { cursor: pointer; font-size: 11px; padding: 5px 0; }
+.oe-text-options[open] > summary, .oe-font-details[open] > summary { margin-bottom: 6px; }
+
 .oe-draw-text{width:100%;min-height:38px;margin-bottom:8px;gap:7px}

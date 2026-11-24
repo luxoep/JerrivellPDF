@@ -18,7 +18,7 @@ export interface ContentEdit {
 export interface ContentObject {
   objectIndex: number;
   fingerprint: string;
-  kind: 'text' | 'image' | 'unsupported';
+  kind: 'text' | 'image' | 'path' | 'unsupported';
   bounds: ContentBounds;
   originalBounds: ContentBounds;
   text?: string | null;
@@ -35,6 +35,7 @@ export interface ContentObject {
   textAngle?: number | null;
   renderedFontSize?: number | null;
 }
+export type ContentLayer = 'all' | ContentObject['kind'];
 export interface ContentInspection {
   objects: ContentObject[];
   totalObjects: number;

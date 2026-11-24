@@ -783,7 +783,7 @@ impl<'a> PdfEngine<'a> {
             if png.is_empty() || asset_bytes > MAX_ASSET_BYTES {
                 return Err(invalid("项目图片合计超过 16 MiB。"));
             }
-            let image = assets::normalized_image(&png, true).map_err(invalid)?;
+            let image = assets::decode_image(&png, true).map_err(invalid)?;
             let dimensions = image::ImageReader::with_format(Cursor::new(&png), ImageFormat::Png)
                 .into_dimensions()
                 .map_err(invalid)?;

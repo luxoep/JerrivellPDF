@@ -1,7 +1,7 @@
 {
   "scope": "All Cargo.lock registry entries and locally installed npm lock packages, including build/dev dependencies. An uncached lock entry is not proof that it ships in the Windows binary.",
-  "cargoLockSha256": "34c65fd8b05e015e9f9d9e57f5a5b617d01a3a22e3e0fa4a3b4789ccdeb47a16",
-  "npmLockSha256": "31e1437250798ea7b8990a83f55444d03315b074ddf9f63df177662d1dbb0a05",
+  "cargoLockSha256": "0a25649c9b6fb6610b3175934c4b49f7ec153a79cd303fc5ecf409894600e29d",
+  "npmLockSha256": "7c663741039831170e8efccf2af8ae005180b6d98c4bbf8dba876191136f9434",
   "cargo": [
     {
       "name": "adler2",

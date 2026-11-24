@@ -3,12 +3,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { measureTextFrame } from '../textFrame';
 import { inlineRows, rowForOffset, inlineAdvance, nearestInlineOffset } from '../inlineTextGeometry';
-import { cssFontFamily, ensureFontReady } from './overlayCanvas';
+import { cssFontFamily, ensureFontReady, finishInlineTextEvent } from './overlayCanvas';
 import type { PageOverlay } from '../types';
 import { useI18n } from '../i18n';
 import './inline-text-input.css';
 
-export const finishInlineTextEvent = 'jerrivell-finish-inline-text';
+export { finishInlineTextEvent } from './overlayCanvas';
 /** Local DOM input and measure-only layout; one commit on blur, never per key. */
 export function InlineTextInput({ item, pageWidth, pageHeight, isNew = false, onCommit, onCancel, onPreview, onError, onEditingChange }: {
   item: PageOverlay; pageWidth: number; pageHeight: number; isNew?: boolean;

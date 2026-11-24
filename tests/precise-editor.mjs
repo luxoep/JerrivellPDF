@@ -48,6 +48,7 @@ const require = name => {
   if (name === '../placementGeometry') return placement;
   if (name === './overlayGeometry') return geometry;
   if (name === './FontPicker') return { FontPicker: 'FontPicker' };
+  if (name === 'react-dom') return { flushSync: callback => callback() };
   if (name === '../overlayGeometry') return geometry;
   if (name === '../stampLibrary') return { loadStampLibrary: () => [], saveStampLibrary() {}, LibraryError: class extends Error {}, MAX_LIBRARY_ITEMS: 20 };
   if (name.endsWith('.css')) return {};
