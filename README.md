@@ -1,91 +1,76 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Jerrivell PDF
 
-Jerry 的本地 PDF 工作台。一个面向 **Windows x64** 的独立开源桌面工具，使用 Rust、Tauri、React 与 PDFium，提供日常 PDF 阅读、页面整理、内容添加和机械图纸视觉对比。
+A local, open-source Windows PDF workspace for everyday documents and mechanical drawings.
 
-An open-source, local PDF workspace for Windows, with document editing, page organization, and a separate drawing-comparison workspace.
+一个面向日常文档和机械图纸的 Windows 开源 PDF 工作台。阅读、编辑、打印和图纸对比都在本机执行。
 
-## 下载与安装
+[English](#english) · [简体中文](#简体中文) · [Latest release / 最新版](https://github.com/luxoep/JerrivellPDF/releases/latest)
 
-**[下载最新版本](https://github.com/luxoep/JerrivellPDF/releases/latest)** · **[下载 0.15.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe)**
+## English
 
-[历史 Jerrivell 版本](https://github.com/luxoep/JerrivellPDF/releases)也保留供下载。**0.4.1～0.7.0 自有代码为 GPL-3.0-or-later，0.8.0 起自有代码为 MIT OR Apache-2.0**。历史归档保留各自的许可。
+### Download and open
 
-1. 准备 Windows x64 和 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装包不附带、也不自动下载 WebView2。
-2. 下载 Release 中的 `Jerrivell.PDF_0.15.0_x64-setup.exe`，按向导安装。
-3. 从开始菜单打开 **Jerrivell PDF**。普通使用不需要 Rust、Node.js、Visual Studio 或开发服务器。
+1. Install the [Microsoft Edge WebView2 Evergreen Runtime (x64)](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if it is missing. The installer expects the runtime to be present.
+2. Download and run the Windows x64 installer. Check its SHA-256 against the file on the release page. The 0.15.0 installer is unsigned. [Download 0.15.0 for Windows x64](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe)
+3. Open **Jerrivell PDF** from the Windows Start menu. The installed app runs independently of the development toolchain.
 
-当前为未配置代码签名证书的开发构建。请从本仓库 Release 获取文件，并核对随版本提供的 SHA-256。升级前保存 PDF 副本和可编辑项目，正常退出旧版后安装；安装器不自动替你修改 PDF 默认打开方式。
+### Work with PDFs
 
-完整步骤见 [快速开始](docs/QUICK_START.zh-CN.md)。
-
-## 主要功能
-
-| 工作 | 已有能力 |
+| Task | What you can do |
 | --- | --- |
-| 阅读与多文档 | 多选项卡、左右与上下分屏、各窗格独立导航和缩放、连续阅读、搜索命中高亮，以及按 PDF 复制权限选择和复制文字 |
-| 页面整理 | 拖动排序、旋转、删除、复制、空白页、合并/导入、提取与拆分、图片转 PDF、页码、水印和页面裁剪 |
-| 添加与标记 | 鼠标拉出文字框并原位输入、图片、实心高亮、形状、线型、折线箭头和文字引导线；支持撤销/重做与可编辑项目 |
-| 内容编辑 | 原有对象与文字行编辑、本机字体选择、自由曲线特征剪切和局部图像擦除。可编辑程度取决于 PDF 的内部结构、文字层和字体 |
-| 图章、片段与签名 | 制作、导入、导出图章，提取、换色及复用特征片段，制作带本机签署时间的签名 |
-| 打印与保存 | PDF 副本和可编辑项目分别保存；导出预检；打印纸张、彩色/黑白及自动/150/300/600 DPI 选择 |
-| 图纸对比 | 独立工作区、单页和多页配对、150/300/600 DPI 视觉差分、区域与细点定位、自动/手动平移、忽略区、局部复核、复核项目保存与续审、PNG 与 CSV 报告 |
-| 界面 | 简体中文与英文切换 |
+| Read and find | Open several PDFs in tabs, view two side by side or stacked, zoom each pane independently, and highlight matches in searchable text. |
+| Organize and print | Rearrange, rotate, insert, merge, split or crop pages. Add page numbers or watermarks, review export details, and choose paper, color and print resolution. |
+| Edit and reuse | Add text, images, marks and stamps. Edit supported original text and images. Select a drawing feature with a closed curve and reuse it in another PDF. |
+| Place a signature | Draw, type or import a visual signature. Placement records the device's date, time and UTC offset. |
+| Compare drawings | Open the separate comparison workspace, pair A/B pages, review highlighted differences, and export PNG or CSV reports. |
 
-## 0.15.0 分屏、查找与图纸编辑
+Use **Save project** for an editable `.jvp` and **Save copy** for a PDF to share. Use `.jvcmp` to resume drawing review with the original source PDFs.
 
-两份 PDF 可以同时左右或上下显示。页面上的搜索高亮跟随旋转和缩放。签名支持手写、键入姓名和导入图片，放置时记录本机日期、时间与 UTC 偏移。
+Search works on readable text layers. OCR is planned. Curve cuts and erasure can leave source data in the PDF. The time on a visual signature comes from the device clock. Drawing differences are visual review aids.
 
-在「编辑原文」用闭合曲线提取或剪切图纸特征，片段可移动、缩放、旋转 90°、换色和跨 PDF 复用。保存为 `.jvp` 后可继续调整。[操作指南](docs/0.15.0-分屏查找与图纸编辑.md) · [发布验证](docs/VALIDATION.zh-CN.md)
+### Documentation
 
-## 0.14.1 页面局部擦除与文字编辑
+- [Quick start](docs/QUICK_START.md) · [Build from source](docs/BUILDING.md) · [Roadmap](docs/ROADMAP.md)
+- [Release history](docs/RELEASES.md) · [0.15.0 release notes](docs/RELEASE_NOTES.md) · [Release validation](docs/VALIDATION.md)
+- [Publication and asset provenance](PUBLICATION.md) · [Licenses and notices](THIRD_PARTY_NOTICES.md)
 
-在「标记」中直接圈选图片及受支持的嵌套绘制内容。擦除按选区裁剪显示，图片保持原始清晰度，可编辑的顶层文字和矢量可继续选中和处理。
+Report problems with the app version, Windows version and steps to reproduce. Use synthetic or authorized public samples. [GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)
 
-已添加文字支持直接修改和自动应用。新文字优先使用本机 Century Gothic，编辑原文时默认选择可嵌入的本机字体。顶部导航更紧凑。[操作指南](docs/0.14.1-局部擦除与文字编辑.md)
+## 简体中文
 
-## 0.13.0 图纸复核项目
+### 下载并打开
 
-在独立对比工作区，使用 **保存对比项目** 将当前 A/B 页对的分析设置、已复核状态和备注写入本地 .jvcmp 文件。重新打开时先核对两份 PDF 的 SHA-256，再按保存的设置分析，恢复匹配的复核记录并定位下一处待复核差异。若原文件移动，可重新选择内容完全相同的副本。
+1. 如本机缺少运行环境，先安装 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装器使用系统已有的运行环境。
+2. 下载并运行 Windows x64 安装包。可用发布页提供的 SHA-256 核对文件。0.15.0 安装包尚未签名。[下载 0.15.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe)
+3. 从 Windows 开始菜单打开 **Jerrivell PDF**。安装后的程序可独立运行，无需配置开发工具链。
 
-项目按页对手动保存。原 PDF 保存在原位置，项目记录本地文件引用、指纹、分析参数和复核信息。详见 [图纸复核项目](docs/0.13.0-图纸复核项目.md)。
+### 常用操作
 
-## 统一图幅分析
+| 工作 | 可以做什么 |
+| --- | --- |
+| 阅读与查找 | 在选项卡打开多份 PDF，切换左右或上下分屏，各窗格独立缩放，在可检索正文上高亮命中。 |
+| 整理与打印 | 调整页序、旋转、插入、合并、拆分和裁剪。添加页码或水印，检查导出内容，选择纸张、颜色和打印 DPI。 |
+| 编辑与复用 | 新增文字、图片、标记和图章。修改受支持的原文字与图片，用闭合曲线提取图纸特征，在其他 PDF 复用。 |
+| 制作签名 | 手写、键入或导入可视签名。放置时记录本机日期、时间和 UTC 偏移。 |
+| 图纸对比 | 在独立工作区配对 A/B 页面，查看高亮差异，导出 PNG 或 CSV 报告。 |
 
-对比窗口的 **“分析尺寸”默认“按统一图幅（推荐）”**：以 A 页为参考，将 B 页等比例适配并居中，然后再进行完整像素差分、配准、局部预览及多页处理。适用于数据库导出或打印来源不同、页面标称尺寸不同，但图纸位置和相对边距基本一致的 PDF。
+用「保存项目」生成可继续编辑的 `.jvp`，用「保存副本」生成可分发的 PDF。保存 `.jvcmp` 可配合原始 PDF 继续图纸复核。
 
-- 长宽比不一致时保留比例、居中留白，不强行拉伸图纸。
-- “各自适应窗口”只控制显示；“分析尺寸”决定实际比较方式。
-- 如需把整体出图比例或纸张尺寸变化也作为差异，选择 **“按原始尺寸”**。
-- 统一图幅中的“参考 mm”来自 A 页坐标，不能当作纸张或机械零件的真实尺寸测量。
-- 此模式会归一整体打印比例变化；不同边距、扫描偏斜或被源文件裁掉的内容仍需另行处理。
+查找依赖已有文字层，离线 OCR 在规划中。曲线剪切和局部擦除可能保留底层数据。签名旁的时间来自本机时钟。图纸差异供人工复核。
 
-完整步骤见 [快速开始中的图纸对比](docs/QUICK_START.zh-CN.md#图纸对比)。
+### 文档入口
 
-## 本地处理与当前边界
+- [快速开始](docs/QUICK_START.zh-CN.md) · [从源码构建](docs/BUILDING.zh-CN.md) · [路线图](docs/ROADMAP.zh-CN.md)
+- [版本索引](docs/RELEASES.zh-CN.md) · [0.15.0 发布说明](docs/RELEASE_NOTES.zh-CN.md) · [发布验证](docs/VALIDATION.zh-CN.md)
+- [发布材料与来源](PUBLICATION.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
 
-完成安装和运行环境准备后，PDF 操作在本机执行；图纸对比不使用在线 OCR、云端 AI 或图纸上传服务，原始输入文件以只读快照参与对比。它使用独立进程与独立工作区，不复用主编辑器的页面编辑会话。
+反馈时请附软件版本、Windows 版本和复现步骤。示例请使用合成文件或获准公开的样本。[GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)
 
-这不等同于整台电脑已经完成网络隔离或涉密系统认证。操作系统、云同步目录、打印机驱动和终端管理软件仍有各自行为；报告本身也可能含文档内容。
+## License / 许可
 
-当前没有 OCR、扫描角度自动校正、CAD 对象拓扑或制造合格判定。自动配准目前只估计整体平移；文字与尺寸辅助只用于允许复制且能提取文字的页面。图章和手写签名图片不等同证书数字签名。不同字体、打印驱动、编码和采样密度会影响结果，请结合原图复核。
+Current project code, documentation and original synthetic fixtures use **MIT OR Apache-2.0**. Third-party components retain their own terms. Historical releases retain the license shipped with each version.
 
-## 源码与构建
+当前项目代码、文档与原创合成样本采用 **MIT OR Apache-2.0**。第三方组件适用各自许可，历史发布以该版本附带的许可为准。
 
-仓库包含应用源码、原创测试样本、构建脚本和第三方许可原文。安装包及可下载源码归档放在 [Releases](https://github.com/luxoep/JerrivellPDF/releases)。
-
-开发需要 Windows MSVC/C++ 工具链、Windows SDK、Rust、Node.js/npm 和 WebView2。PDFium 由固定版本准备脚本下载并校验。详见 [从源码构建](docs/BUILDING.zh-CN.md)。
-
-## 许可
-
-Jerry 有权许可的原创代码、文档和合成样本使用 **MIT OR Apache-2.0**，可选择其一：
-
-- [LICENSE](LICENSE)
-- [MIT 全文](LICENSE-MIT)
-- [Apache License 2.0 全文](LICENSE-APACHE)
-
-第三方组件保留各自许可。Release 提供本版的第三方对应源码补充，包含登记的 MPL 文件级组件、安装器组件和其他上游材料。Windows、WebView2、用户文档和字体也有各自条款。[第三方声明](THIRD_PARTY_NOTICES.md) · [许可原文](licenses/) · [0.15.0 第三方对应源码补充](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/JerrivellPDF-0.15.0-third-party-sources.zip)
-
-## 反馈
-
-欢迎通过 [Issues](https://github.com/luxoep/JerrivellPDF/issues) 提供版本、系统环境和复现步骤。请使用原创合成或已获准公开的样本，避免提交业务图纸、私有文档、密钥或未经脱敏的诊断附件。
+[Project license / 项目许可](LICENSE) · [MIT](LICENSE-MIT) · [Apache-2.0](LICENSE-APACHE) · [Third-party licenses / 第三方许可](licenses/)

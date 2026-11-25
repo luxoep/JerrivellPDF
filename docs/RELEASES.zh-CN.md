@@ -1,6 +1,8 @@
 # Jerrivell PDF 版本下载
 
-这里列出从 0.4.1 起使用 Jerrivell PDF 名称的公开版本。通常推荐 [最新版](https://github.com/luxoep/JerrivellPDF/releases/latest)。
+[English](RELEASES.md) · [0.15.0 发布说明](RELEASE_NOTES.zh-CN.md)
+
+在对应版本的发布页下载 Windows x64 安装包、对应源码及其他附件。各历史版本沿用发布时附带的许可。[最新版](https://github.com/luxoep/JerrivellPDF/releases/latest) · [如何校验下载文件](../PUBLICATION.md#简体中文)
 
 | 版本 | Windows x64 安装包与对应源码 | 本版原创代码许可 |
 | --- | --- | --- |
