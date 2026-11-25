@@ -1,4 +1,6 @@
 import { PageTextLayer } from './components/PageTextLayer';
+import { PageSearchHighlight } from './components/PageSearchHighlight';
+import { searchBoundsForPage, searchHighlightsByPage, searchablePageReference } from './searchHighlights';
 import { TextToolLayer } from './components/TextToolLayer';
 import { finishInlineTextEvent } from './components/InlineTextInput';
 import type { TextOverlaySource } from './components/overlayCanvas';
@@ -9,6 +11,9 @@ import { duplicatePage } from './documentTools';
 import type { ExportPart, ExportResult } from './documentTools';
 import { PdfViewer } from './components/PdfViewer';
 import type { PageNavigation } from './components/PdfViewer';
+import { ReaderSplitButtons, SplitPaneHeader, SplitReaderLayout } from './components/SplitReader';
+import { replaceReaderPeer, retargetReaderSplit, toggleReaderSplit } from './readerSplit';
+import type { ReaderSplit, SplitDirection } from './readerSplit';
 import { PageThumbnails } from './components/PageThumbnails';
 import { MarkToolbar } from './components/MarkToolbar';
 import { MarkLayer } from './components/MarkLayer';
@@ -32,7 +37,7 @@ import { WindowsSettingsDialog } from './components/WindowsSettingsDialog';
 import { DeferredDialog } from './components/DeferredDialog';
 import { OverlayEditor } from './components/OverlayEditor';
 import type { Tab as ContentTab } from './components/OverlayEditor';
-import { fragmentOverlays } from './pdfFragments';
+import { fragmentOverlays, MAX_PAGE_CONTENT, mergeFragments } from './pdfFragments';
 import type { FragmentDrop, PdfFragmentItem } from './pdfFragments';
 import { workspaceDocuments } from './workspaceDocuments';
 import { documentSignature, normalizedDocumentPath, retainedDocumentIds, snapshotDirty, workspaceSnapshot } from './documentTabs';
@@ -69,6 +74,7 @@ type PasswordRequest = {
 };
 const pdfFilters = () => [{ name: t('PDF 文档'), extensions: ['pdf'] }];
 const signature = documentSignature;
+const ignorePeerReaderSize = () => {};
 function rangeErrorMessage(error: unknown, pageCount: number): string {
     const code = error instanceof PageRangeError ? error.code : 'FORMAT';
     if (code === 'EMPTY') return t('请输入页码范围，例如 1-3,5。', 'Enter a page range, such as 1-3,5.');
@@ -121,6 +127,7 @@ function AppWorkspace() {
     const [originalLayer, setOriginalLayer] = useState<ContentLayer>('all');
     const [pixelEdit,setPixelEdit] = useState<{page:WorkspacePage;image:ImageAsset;overlayId:string}|null>(null);
     const [erasePage, setErasePage] = useState<WorkspacePage | null>(null);
+    const [featurePage, setFeaturePage] = useState<WorkspacePage | null>(null);
     const [originalInspection, setOriginalInspection] = useState<{ key: string; data: ContentInspection } | null>(null);
     const originalInspectionRef = useRef<{ key: string; data: ContentInspection } | null>(null);
     const [originalLoading, setOriginalLoading] = useState(false);
@@ -155,9 +162,9 @@ function AppWorkspace() {
     const [viewerSize, setViewerSize] = useState<ViewportSize>({ width: 900, height: 600 });
     const [navigation, setNavigation] = useState<PageNavigation | null>(null);
     const navigationSequence = useRef(0);
-    const navigateToId = useCallback((id: string) => {
+    const navigateToId = useCallback((id: string, point?: PageNavigation['point']) => {
         setActiveId(id);
-        setNavigation({ id, sequence: ++navigationSequence.current });
+        setNavigation({ id, sequence: ++navigationSequence.current, point });
     }, []);
     const [markOpen, setMarkOpen] = useState(false);
     const textSelectionActive = selectText && !editorOpen && !markOpen && !originalOpen;
@@ -173,6 +180,16 @@ function AppWorkspace() {
     const [searchResults, setSearchResults] = useState<WorkspaceMatch[]>([]);
     const [searchError, setSearchError] = useState('');
     const [searchedQuery, setSearchedQuery] = useState('');
+    const searchTerm = query.trim();
+    const searchPlanKey = useMemo(() => searchTerm
+        ? JSON.stringify(pages.map(page => [page.id, searchablePageReference(page)]))
+        : '', [searchTerm, pages]);
+    const searchHighlights = useMemo(() => searchHighlightsByPage(searchTerm, searchedQuery, searchResults), [searchTerm, searchedQuery, searchResults]);
+    const navigateToSearchResult = (result: WorkspaceMatch) => {
+        const page = pages[result.workspaceIndex];
+        const first = page?.id === result.id ? searchBoundsForPage(searchHighlights, page)?.[0] : undefined;
+        navigateToId(result.id, first && { x: first.x + first.width / 2, y: first.y + first.height / 2 });
+    };
     const [draggingFile, setDraggingFile] = useState(false);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [showShortcuts, setShowShortcuts] = useState(false);
@@ -198,7 +215,17 @@ function AppWorkspace() {
     const [activeTabId, setActiveTabId] = useState('');
     const activeTabRef = useRef('');
     const captureReaderView = useRef<(() => ReaderViewState | null) | null>(null);
-    const [viewRestore, setViewRestore] = useState<{ sequence: number; view: ReaderViewState | null } | null>(null);
+    const capturePeerView = useRef<(() => ReaderViewState | null) | null>(null);
+    const [readerSplit, setReaderSplit] = useState<ReaderSplit | null>(null);
+    const peerTab = readerSplit && tabs.find(tab => tab.id !== activeTabId && readerSplit.tabs.includes(tab.id));
+    const peerTabId = peerTab?.id ?? '';
+    const peerView = peerTab?.snapshot.view ?? null;
+    const peerViewRestore = useMemo(() => ({ sequence: 0, view: peerView }), [peerTabId, peerView]);
+    const peerQuery = peerTab?.snapshot.query, peerSearchedQuery = peerTab?.snapshot.searchedQuery, peerResults = peerTab?.snapshot.searchResults;
+    const peerHighlights = useMemo(() => searchHighlightsByPage(peerQuery ?? '', peerSearchedQuery ?? '', peerResults ?? []), [peerQuery, peerSearchedQuery, peerResults]);
+    const visiblePeerId = useRef('');
+    visiblePeerId.current = peerTabId;
+    const [viewRestore, setViewRestore] = useState<{ sequence: number; view: ReaderViewState | null; focusId?: string } | null>(null);
     const restoreSequence = useRef(0);
     const currentSnapshot = useRef<WorkspaceSnapshot>(workspaceSnapshot([], [], ''));
     currentSnapshot.current = { history, sources, activeId, selection, title, savedSignature, savedPath, projectPath,
@@ -207,16 +234,28 @@ function AppWorkspace() {
     const stashActiveTab = useCallback(() => {
         if (!activeTabRef.current) return;
         const snapshot = { ...currentSnapshot.current, view: captureReaderView.current?.() ?? currentSnapshot.current.view };
+        const peerView = visiblePeerId.current ? capturePeerView.current?.() : null;
         currentSnapshot.current = snapshot;
-        tabsRef.current = tabsRef.current.map(tab => tab.id === activeTabRef.current ? { ...tab, snapshot } : tab);
+        tabsRef.current = tabsRef.current.map(tab => {
+            if (tab.id === activeTabRef.current) return { ...tab, snapshot };
+            if (peerView && tab.id === visiblePeerId.current) return { ...tab, snapshot: { ...tab.snapshot, view: peerView } };
+            return tab;
+        });
     }, []);
+    const rememberPeerReader = useCallback((id: string, change: Partial<Pick<WorkspaceSnapshot, 'zoom' | 'activeId'>>) => {
+        if (id === activeTabRef.current || id !== visiblePeerId.current) return;
+        const tab = tabsRef.current.find(item => item.id === id);
+        if (!tab || (change.zoom === undefined || change.zoom === tab.snapshot.zoom)
+            && (change.activeId === undefined || change.activeId === tab.snapshot.activeId)) return;
+        publishTabs(tabsRef.current.map(item => item.id === id ? { ...item, snapshot: { ...item.snapshot, ...change } } : item));
+    }, [publishTabs]);
     const dirtyTabsRef = useRef<string[]>([]);
     dirtyTabsRef.current = tabs.map(tab => tab.id === activeTabId ? { ...tab, snapshot: currentSnapshot.current } : tab).filter(tab => snapshotDirty(tab.snapshot)).map(tab => tab.id);
     const requestApplicationCloseRef = useRef<(() => void) | null>(null);
     const acknowledgedExitTabs = useRef(new Set<string>());
     const pendingFiles = useRef<string[][]>([]);
     const [pendingFilesVersion, setPendingFilesVersion] = useState(0);
-    const tabModalOpen = fileDialogOpen || printOpen || pageToolsOpen || lineOpen || Boolean(exportRequest || importRequest || passwordRequest || closeRequest || pixelEdit || erasePage) || settingsOpen || showShortcuts;
+    const tabModalOpen = fileDialogOpen || printOpen || pageToolsOpen || lineOpen || Boolean(exportRequest || importRequest || passwordRequest || closeRequest || pixelEdit || erasePage || featurePage) || settingsOpen || showShortcuts;
     const tabBlockedRef = useRef(false);
     tabBlockedRef.current = !!busy || tabModalOpen || inlineEditing;
     const totalBytes = sources.reduce((sum, source) => sum + source.fileSize, 0);
@@ -237,6 +276,7 @@ function AppWorkspace() {
         inlineEditingRef.current = false; setInlineEditing(false); setTextDrawMode(false);
         resetBackendQueue();
         setHistory({ entries: [[]], cursor: 0 });
+        setReaderSplit(null);
         sourceRegistry.current.clear();
         setRangeInput('');
         setImportRequest(null);
@@ -257,6 +297,7 @@ function AppWorkspace() {
         setPrintOpen(false);
         setPixelEdit(null);
         setErasePage(null);
+        setFeaturePage(null);
         setOriginalEraseMode(false);
         setOriginalLayer('all');
         setCloseRequest(null);
@@ -281,26 +322,47 @@ function AppWorkspace() {
         setToasts((items) => [...items.slice(-2), { id, message, tone }]);
         window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), tone === 'error' ? 9000 : 4500);
     }, []);
-    const restoreTab = useCallback((tab: DocumentTab) => {
+    const restoreTab = useCallback((tab: DocumentTab, focusId?: string) => {
         const value = tab.snapshot;
+        const previousTab = activeTabRef.current, availableTabs = tabsRef.current.map(item => item.id);
+        setReaderSplit(previous => retargetReaderSplit(previous, availableTabs, previousTab, tab.id));
         activeTabRef.current = tab.id; setActiveTabId(tab.id); currentSnapshot.current = value;
         setHistory(value.history); setSources(value.sources); setActiveId(value.activeId); setSelection(value.selection);
         setTitle(value.title); setSavedSignature(value.savedSignature); setSavedPath(value.savedPath); setProjectPath(value.projectPath);
         setZoom(value.zoom); setPanel(value.panel); setRangeInput(value.rangeInput); setQuery(value.query);
         setSearchResults(value.searchResults); setSearchError(value.searchError); setSearchedQuery(value.searchedQuery); setSearching(false);
-        setNavigation(null); setViewRestore({ sequence: ++restoreSequence.current, view: value.view });
+        setNavigation(null); setViewRestore({ sequence: ++restoreSequence.current, view: value.view, focusId });
         setPageInput(String(Math.max(0, value.history.entries[value.history.cursor].findIndex(page => page.id === value.activeId)) + 1));
         setEditorOpen(false); setTextDrawMode(false); setOriginalOpen(false); setMarkOpen(false); setOriginalSelected('');
         setOriginalInspection(null); originalInspectionRef.current = null; setOriginalError(''); setActiveOverlayId(''); setOriginalEraseMode(false); setOriginalLayer('all'); setShowWarnings(false);
         live.current = { pages: value.history.entries[value.history.cursor], sources: value.sources, dirty: snapshotDirty(value) };
     }, []);
-    const activateTab = useCallback((id: string) => {
-        if (id === activeTabRef.current) return;
+    const activateTab = useCallback((id: string, pageId?: string) => {
         if (busyRef.current || fileDialogOpenRef.current || tabBlockedRef.current) return;
+        if (id === activeTabRef.current) { if (pageId) setActiveId(pageId); return; }
         stashActiveTab();
         const tab = tabsRef.current.find(value => value.id === id);
-        if (tab) { restoreTab(tab); publishTabs(tabsRef.current); }
+        if (tab) {
+            const targetPages = tab.snapshot.history.entries[tab.snapshot.history.cursor];
+            const focusId = pageId && targetPages.some(page => page.id === pageId) ? pageId : undefined;
+            restoreTab(focusId ? { ...tab, snapshot: { ...tab.snapshot, activeId: focusId } } : tab, focusId);
+            publishTabs(tabsRef.current);
+        }
     }, [stashActiveTab, restoreTab, publishTabs]);
+    const changeReaderSplit = (direction: SplitDirection) => {
+        if (busyRef.current || tabBlockedRef.current) return;
+        stashActiveTab();
+        const ids = tabsRef.current.map(tab => tab.id), active = activeTabRef.current;
+        setReaderSplit(previous => toggleReaderSplit(previous, direction, ids, active));
+        publishTabs(tabsRef.current);
+    };
+    const chooseSplitPeer = (id: string) => {
+        if (busyRef.current || tabBlockedRef.current || !tabsRef.current.some(tab => tab.id === id)) return;
+        stashActiveTab();
+        const active = activeTabRef.current;
+        setReaderSplit(previous => replaceReaderPeer(previous, active, id));
+        publishTabs(tabsRef.current);
+    };
     const openTab = useCallback((path: string, snapshot: WorkspaceSnapshot) => {
         stashActiveTab();
         const tab = { id: nextId(), path, snapshot };
@@ -477,7 +539,12 @@ function AppWorkspace() {
         const ready = await Promise.all(items.map(async item => {
             const known = previewImageAsset(item.image.id);
             const image = known?.dataUrl === item.image.dataUrl ? known : await backend<ImageAsset>('register_image', { dataUrl: item.image.dataUrl });
-            return { ...item, image };
+            if (!item.featureImage) return { ...item, image };
+            const original = item.featureImage;
+            const cached = previewImageAsset(original.id);
+            const featureImage = original.dataUrl === image.dataUrl ? image
+                : cached?.dataUrl === original.dataUrl ? cached : await backend<ImageAsset>('register_image', { dataUrl: original.dataUrl });
+            return { ...item, image, featureImage, featureSource: { assetId: featureImage.id } };
         }));
         if (live.current.pages.find(page => page.id === pageId) !== target) throw new Error(t('目标页面已变化，请重新放置片段。', 'The target page changed. Place the fragments again.'));
         const added = fragmentOverlays(ready, dimensions.width, dimensions.height, target.overlays ?? [], drop);
@@ -558,6 +625,20 @@ function AppWorkspace() {
                 // Native loading is transactional and appends remapped resources.
                 const loaded = validateLoadedProject(await backend('load_editable_project', { path: paths[0] }, 3));
                 hydrateImageAssets(loaded.assets);
+                const assets = new Map(loaded.assets.map(asset => [asset.id, asset]));
+                const reusable = loaded.workspace.flatMap(page => (page.overlays ?? []).flatMap(item => {
+                    const image = item.featureSource && assets.get(item.assetId);
+                    const featureImage = item.featureSource && assets.get(item.featureSource.assetId);
+                    return image && featureImage ? [{ id: image.id, key: image.id, name: t('项目中的特征片段','Project feature'), image,
+                        blendMode: 'normal' as const, featureSource: item.featureSource, featureImage }] : [];
+                }));
+                if (reusable.length) setFragments(previous => {
+                    let tray = previous;
+                    for (const item of reusable) {
+                        try { tray = mergeFragments(tray, [item]); } catch { break; }
+                    }
+                    return tray;
+                });
                 for (const document of loaded.documents) sourceRegistry.current.set(normalizePath(document.path), document);
                 // Portable projects may contain the same page IDs. Runtime view IDs
                 // are unique across tabs so page components cannot share draft state.
@@ -808,7 +889,21 @@ function AppWorkspace() {
     const finishedExport = (result: ExportResult) => {
         const request = exportRequestRef.current;
         if (!request || result.failed) return;
-        if (request.saveWorkspace) { setSavedSignature(signature(request.parts[0].pages)); setSavedPath(result.results[0].path); currentSnapshot.current = { ...currentSnapshot.current, savedSignature: signature(request.parts[0].pages), savedPath: result.results[0].path }; }
+        if (request.saveWorkspace) {
+            const plan = request.parts[0].pages;
+            const preservesProject = plan.some(page => page.contentEdits?.length || page.decorations?.length
+                || page.overlays?.some(item => item.textSource || item.markSource || item.featureSource));
+            const savedPath = result.results[0].path;
+            setSavedPath(savedPath);
+            currentSnapshot.current = { ...currentSnapshot.current, savedPath };
+            if (!preservesProject) {
+                const exported = signature(plan);
+                setSavedSignature(exported);
+                currentSnapshot.current = { ...currentSnapshot.current, savedSignature: exported };
+            } else if (currentSnapshot.current.savedSignature !== signature(plan)) {
+                notify(t('PDF 副本已导出。要保留对象和文字继续编辑，请另存 .jvp 项目。', 'PDF copy exported. Save a .jvp project to continue editing objects and text.'));
+            }
+        }
         notify(t(`已导出 ${result.succeeded} 个 PDF，共 ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} 页。`, `Exported ${result.succeeded} PDFs, ${request.parts.reduce((sum, part) => sum + part.pages.length, 0)} pages.`), 'success');
         setExportRequest(null); exportOpenRef.current = false; request.resolve(true);
     };
@@ -884,6 +979,38 @@ function AppWorkspace() {
         } finally {
             documentToolsBusy(false);
         }
+    };
+    const applyFeature = async (region: ImagePoint[], cut: boolean) => {
+        if (!featurePage || busyRef.current) return;
+        const match = () => live.current.pages.find(page => page === featurePage);
+        const stale = () => new Error(t('页面已变化，请重新打开特征工作台。', 'The page changed. Reopen the feature workspace.'));
+        if (!match()) throw stale();
+        if ((featurePage.overlays?.length ?? 0) >= MAX_PAGE_CONTENT) throw new Error(t('当前页对象已满，请先删除一个对象。', 'This page is at its object limit. Remove an object first.'));
+        documentToolsBusy(true);
+        try {
+            const page = pageReference(featurePage);
+            const image = await backend<ImageAsset>('edit_feature', { request: { kind: 'extract', page, region } }, 3);
+            const id = crypto.randomUUID(), featureSource = { assetId: image.id };
+            const tray = mergeFragments(fragments, [{ id, key: id, name: t('原文特征片段','Original feature'), image, blendMode: 'normal', featureSource, featureImage: image }]);
+            const left = Math.min(...region.map(p => p.x)), top = Math.min(...region.map(p => p.y));
+            const width = Math.max(...region.map(p => p.x)) - left, height = Math.max(...region.map(p => p.y)) - top;
+            const offset = cut ? 0 : .025;
+            const overlay: PageOverlay = { id, assetId: image.id, featureSource,
+                x: Math.min(1 - width, left + offset), y: Math.min(1 - height, top + offset), width, height, opacity: 1 };
+            const document = cut ? await backend<DocumentInfo>('generate_pages', { request: { kind: 'cutFeature', page, region } }, 3) : null;
+            const target = match();
+            if (!target) throw stale();
+            if (document) {
+                setSources(previous => [...previous, document]);
+                sourceRegistry.current.set(normalizePath(document.path), document);
+            }
+            const basis = document ? { ...target, documentId: document.id, pageIndex: 0, rotation: 0,
+                width: document.pages[0].width, height: document.pages[0].height, contentEdits: [] } : target;
+            commit(live.current.pages.map(value => value === target ? { ...basis, overlays: [...(target.overlays ?? []), overlay] } : value));
+            setFragments(tray); setActiveOverlayId(id); setContentTab('stamp');
+            setFeaturePage(null); setOriginalOpen(false); setEditorOpen(true);
+            notify(t('片段已放在页面并加入图章片段列表，可继续编辑。', 'Placed the feature and added it to the fragment tray.'), 'success');
+        } finally { documentToolsBusy(false); }
     };
     const quickDuplicate = () => {
         if (busyRef.current) return;
@@ -1070,7 +1197,7 @@ function AppWorkspace() {
         return () => { cancelled = true; };
     }, [originalOpen, originalPlanKey, originalRefresh]);
     useEffect(() => {
-        if (!query.trim() || !sources.length) {
+        if (!searchTerm || !pages.length) {
             setSearchResults([]);
             setSearchedQuery('');
             setSearchError('');
@@ -1082,17 +1209,17 @@ function AppWorkspace() {
         setSearchError('');
         const timer = window.setTimeout(async () => {
             try {
-                const results = await backend<SearchMatch[]>('search_pages', { pages: pages.map(pageReference), query: query.trim() });
+                const references = pages.map(searchablePageReference);
+                const results = await backend<SearchMatch[]>('search_pages', { pages: references, query: searchTerm });
                 if (cancelled)
                     return;
-                const mapped: WorkspaceMatch[] = [];
-                pages.forEach((page, workspaceIndex) => {
-                    const match = results.find((result) => result.pageIndex === workspaceIndex);
-                    if (match)
-                        mapped.push({ ...match, id: page.id, workspaceIndex });
+                const mapped: WorkspaceMatch[] = results.flatMap(match => {
+                    const workspaceIndex = match.pageIndex;
+                    const page = pages[workspaceIndex];
+                    return page ? [{ ...match, id: page.id, workspaceIndex, pageKey: JSON.stringify(references[workspaceIndex]) }] : [];
                 });
                 setSearchResults(mapped);
-                setSearchedQuery(query.trim());
+                setSearchedQuery(searchTerm);
             }
             catch (error) {
                 if (!cancelled)
@@ -1104,7 +1231,7 @@ function AppWorkspace() {
             }
         }, 350);
         return () => { cancelled = true; window.clearTimeout(timer); };
-    }, [query, pages, sources]);
+    }, [searchTerm, searchPlanKey]);
     useEffect(() => {
         const handleKey = (event: globalThis.KeyboardEvent) => {
             if (pageToolsOpen || lineOpen || exportRequest) {
@@ -1273,6 +1400,7 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
           })}
         </div>
         <button type="button" className="document-tab-new" aria-label={t('在新选项卡打开 PDF', 'Open PDF in new tab')} title={t('在新选项卡打开 · Ctrl+O', 'Open in new tab · Ctrl+O')} disabled={!!busy || tabModalOpen} onClick={() => void chooseFiles()}><Plus size={17}/></button>
+        <ReaderSplitButtons direction={peerTab ? readerSplit?.direction : undefined} disabled={tabs.length < 2 || !!busy || tabModalOpen || inlineEditing} change={changeReaderSplit}/>
       </div>}
 
       {!status?.engineReady && !checkingEngine && <div className="engine-banner"><CircleAlert size={16}/><span>{t(status?.message || "PDF 引擎暂不可用。")}</span>{isDesktop() && <button onClick={() => void checkEngine()}>{t("重新检测")}</button>}</div>}
@@ -1296,16 +1424,32 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
                 <div className="range-actions"><button onClick={deletePages} disabled={!!busy || affectedIds.size >= pages.length}>{t('删除所选', 'Remove selected')}</button><button onClick={() => void extractSelectedPages()} disabled={!!busy}>{t('提取为 PDF', 'Extract PDF')}</button></div>
                 <small>{t('提取保留当前页序；未多选时使用当前页。', 'Extraction keeps page order. Without a selection, it uses the current page.')}</small>
             </div><PageThumbnails pages={pages} activeId={currentPage?.id ?? ''} selection={selection} busy={!!busy} onSelect={selectThumbnail} onToggle={id => setSelection(previous => { const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next; })} onReorder={reorderPage}/>
-            <div className="panel-footnote"><GripVertical size={12}/>{t("拖动页面调整顺序")}</div></> : <><div className="search-box"><Search size={16}/><input ref={searchField} aria-label={t("查找文档中的文字")} placeholder={t("查找文档中的文字")} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') {
+            <div className="panel-footnote"><GripVertical size={12}/>{t("拖动页面调整顺序")}</div></> : <><div className="search-box"><Search size={16}/><input ref={searchField} aria-label={t("查找文档中的文字")} placeholder={t("查找文档中的文字")} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+            if (event.key === 'Enter' && !searching && searchedQuery === searchTerm && searchResults[0]) {
+                event.preventDefault();
+                navigateToSearchResult(searchResults[0]);
+            } else if (event.key === 'Escape') {
             setQuery('');
             event.currentTarget.blur();
-        } }}/>{query && <button aria-label={t("清空查找")} onClick={() => setQuery('')}><X size={14}/></button>}</div><div className="search-results">{searching ? <div className="panel-message"><LoaderCircle size={20} className="spin"/><p>{t("正在查找\u2026")}</p></div> : searchError ? <div className="panel-message error"><CircleAlert size={20}/><p>{t(searchError)}</p></div> : !query ? <div className="panel-message"><Search size={28} strokeWidth={1.3}/><h3>{t("找到你需要的内容")}</h3><p>{t("搜索文档内的文字\uFF0C点击结果跳转到对应页面\u3002")}</p><span>{t("扫描图片中的文字暂不支持识别")}</span></div> : searchResults.length ? <><div className="search-summary">{t(`在 ${searchResults.length} 页中找到 ${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} 处结果`, `${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} matches on ${searchResults.length} pages`)}</div>{searchResults.map((result) => <button className={`search-result ${currentPage?.id === result.id ? 'active' : ''}`} key={result.id} onClick={() => navigateToId(result.id)}><span className="result-page">{t(`第 ${result.workspaceIndex + 1} 页`, `Page ${result.workspaceIndex + 1}`)}<span>{t(`${result.matchCount} 处`, `${result.matchCount} matches`)}</span></span><span className="result-preview">{result.preview || searchedQuery}</span></button>)}</> : <div className="panel-message"><Search size={24}/><h3>{t("没有找到匹配文字")}</h3><p>{t("试试更短的关键词\uFF0C或检查文档是否为扫描图片\u3002")}</p></div>}</div></>}
+        } }}/>{query && <button aria-label={t("清空查找")} onClick={() => setQuery('')}><X size={14}/></button>}</div><div className="search-results">{searching ? <div className="panel-message"><LoaderCircle size={20} className="spin"/><p>{t("正在查找\u2026")}</p></div> : searchError ? <div className="panel-message error"><CircleAlert size={20}/><p>{t(searchError)}</p></div> : !query ? <div className="panel-message"><Search size={28} strokeWidth={1.3}/><h3>{t("找到你需要的内容")}</h3><p>{t("搜索文档内的文字\uFF0C点击结果跳转到对应页面\u3002")}</p><span>{t("扫描图片中的文字暂不支持识别")}</span></div> : searchResults.length ? <><div className="search-summary">{t(`在 ${searchResults.length} 页中找到 ${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} 处结果`, `${searchResults.reduce((sum, result) => sum + result.matchCount, 0)} matches on ${searchResults.length} pages`)}</div>{searchResults.map((result) => <button className={`search-result ${currentPage?.id === result.id ? 'active' : ''}`} key={result.id} onClick={() => navigateToSearchResult(result)}><span className="result-page">{t(`第 ${result.workspaceIndex + 1} 页`, `Page ${result.workspaceIndex + 1}`)}<span>{t(`${result.matchCount} 处`, `${result.matchCount} matches`)}</span></span><span className="result-preview">{result.preview || searchedQuery}</span></button>)}</> : <div className="panel-message"><Search size={24}/><h3>{t("没有找到匹配文字")}</h3><p>{t("试试更短的关键词\uFF0C或检查文档是否为扫描图片\u3002")}</p></div>}</div></>}
           </aside>
           <main className="reader"><div className="reader-top">{sidebarCollapsed && <button className="icon-button small sidebar-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')} title={sidebarCollapsed ? t('显示页面侧栏', 'Show page sidebar') : t('收起页面侧栏', 'Hide page sidebar')}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button>}<span className="reader-breadcrumb"><FileText size={13}/><span title={currentPage.sourceName}>{pdfName(currentPage.sourceName)}</span><ChevronRight size={12}/><b>{t(`第 ${activeIndex + 1} 页`, `Page ${activeIndex + 1}`)}</b></span><button className={`tool-button text-select-toggle ${textSelectionActive ? 'active' : ''}`} aria-label={t('选字','Select text')} aria-pressed={textSelectionActive} disabled={!!busy} title={textSelectionActive ? t('选字已开启：拖选文字后按 Ctrl+C 复制，点击可关闭。','Text selection is on. Drag to select and Ctrl+C to copy. Click to turn off.') : t('选字已关闭：点击开启文字选择。','Text selection is off. Click to turn on.')} onClick={()=>{setEditorOpen(false);setTextDrawMode(false);setOriginalOpen(false);setMarkOpen(false);setSelectText(value=>editorOpen||markOpen||originalOpen?true:!value);}}><Copy size={14}/><span>{t('选字','Select text')}</span><span className="reader-mode-state" aria-hidden="true">{textSelectionActive ? t('已开启','On') : t('已关闭','Off')}</span></button><button className={`tool-button ${textDrawMode?'active':''}`} aria-pressed={textDrawMode} disabled={!!busy} onClick={()=>{setOriginalOpen(false);setMarkOpen(false);setEditorOpen(true);setTextDrawMode(value=>!value);}}><PenLine size={14}/><span>{t('文本框','Text box')}</span></button><span className="paper-dimensions">{Math.round(pageDimensions.width * 25.4 / 72)} × {Math.round(pageDimensions.height * 25.4 / 72)} mm</span></div>
             {markOpen && <MarkToolbar onStyleChange={styleMark} onEditPixels={() => void openPixelEdit()} onEraseRegions={() => setErasePage(currentPage)} settings={markSettings} onChange={setMarkSettings} selected={currentPage.overlays?.find(item => item.id === activeOverlayId)} disabled={!!busy} onClose={() => setMarkOpen(false)} onDuplicate={duplicateMark} onOpacity={opacity => updateOverlays((currentPage.overlays ?? []).map(item => item.id === activeOverlayId && !item.locked ? { ...item, opacity } : item))} onRemove={() => updateOverlays((currentPage.overlays ?? []).filter(item => item.id !== activeOverlayId || item.locked))}/>}
-            <PdfViewer captureView={captureReaderView} viewRestore={viewRestore} pinnedPageId={inlineEditing ? activeId : undefined} pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen || inlineEditing} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
+            <SplitReaderLayout direction={peerTab ? readerSplit?.direction : undefined}>
+            {(peerTab && readerSplit ? readerSplit.tabs : [activeTabId]).map(tabId => {
+                const active = tabId === activeTabId;
+                const value = !active && peerTab ? peerTab.snapshot : currentSnapshot.current;
+                const panePages = active ? pages : value.history.entries[value.history.cursor];
+                const paneActive = active ? activeIndex : Math.max(0, panePages.findIndex(page => page.id === value.activeId));
+                return <section className="reader-pane" key={tabId} aria-label={peerTab ? value.title : undefined} data-reader-tab={tabId}>
+                {peerTab && <SplitPaneHeader title={value.title} page={paneActive + 1} total={panePages.length}
+                    active={active} fittedPage={value.zoom === 'page'} alternatives={tabs.filter(tab => tab.id !== activeTabId).map(tab => ({ id: tab.id, title: tab.snapshot.title }))}
+                    tabId={tabId} disabled={!!busy || tabModalOpen || inlineEditing} activate={() => activateTab(tabId)}
+                    fit={() => { const next = value.zoom === 'page' ? 'fit' : 'page'; if (active) setZoom(next); else rememberPeerReader(tabId, { zoom: next }); }} choose={chooseSplitPeer}/>}
+                {active ? <PdfViewer captureView={captureReaderView} viewRestore={viewRestore} pinnedPageId={inlineEditing ? activeId : undefined} pages={pages} zoom={zoom} navigation={navigation} onZoom={setZoom} onSize={setViewerSize} interactionBlocked={!!busy || printOpen || inlineEditing} onActiveChange={id => { if (!busyRef.current) setActiveId(id); }} controls={(page, ready, loading, onPreview) => {
                 const dimensions = visiblePageSize(page);
                 return <>
+                    {ready && <PageSearchHighlight bounds={searchBoundsForPage(searchHighlights, page)} active={page.id === activeId}/>}
                     {textSelectionActive && ready && <PageTextLayer key={`text-${page.id}`} page={page} disabled={!!busy || loading || printOpen}/>}
                     {editorOpen && textDrawMode && page.id === activeId && <TextToolLayer key={`text-draw-${page.id}`} source={textToolStyle} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={!!busy || !ready || loading}
                       onEditingChange={value=>{inlineEditingRef.current=value;setInlineEditing(value);}} onError={message=>notify(message,'error')} onCancel={()=>setTextDrawMode(false)}
@@ -1315,7 +1459,15 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
                     {markOpen && markSettings.tool !== 'select' && <MarkLayer key={`mark-${page.id}`} settings={markSettings} pageWidth={dimensions.width} pageHeight={dimensions.height} disabled={!!busy || !ready || loading} onBegin={() => { setActiveId(page.id); setActiveOverlayId(''); }} onComplete={(mark, settings) => void addDrawnMark(page.id, mark, settings)}/>}
                     {originalOpen && page.id === currentPage.id && <OriginalContentHandles key={currentPage.id} page={currentPage} rendering={loading} eraseMode={originalEraseMode} layer={originalLayer} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} pageWidth={dimensions.width} pageHeight={dimensions.height} inspectionKey={originalPlanKey} disabled={!!busy || !ready || loading || originalLoading || !visibleOriginal}/>}
                 </>;
-            }}/>
+                }}/> : <PdfViewer captureView={capturePeerView} viewRestore={peerViewRestore} pages={panePages} zoom={value.zoom} navigation={null}
+                    onZoom={zoom => rememberPeerReader(tabId, { zoom })} onSize={ignorePeerReaderSize}
+                    interactionBlocked={!!busy || tabModalOpen || inlineEditing}
+                    onActiveChange={activeId => rememberPeerReader(tabId, { activeId })}
+                    onPagePointerDown={id => activateTab(tabId, id)} onReaderFocus={() => activateTab(tabId)}
+                    controls={(page, ready) => ready && <PageSearchHighlight bounds={searchBoundsForPage(peerHighlights, page)} active={page.id === value.activeId}/>}/>}
+                </section>;
+            })}
+            </SplitReaderLayout>
             <div className="reader-bottom"><div className="page-navigation"><button className="icon-button small" disabled={activeIndex === 0} onClick={() => goToPage(activeIndex - 1)} aria-label={t("上一页")} title={t("上一页 \u00B7 \u2190")}><ChevronLeft size={17}/></button><input aria-label={t("页码")} inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value)} onBlur={applyPageInput} onKeyDown={(event) => { if (event.key === 'Enter') {
             applyPageInput();
             event.currentTarget.blur();
@@ -1348,9 +1500,10 @@ ${tab.path}`} disabled={!!busy || tabModalOpen} onClick={() => activateTab(tab.i
     </form></div>}
     {closeRequest && !exportRequest && !busy && !closingRef.current && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="close-title"><div className="modal-symbol"><Save size={26}/></div><h2 id="close-title">{closeRequest === 'document' ? t('关闭 PDF 前保存修改？', 'Save changes before closing this PDF?') : t('退出前保存这次修改？', 'Save changes before quitting?')}</h2><p className="modal-description">{closeRequest === 'application' && <strong className="exit-tabs-note">{t(`将逐一检查未保存的选项卡，当前：${title}。`, `Unsaved tabs are checked one by one. Current: ${title}.`)}<br/></strong>}{t('保存项目可保留文字、折点和源 PDF，方便继续编辑；保存 PDF 副本会将新增内容输出为图像。', 'Save a project to retain editable text, path nodes and source PDFs. Saving a PDF copy exports added content as images.')}</p><div className="replace-actions"><button className="button primary" disabled={!!busy} onClick={async () => { const action = closeRequest; if (await saveProject()) { await finishCloseDecision(action); } }}>{t("保存项目后关闭", "Save project and close")}</button><button className="button secondary" onClick={async () => { const action = closeRequest; if (await saveCopy()) { await finishCloseDecision(action); } }} disabled={!!busy}>{closeRequest === 'document' ? t('保存副本并关闭', 'Save copy and close') : t('保存副本并退出', 'Save copy and quit')}</button><button className="button secondary" onClick={() => void finishCloseDecision(closeRequest)} disabled={!!busy}>{closeRequest === 'document' ? t('不保存，关闭 PDF', 'Close PDF without saving') : t('不保存，退出', 'Quit without saving')}</button><button className="text-button" onClick={() => setCloseRequest(null)} disabled={!!busy}>{t('继续编辑', 'Keep editing')}</button></div></div></div>}
     {editorOpen && currentPage && <OverlayEditor fragments={fragments} onFragmentsChange={setFragments} onPlaceFragments={placeFragments} initialTab={contentTab} onTabChange={setContentTab} drawingText={textDrawMode} onDrawText={()=>setTextDrawMode(value=>!value)} onTextStyleChange={setTextToolStyle} onTextEditingChange={inlineEditingChanged} key={currentPage.id} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} overlays={currentPage.overlays ?? []} selectedId={activeOverlayId} onSelect={setActiveOverlayId} onChange={updateOverlays} disabled={!!busy && !editorBusyRef.current} onError={message => notify(message, 'error')} onClose={() => { if (!busyRef.current) setEditorOpen(false); setTextDrawMode(false); }} onBusyChange={editorBusyChanged}/>}
-    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} layer={originalLayer} onLayerChange={layer => { setOriginalLayer(layer); setOriginalSelected(''); }} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onTextEditingChange={inlineEditingChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)}/>}
+    {originalOpen && currentPage && <OriginalContentEditor key={currentPage.id} eraseMode={originalEraseMode} onEraseMode={setOriginalEraseMode} layer={originalLayer} onLayerChange={layer => { setOriginalLayer(layer); setOriginalSelected(''); }} page={pageReference(currentPage)} pageWidth={pageDimensions.width} pageHeight={pageDimensions.height} objects={visibleOriginal?.objects ?? []} contentEdits={currentPage.contentEdits ?? []} selectedId={originalSelected} onSelect={setOriginalSelected} onChange={updateContentEdits} loading={originalLoading} error={originalError} warnings={visibleOriginal?.warnings ?? []} totalObjects={visibleOriginal?.totalObjects ?? 0} truncated={visibleOriginal?.truncated ?? false} inspectionKey={originalPlanKey} onRefresh={() => { originalInspectionRef.current = null; setOriginalRefresh(value => value + 1); }} onClose={() => { if (!busyRef.current) setOriginalOpen(false); }} onBusyChange={originalBusyChanged} onTextEditingChange={inlineEditingChanged} onError={message => notify(message, 'error')} disabled={!!busy && !originalBusyRef.current} onEditLines={() => setLineOpen(true)} onExtractFeature={() => setFeaturePage(currentPage)}/>}
     {pixelEdit && <ImageEditDialog image={pixelEdit.image} title={t('选中标记或图章','Selected mark or stamp')} onApply={applyPixelEdit} onClose={()=>setPixelEdit(null)} onBusyChange={documentToolsBusy}/>}
     {erasePage && <DeferredDialog onCancel={() => setErasePage(null)}><PageEraseDialog page={erasePage} onApply={applyEraseRegions} onClose={() => setErasePage(null)}/></DeferredDialog>}
+    {featurePage && <DeferredDialog onCancel={() => setFeaturePage(null)}><PageEraseDialog page={featurePage} onFeature={applyFeature} onClose={() => setFeaturePage(null)}/></DeferredDialog>}
     {pageToolsOpen && <DeferredDialog onCancel={() => setPageToolsOpen(false)}><PageToolsDialog pages={pages} activeIndex={activeIndex} selectedIds={selection} title={title} onClose={() => setPageToolsOpen(false)} onBusyChange={documentToolsBusy} onPlan={next => { commit(next); setPageToolsOpen(false); notify(t('页面方案已更新，可撤销。', 'Page plan updated. You can undo it.'), 'success'); }} onGenerated={addGeneratedPages} onExport={parts => { setPageToolsOpen(false); void requestExport(parts); }}/></DeferredDialog>}
     {lineOpen && currentPage && <DeferredDialog onCancel={() => setLineOpen(false)}><TextLineEditor page={currentPage} objects={visibleOriginal?.objects ?? []} loading={originalLoading || !visibleOriginal} onClose={() => setLineOpen(false)} onBusyChange={documentToolsBusy} onApplied={document => addGeneratedPages(document, [currentPage.id], 0)}/></DeferredDialog>}
     {exportRequest && <DeferredDialog onCancel={cancelExport}><ExportDialog parts={exportRequest.parts} onClose={cancelExport} onSaved={finishedExport} onBusyChange={documentToolsBusy}/></DeferredDialog>}

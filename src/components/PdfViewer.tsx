@@ -13,7 +13,7 @@ import './reader-experience.css';
 
 function PageRaster({ page, width, index, total, controls, onActivate, visible, pixelRatio }: {
   page: WorkspacePage; width: number; index: number; total: number;
-  controls: PageControls; onActivate: (id: string) => void;
+  controls: PageControls; onActivate?: (id: string) => void;
   visible: boolean;
   pixelRatio: number;
 }) {
@@ -22,7 +22,7 @@ function PageRaster({ page, width, index, total, controls, onActivate, visible, 
   const targetWidth = rasterTargetWidth(visible ? width : Math.min(width, 384), visible ? pixelRatio : 1, page);
   const { layers, error, loading, refreshing } = usePageLayers(page, targetWidth, true, false, !visible);
   const [placement, setPlacement] = useState<PageOverlay | null>(null);
-  return <><div className="pdf-sheet" aria-busy={loading || refreshing} onPointerDownCapture={() => onActivate(page.id)}>
+  return <><div className="pdf-sheet" aria-busy={loading || refreshing} onPointerDownCapture={() => onActivate?.(page.id)}>
     {layers ? <LivePageImage page={page} layers={layers} placement={placement} label={t(`文档第 ${index + 1} 页`, `Document page ${index + 1}`)}/> : error ? <div className="page-placeholder error"><CircleAlert size={28}/><h3>{t('这一页未能加载', 'This page could not be loaded')}</h3><p>{t(error)}</p></div> : <div className="page-placeholder"><LoaderCircle size={27} className="spin"/><p>{t(`正在呈现第 ${index + 1} 页`, `Rendering page ${index + 1}`)}</p></div>}
     {layers && error && <div className="page-refresh-status error" role="alert"><CircleAlert size={13}/>{t(error)}</div>}
     {layers && loading && !error && <div className="page-refresh-status" role="status"><LoaderCircle size={13} className="spin"/>{t('正在更新页面内容…', 'Updating page content…')}</div>}
@@ -30,18 +30,20 @@ function PageRaster({ page, width, index, total, controls, onActivate, visible, 
   </div><div className="under-page-label">{String(index + 1).padStart(2, '0')} <span>/</span> {String(total).padStart(2, '0')}</div></>;
 }
 
-export interface PageNavigation { id: string; sequence: number }
+export interface PageNavigation { id: string; sequence: number; point?: { x: number; y: number } }
 type PageControls = (page: WorkspacePage, ready: boolean, loading: boolean, onPreview: (placement: PageOverlay | null) => void) => ReactNode;
 
 /** Exact-size virtual pages preserve native wheel scrolling without rendering the entire PDF. */
-export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, controls, interactionBlocked = false, pinnedPageId, captureView, viewRestore }: {
+export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveChange, onPagePointerDown, onReaderFocus, controls, interactionBlocked = false, pinnedPageId, captureView, viewRestore }: {
   pages: WorkspacePage[]; zoom: ViewerZoom; navigation: PageNavigation | null;
   onZoom: (zoom: ViewerZoom) => void; onSize: (size: ViewportSize) => void;
   onActiveChange: (id: string) => void; controls: PageControls;
+  onPagePointerDown?: (id: string) => void;
+  onReaderFocus?: () => void;
   interactionBlocked?: boolean;
   pinnedPageId?: string;
   captureView?: { current: (() => ReaderViewState | null) | null };
-  viewRestore?: { sequence: number; view: ReaderViewState | null } | null;
+  viewRestore?: { sequence: number; view: ReaderViewState | null; focusId?: string } | null;
 }) {
   const { t } = useI18n();
   const viewport = useRef<HTMLDivElement>(null);
@@ -109,12 +111,17 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
       surface.scrollTop = viewRestore.view?.atStart ? 0 : position ? position.top : 0;
       restoredSequence.current = viewRestore.sequence;
       navigationSequence.current = navigation?.sequence ?? -1;
-      navigationPosition.current = null; reportedId.current = ''; zoomAnchor.current = null;
+      const focus = viewRestore.focusId && layout.pages.find(page => page.id === viewRestore.focusId);
+      navigationPosition.current = focus ? { id: focus.id, top: surface.scrollTop } : null;
+      reportedId.current = ''; zoomAnchor.current = null;
     } else if (nextNavigation) {
       const row = layout.pages.find(page => page.id === navigation.id);
       if (row) {
-        surface.scrollTop = Math.max(0, row.top - 24);
-        surface.scrollLeft = Math.max(0, row.left + row.width / 2 - size.width / 2);
+        const match = navigation.point && restoreViewAnchor(layout, {
+          id: row.id, ...navigation.point, viewportX: size.width / 2, viewportY: size.height / 2,
+        });
+        surface.scrollTop = match?.top ?? Math.max(0, row.top - 24);
+        surface.scrollLeft = match?.left ?? Math.max(0, row.left + row.width / 2 - size.width / 2);
         navigationSequence.current = navigation.sequence; reportedId.current = row.id;
         navigationPosition.current = { id: row.id, top: surface.scrollTop };
       }
@@ -158,14 +165,20 @@ export function PdfViewer({ pages, zoom, navigation, onZoom, onSize, onActiveCha
   const pinned = pinnedPageId && layout.pages.find(row => row.id === pinnedPageId);
   if (pinned && !mountedRows.some(row => row.id === pinned.id)) mountedRows.push(pinned);
   return <div ref={viewport} className="page-viewport continuous-viewport" role="region" aria-label={t('PDF 连续阅读视口，Ctrl 加滚轮缩放', 'Continuous PDF reader; Ctrl plus wheel zooms')} tabIndex={0}
-    onPointerDownCapture={event => { if (event.target instanceof HTMLElement && !event.target.closest('button, input, select, textarea, [role="button"]')) event.currentTarget.focus({ preventScroll: true }); }}
+    onPointerDownCapture={event => {
+      if (!(event.target instanceof Element) || event.target.closest('button, input, select, textarea, [role="button"]')) return;
+      const page = onPagePointerDown && event.target.closest<HTMLElement>('.pdf-sheet')?.closest<HTMLElement>('[data-workspace-page-id]');
+      if (page?.dataset.workspacePageId) onPagePointerDown?.(page.dataset.workspacePageId);
+      event.currentTarget.focus({ preventScroll: true });
+    }}
+    onFocus={event => { if (event.target === event.currentTarget) onReaderFocus?.(); }}
     onKeyDown={event => {
       if (event.key === ' ' && event.target === event.currentTarget) { event.preventDefault(); event.currentTarget.scrollBy({ top: (event.shiftKey ? -1 : 1) * event.currentTarget.clientHeight * .85 }); }
     }}
     onScroll={() => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(reportScroll); }}>
     <div className="continuous-stage" style={{ width: layout.width, height: layout.height }}>
       {mountedRows.map(row => <div key={row.id} className="continuous-page" data-reader-page={row.index + 1} data-workspace-page-id={row.id} style={{ left: row.left, top: row.top, width: row.width, height: row.height }}>
-        <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onActiveChange} pixelRatio={pixelRatio} visible={row.top + row.height > scroll.top && row.top < scroll.top + size.height}/>
+        <PageRaster page={pages[row.index]} width={row.width} index={row.index} total={pages.length} controls={controls} onActivate={onPagePointerDown ? undefined : onActiveChange} pixelRatio={pixelRatio} visible={row.top + row.height > scroll.top && row.top < scroll.top + size.height}/>
       </div>)}
     </div>
   </div>;

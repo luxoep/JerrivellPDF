@@ -305,3 +305,49 @@ export function trimmedSignature(canvas: HTMLCanvasElement): { dataUrl: string; 
   output.drawImage(canvas, left, top, right - left + 1, bottom - top + 1, padding, padding, right - left + 1, bottom - top + 1);
   return { dataUrl: result.toDataURL('image/png'), width: result.width, height: result.height };
 }
+
+export const SIGNATURE_SCRIPT_FONT = 'Segoe Script';
+
+export function createTypedSignaturePng(value: string, color: string) {
+  const name = value.trim();
+  if (!name) return null;
+  const [canvas, context] = surface(880, 170);
+  context.font = `italic 88px ${cssFontFamily(SIGNATURE_SCRIPT_FONT)}`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = color;
+  context.fillText(name, canvas.width / 2, canvas.height / 2, canvas.width - 52);
+  return trimmedSignature(canvas);
+}
+
+/** Store the signing device's local clock time and UTC offset in the visible appearance. */
+export function formatSignatureTimestamp(when: Date): string {
+  const twoDigits = (value: number) => String(value).padStart(2, '0');
+  const offset = -when.getTimezoneOffset(), offsetMinutes = Math.abs(offset);
+  const zone = `UTC${offset < 0 ? '-' : '+'}${twoDigits(Math.floor(offsetMinutes / 60))}:${twoDigits(offsetMinutes % 60)}`;
+  const day = `${when.getFullYear()}-${twoDigits(when.getMonth() + 1)}-${twoDigits(when.getDate())}`;
+  const localTime = [when.getHours(), when.getMinutes(), when.getSeconds()].map(twoDigits).join(':');
+  return `${day} ${localTime}  ${zone}`;
+}
+
+/** Compose once when placed. Saving or restoring a project just moves the resulting PNG. */
+export async function timestampedSignaturePng(dataUrl: string, when: Date) {
+  if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('SIGNATURE_IMAGE_INVALID');
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode().catch(() => { throw new Error('SIGNATURE_IMAGE_INVALID'); });
+  if (!image.naturalWidth || !image.naturalHeight) throw new Error('SIGNATURE_IMAGE_INVALID');
+  // A bounded surface stays below the native PNG registration limit even for
+  // imported photographs. Preserve the input image's aspect ratio.
+  const width = 640, padding = 20;
+  const scale = Math.min((width - 2 * padding) / image.naturalWidth, 300 / image.naturalHeight);
+  const inkWidth = image.naturalWidth * scale, inkHeight = image.naturalHeight * scale;
+  const [canvas, context] = surface(width, Math.ceil(inkHeight) + 67);
+  context.drawImage(image, (width - inkWidth) / 2, 10, inkWidth, inkHeight);
+  context.font = '31px "Segoe UI", sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'bottom';
+  context.fillStyle = '#26334d';
+  context.fillText(formatSignatureTimestamp(when), width / 2, canvas.height - 9, width - 2 * padding);
+  return { dataUrl: canvas.toDataURL('image/png'), width, height: canvas.height };
+}

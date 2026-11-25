@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-feature"
+description = "Enables the edit_feature command without any pre-configured scope."
+commands.allow = ["edit_feature"]
+
+[[permission]]
+identifier = "deny-edit-feature"
+description = "Denies the edit_feature command without any pre-configured scope."
+commands.deny = ["edit_feature"]

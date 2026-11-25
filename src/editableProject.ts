@@ -72,6 +72,10 @@ export function validateEditableWorkspace(input: unknown): WorkspacePage[] {
       if (item.textSource !== undefined) textSource(item.textSource);
       if (item.markSource !== undefined) markSource(item.markSource);
       if (item.textSource !== undefined && item.markSource !== undefined) fail();
+      if (item.featureSource !== undefined) {
+        text(object(item.featureSource).assetId);
+        if (item.textSource !== undefined || item.markSource !== undefined) fail();
+      }
       optional(item.leaderFor, text);
     }
     for (const item of objects.values()) {
@@ -95,7 +99,10 @@ export function validateEditableWorkspace(input: unknown): WorkspacePage[] {
 export function editableAssetIds(pages: WorkspacePage[]): string[] {
   const ids = new Set<string>();
   for (const page of pages) {
-    for (const item of page.overlays ?? []) ids.add(item.assetId);
+    for (const item of page.overlays ?? []) {
+      ids.add(item.assetId);
+      if (item.featureSource) ids.add(item.featureSource.assetId);
+    }
     for (const edit of page.contentEdits ?? []) if (edit.replacementAssetId) ids.add(edit.replacementAssetId);
   }
   return [...ids];

@@ -2,6 +2,52 @@
 use super::*;
 
 #[test]
+fn search_highlights_follow_workspace_rotation_and_ignore_cropped_hits() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut engine = PdfEngine::new(native_pdfium());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("search-highlights.pdf");
+    fs::write(
+        &path,
+        fixture_with_crop("HIT   HIT", 300, 200, 0, Some([10, 20, 280, 190])),
+    )
+    .unwrap();
+    let info = engine.open_document(path.to_str().unwrap(), None).unwrap();
+    let normal: PageRef =
+        serde_json::from_value(json!({"documentId":info.id,"pageIndex":0,"rotation":0}))
+            .unwrap();
+    let rotated = PageRef { rotation: 90, ..normal.clone() };
+    let matches = engine.search_pages(&[rotated, normal.clone()], "hIt").unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].page_index, 0);
+    assert_eq!(matches[1].page_index, 1);
+    for hit in &matches {
+        assert_eq!(hit.match_count, 2);
+        assert_eq!(hit.rects.len(), 2);
+    }
+    for bbox in &matches[1].rects {
+        assert!(bbox.width > 0.03 && bbox.width < 0.2);
+        assert!(matches[0].rects.iter().any(|rotated| {
+            let expected = [1.0 - bbox.y - bbox.height, bbox.x, bbox.height, bbox.width];
+            let rendered = [rotated.x, rotated.y, rotated.width, rotated.height];
+            expected.into_iter().zip(rendered).all(|(a, b)| (a - b).abs() < 0.002)
+        }));
+    }
+    let left = &matches[1].rects[0];
+    let right = &matches[1].rects[1];
+    assert!(left.x + left.width < right.x);
+    let crop_x = (left.x + left.width + right.x) / 2.0;
+    let cropped = engine.generate_pages(&GeneratePages::Crop {
+        pages: vec![normal],
+        bounds: ContentBounds { x: crop_x, y: 0.0, width: 1.0 - crop_x, height: 1.0 },
+    }).unwrap();
+    let matches = engine.search_document(&cropped.id, "hit").unwrap();
+    assert_eq!(matches[0].match_count, 1);
+    assert_eq!(matches[0].rects.len(), 1);
+    assert!((matches[0].rects[0].x - (right.x - crop_x) / (1.0 - crop_x)).abs() < 0.002);
+}
+
+#[test]
 fn selectable_text_matches_rotation_crop_edits_and_copy_permissions() {
     let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut engine = PdfEngine::new(native_pdfium());

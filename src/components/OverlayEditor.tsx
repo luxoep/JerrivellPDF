@@ -19,7 +19,7 @@ import { useI18n } from '../i18n';
 import type { ImageAsset, PageOverlay, PdfStampImage } from '../types';
 import { cleanLibraryName, LibraryError, loadStampLibrary, MAX_LIBRARY_ITEMS, pngFileName, saveStampLibrary } from '../stampLibrary';
 import type { LibraryItem, LibraryKind } from '../stampLibrary';
-import { createStampPng, createTextPng, DEFAULT_FONT_FAMILY, ensureFontReady, finishInlineTextEvent, trimmedSignature } from './overlayCanvas';
+import { createStampPng, createTextPng, createTypedSignaturePng, DEFAULT_FONT_FAMILY, ensureFontReady, finishInlineTextEvent, SIGNATURE_SCRIPT_FONT, timestampedSignaturePng, trimmedSignature } from './overlayCanvas';
 import type { StampShape, TextOverlaySource } from './overlayCanvas';
 import { FontPicker } from './FontPicker';
 import { alignedOverlay, duplicatedOverlay, MIN_OVERLAY_SIDE, normalizedOverlay, overlayStep, POINTS_PER_MM, resizeOverlay, rotatedOverlay90, translatedOverlay } from '../overlayGeometry';
@@ -263,6 +263,8 @@ export function OverlayEditor(props: OverlayEditorProps) {
   const [pdfStampBlend, setPdfStampBlend] = useState<BlendMode>('multiply');
   const [pdfStampName, setPdfStampName] = useState('');
   const [signatureName, setSignatureName] = useState('');
+  const [signatureMode, setSignatureMode] = useState<'draw' | 'type'>('draw');
+  const [signatureText, setSignatureText] = useState('');
   const [signatureColor, setSignatureColor] = useState('#26334d');
   const [signatureReset, setSignatureReset] = useState(0);
   const [signatureReady, setSignatureReady] = useState(false);
@@ -352,6 +354,7 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (error instanceof Error && fragmentErrors[error.message]) return t(...fragmentErrors[error.message]);
     if (error instanceof Error && ['TEXT_LAYOUT_LIMIT', 'TEXT_BOX_TOO_NARROW', 'TEXT_PAGE_OVERFLOW', 'TEXT_FRAME_OVERFLOW'].includes(error.message)) return t('文字超出文本框或页面范围。请增大文本框、启用自动高度或调整字号；内容不会被自动截断。', 'Text exceeds the text box or page. Enlarge the frame, enable automatic height or adjust the font size. Text is never silently truncated.');
     if (error instanceof Error && error.message === 'FONT_LOAD_TIMEOUT') return t('所选字体载入超时，请刷新字体列表后重试。', 'The selected font took too long to load. Refresh the font list and try again.');
+    if (error instanceof Error && error.message === 'SIGNATURE_IMAGE_INVALID') return t('无法读取签名图像。请重新制作或导入签名。', 'The signature image could not be read. Recreate or import the signature.');
     if (!(error instanceof LibraryError)) return errorMessage(error);
     switch (error.code) {
       case 'count': return t('图章和签名库最多保存 20 项，请先移除不需要的项目。', 'The local library holds up to 20 items. Remove an unused item first.');
@@ -408,7 +411,8 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (!textSource && height > 0.65) { width *= 0.65 / height; height = 0.65; }
     height = Math.max(textSource ? .001 : .01, height); width = Math.max(textSource ? .001 : .01, width);
     const overlay: Overlay = normalizedOverlay({ id: crypto.randomUUID(), assetId: asset.id, x: 0.12, y: 0.12, width, height, opacity: 1, rotation: 0, blendMode, ...(textSource ? { textSource } : {}) });
-    onChange([...overlays, overlay]); setSelectedOverlay(overlay.id);
+    if (onChange([...overlays, overlay]) === false) return;
+    setSelectedOverlay(overlay.id);
     setLabels(previous => ({ ...previous, [overlay.id]: name }));
     setPreviews(previous => ({ ...previous, [asset.id]: asset.dataUrl }));
     setMessage(t('已添加到当前页，可在下方调整位置和大小。', 'Added to this page. Adjust its position and size below.'));
@@ -438,7 +442,10 @@ export function OverlayEditor(props: OverlayEditorProps) {
     if (!alive.current) return;
     cache.current.set(asset.dataUrl, asset);
     const name = selected.split(/[\\/]/).pop()?.replace(/\.(png|jpe?g)$/i, '') ?? t('导入图片', 'Imported image');
-    if (kind) remember(asset, kind, name); else place(asset, name);
+    if (kind) {
+      remember(asset, kind, name);
+      if (kind === 'signature') { setLibraryFilter('signature'); setTab('library'); }
+    } else place(asset, name);
   };
 
   const addText = (replaceId?: string, fit = false) => execute(async () => {
@@ -570,13 +577,36 @@ export function OverlayEditor(props: OverlayEditorProps) {
 
   const updatePdfCrop = (patch: Partial<PdfStampCrop>) => { if (!locked && pdfStampFullFresh) setPdfStampCrop(transformSelection(selectedPdfCrop, { ...selectedPdfCrop, ...patch })); };
 
-  const createSignature = (addToPage: boolean) => execute(async () => {
-    const image = signatureCanvas.current && trimmedSignature(signatureCanvas.current);
-    if (!image) throw new Error(t('请先在签名区域书写。', 'Draw a signature first.'));
-    const asset = await register(image.dataUrl);
+  const typedSignaturePreview = useMemo(() => {
+    if (tab !== 'signature' || signatureMode !== 'type' || !signatureText.trim()) return null;
+    try { return createTypedSignaturePng(signatureText, signatureColor); }
+    catch { return null; }
+  }, [tab, signatureMode, signatureText, signatureColor]);
+  const canCreateSignature = signatureMode === 'draw' ? signatureReady : Boolean(typedSignaturePreview);
+
+  const placeSignature = async (image: string, name: string, when: Date, blendMode: BlendMode = 'normal') => {
+    const appearance = await timestampedSignaturePng(image, when);
     if (!alive.current) return;
-    const name = signatureName.trim() || t('手写签名', 'Handwritten signature');
-    if (addToPage) place(asset, name, 0.25); else remember(asset, 'signature', name);
+    place(await register(appearance.dataUrl), name, 0.30, blendMode);
+  };
+
+  const createSignature = (addToPage: boolean) => execute(async () => {
+    const when = new Date();
+    let image;
+    if (signatureMode === 'type') {
+      await ensureFontReady(SIGNATURE_SCRIPT_FONT, signatureText, false, true);
+      if (!alive.current) return;
+      image = createTypedSignaturePng(signatureText, signatureColor);
+    } else image = signatureCanvas.current && trimmedSignature(signatureCanvas.current);
+    if (!image) throw new Error(t('请先书写或输入签名。', 'Draw or type a signature first.'));
+    const name = signatureName.trim() || (signatureMode === 'type' ? signatureText.trim() : t('手写签名', 'Handwritten signature'));
+    if (addToPage) await placeSignature(image.dataUrl, name, when);
+    else remember(await register(image.dataUrl), 'signature', name);
+  });
+
+  const placeLibraryItem = (item: LibraryItem) => execute(async () => {
+    if (item.kind === 'signature') await placeSignature(item.dataUrl, item.name, new Date(), item.blendMode);
+    else place(await register(item.dataUrl), item.name, 0.22, item.blendMode);
   });
 
   const exportLibraryItem = (item: LibraryItem) => execute(async () => {
@@ -598,6 +628,17 @@ export function OverlayEditor(props: OverlayEditorProps) {
   };
 
   const current = props.overlays.find(item => item.id === selectedOverlay);
+  const [featureColor, setFeatureColor] = useState('#244b70');
+  const recolorFeature = (item: Overlay, restore = false) => execute(async () => {
+    if (!item.featureSource || item.locked) return;
+    const asset = restore ? await backend<RegisteredImage>('get_image_asset', { assetId: item.featureSource.assetId }, 3)
+      : await backend<RegisteredImage>('edit_feature', { request: { kind: 'tint', assetId: item.featureSource.assetId, color: featureColor } }, 3);
+    const { overlays, onChange } = latest.current;
+    if (!alive.current || !overlays.some(value => value.id === item.id && value.assetId === item.assetId && !value.locked)) return;
+    if (onChange(overlays.map(value => value.id === item.id ? { ...value, assetId: asset.id } : value)) !== false) {
+      setPreviews(previous => ({ ...previous, [asset.id]: asset.dataUrl }));
+    }
+  });
   useEffect(() => { setDraft(current ? { ...current } : null); }, [current]);
   const editable = draft?.id === current?.id ? draft : current;
   const draftChanged = Boolean(current && editable && JSON.stringify(current) !== JSON.stringify(editable));
@@ -694,15 +735,41 @@ export function OverlayEditor(props: OverlayEditorProps) {
         <div className="oe-text-actions"><button className="oe-action primary wide" disabled={locked || hasTextDraft || !text.trim() || !!textPreviewError || Boolean(textPreview?.overflow)} onClick={() => void addText()}><Plus size={15}/>{selectedTextSource ? t('另加一份文字', 'Add another text box') : t('添加到当前页', 'Add to this page')}</button></div>
       </section>}
       {tab === 'image' && <section className="oe-section"><h3>{t('添加图片', 'Add an image')}</h3><div className="oe-empty-symbol"><ImagePlus size={34} /></div><p className="oe-description">{t('选择本机 PNG 或 JPEG 图片，放到当前页面上。PNG 透明背景会保留。', 'Choose a local PNG or JPEG image and place it on this page. PNG transparency is preserved.')}</p><button className="oe-action primary" disabled={locked} onClick={() => void execute(() => importAsset())}><Upload size={15} />{t('选择图片', 'Choose image')}</button><p className="oe-note">{t('导入图像会进行尺寸与格式检查，最长边不超过 2400 像素。', 'Imported images are validated and limited to a 2400-pixel longest edge.')}</p></section>}
-      {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}{stampMode === 'pdf' && <FragmentTray items={fragments} disabled={locked} onChange={setFragments} onPlace={(items, drop) => void execute(() => placeFragmentItems(items, drop))} onSave={item => void execute(async () => { saveFragmentItems([item]); setMessage(t('已保存到本机库。', 'Saved to the local library.')); })} onExport={item => void exportLibraryItem({ id: item.id, name: item.name, kind: 'stamp', dataUrl: item.image.dataUrl, width: item.image.width, height: item.image.height, blendMode: item.blendMode, createdAt: '' })}/>}</section>}
-      {tab === 'signature' && <section className="oe-section"><h3>{t('手写签名', 'Handwritten signature')}</h3><p className="oe-description">{t('用鼠标、触控或触控笔在下方书写。', 'Write below using a mouse, touch or pen.')}</p><SignaturePad color={signatureColor} disabled={locked} resetKey={signatureReset} onChange={value => { signatureCanvas.current = value; setSignatureReady(Boolean(value)); }} /><div className="oe-signature-options"><label className="oe-color-label"><span>{t('笔迹颜色', 'Ink')}</span><input type="color" value={signatureColor} disabled={locked} onChange={event => setSignatureColor(event.target.value)} /></label><button className="oe-small-button" disabled={locked} onClick={() => setSignatureReset(previous => previous + 1)}>{t('清空画布', 'Clear canvas')}</button></div><label className="oe-field"><span>{t('签名名称', 'Signature name')}</span><input maxLength={80} value={signatureName} disabled={locked} onChange={event => setSignatureName(event.target.value)} placeholder={t('我的签名', 'My signature')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !signatureReady} onClick={() => void createSignature(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !signatureReady} onClick={() => void createSignature(false)}><PenLine size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名图片', 'Import signature image')}</button><p className="oe-note">{t('图章和签名是可视图片，不是证书数字签名，也不提供签署者身份或文件完整性验证。', 'Stamps and signatures are visual images, not certificate-based digital signatures. They do not verify signer identity or file integrity.')}</p></section>}
-      {tab === 'library' && <section className="oe-section"><div className="oe-section-heading"><h3>{t('本机内容库', 'Local content library')}</h3><span>{library.length}/{MAX_LIBRARY_ITEMS}</span></div><label className="oe-field"><span>{t('显示', 'Show')}</span><select value={libraryFilter} onChange={event => setLibraryFilter(event.target.value as typeof libraryFilter)}><option value="all">{t('全部', 'All')}</option><option value="stamp">{t('图章与片段', 'Stamps and fragments')}</option><option value="signature">{t('签名', 'Signatures')}</option></select></label><div className="oe-button-row"><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入图章', 'Import stamp')}</button><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名', 'Import signature')}</button></div><p className="oe-note">{t('库保存在本机应用存储，不会上传。重要图章和签名请导出 PNG 备份；清除应用数据会移除库。', 'Stored only in this application on this device. Export important items as PNG backups. Clearing application data removes the library.')}</p><div className="oe-library-list">{library.filter(item => libraryFilter === 'all' || item.kind === libraryFilter).map(item => <article className="oe-library-item" key={item.id}><div className="oe-checker oe-library-preview"><img src={item.dataUrl} alt={item.name} /></div><label className="oe-field"><span>{item.kind === 'stamp' ? t('图章或片段名称', 'Stamp or fragment name') : t('签名名称', 'Signature name')}</span><input aria-label={t('重命名：', 'Rename: ') + item.name} value={renameDrafts[item.id] ?? item.name} maxLength={80} disabled={locked} onChange={event => setRenameDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => rename(item)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><div className="oe-library-actions"><button disabled={locked} onClick={() => void execute(async () => place(await register(item.dataUrl), item.name, item.kind === 'stamp' ? 0.22 : 0.25, item.blendMode ?? 'normal'))}><Plus size={13} />{t('加到页面', 'Place')}</button><button disabled={locked} onClick={() => void exportLibraryItem(item)}><Download size={13} />PNG</button><button className="oe-danger" disabled={locked} aria-label={t('从本机库移除：', 'Remove from local library: ') + item.name} onClick={() => { try { persist(library.filter(value => value.id !== item.id)); } catch (error) { latest.current.onError(libraryError(error)); } }}><Trash2 size={13} /></button></div></article>)}</div>{!library.some(item => libraryFilter === 'all' || item.kind === libraryFilter) && <div className="oe-library-empty"><Stamp size={30} /><p>{t('还没有保存的项目', 'No saved items yet')}</p><span>{t('制作图章、书写签名，或导入已有图片。', 'Create a stamp, draw a signature or import an image.')}</span></div>}</section>}
+      {tab === 'stamp' && <section className="oe-section"><div className="oe-stamp-modes"><button className={stampMode === 'create' ? 'active' : ''} aria-pressed={stampMode === 'create'} disabled={locked} onClick={() => setStampMode('create')}>{t('制作文字图章', 'Text stamp')}</button><button className={stampMode === 'pdf' ? 'active' : ''} aria-pressed={stampMode === 'pdf'} disabled={locked} onClick={() => { setStampMode('pdf'); setPdfStampOpen(true); }}>{t('从 PDF 制作片段', 'PDF fragment')}</button></div>{stampMode === 'create' ? <><h3>{t('制作自定义图章', 'Create a custom stamp')}</h3><label className="oe-field"><span>{t('图章标题（最多 24 字）', 'Title (up to 24 characters)')}</span><input maxLength={24} value={stampTitle} disabled={locked} onChange={event => setStampTitle(event.target.value)} placeholder={t('填写自己的图章文字', 'Enter your own stamp text')} /></label><label className="oe-field"><span>{t('副标题', 'Subtitle')}</span><input maxLength={24} value={stampSubtitle} disabled={locked} onChange={event => setStampSubtitle(event.target.value)} placeholder={t('例如：审核通过', 'For example: REVIEWED')} /></label><FontPicker value={stampFont} onChange={setStampFont} disabled={locked} sample={stampTitle + (stampSubtitle ? '\n' + stampSubtitle : '')}/><div className="oe-fields"><label className="oe-field"><span>{t('形状', 'Shape')}</span><select value={stampShape} disabled={locked} onChange={event => setStampShape(event.target.value as StampShape)}><option value="round">{t('圆形', 'Round')}</option><option value="rectangle">{t('矩形', 'Rectangle')}</option></select></label><label className="oe-field oe-color-field"><span>{t('颜色', 'Color')}</span><input type="color" value={stampColor} disabled={locked} onChange={event => setStampColor(event.target.value)} /></label></div><div className="oe-checker oe-stamp-preview">{stampPreview ? <PreviewZoom width={stampPreview.width} height={stampPreview.height} resetKey="text-stamp" label={t('图章可缩放预览','Zoomable stamp preview')}><img src={stampPreview.dataUrl} alt={t('图章预览', 'Stamp preview')} /></PreviewZoom> : <span>{t('输入文字后显示预览', 'Enter text to preview')}</span>}</div><label className="oe-field"><span>{t('库中名称', 'Library name')}</span><input maxLength={80} value={stampName} disabled={locked} onChange={event => setStampName(event.target.value)} placeholder={stampTitle || t('自定义图章', 'Custom stamp')} /></label><div className="oe-button-row"><button className="oe-action primary" disabled={locked || !stampPreview} onClick={() => void createStamp(true)}><Plus size={14} />{t('添加到页面', 'Add to page')}</button><button className="oe-action" disabled={locked || !stampPreview} onClick={() => void createStamp(false)}><Stamp size={14} />{t('保存到本机库', 'Save to library')}</button></div><button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入现有图章图片', 'Import a stamp image')}</button><p className="oe-note">{t('仅使用你有权使用的文字和图章。本机库中的项目可在“本机库”页导出 PNG。', 'Use only text and stamps you are entitled to use. Export library items as PNG from the Library tab.')}</p></> : <><h3>{t('从 PDF 制作内容片段', 'Create a fragment from PDF')}</h3><p className="oe-description">{t('在独立大窗口中框选、套索或点击多边形，实时检查透明裁切结果。', 'Use a large workspace for rectangular, freehand or polygon selections and live transparent previews.')}</p><button className="oe-action primary wide" disabled={locked} onClick={() => setPdfStampOpen(true)}><FileText size={15}/>{t('打开 PDF 片段工作台', 'Open PDF fragment workspace')}</button></>}{(stampMode === 'pdf' || fragments.length > 0) && <FragmentTray items={fragments} disabled={locked} onChange={setFragments} onPlace={(items, drop) => void execute(() => placeFragmentItems(items, drop))} onSave={item => void execute(async () => { saveFragmentItems([item]); setMessage(t('已保存到本机库。', 'Saved to the local library.')); })} onExport={item => void exportLibraryItem({ id: item.id, name: item.name, kind: 'stamp', dataUrl: item.image.dataUrl, width: item.image.width, height: item.image.height, blendMode: item.blendMode, createdAt: '' })}/>}</section>}
+      {tab === 'signature' && <section className="oe-section">
+        <h3>{t('制作签名', 'Create a signature')}</h3>
+        <div className="oe-stamp-modes">
+          <button className={signatureMode === 'draw' ? 'active' : ''} aria-pressed={signatureMode === 'draw'} disabled={locked} onClick={() => setSignatureMode('draw')}>{t('手写', 'Draw')}</button>
+          <button className={signatureMode === 'type' ? 'active' : ''} aria-pressed={signatureMode === 'type'} disabled={locked} onClick={() => setSignatureMode('type')}>{t('键入姓名', 'Type your name')}</button>
+        </div>
+        <div hidden={signatureMode !== 'draw'}>
+          <p className="oe-description">{t('用鼠标、触控或触控笔在下方书写。', 'Write below using a mouse, touch or pen.')}</p>
+          <SignaturePad color={signatureColor} disabled={locked} resetKey={signatureReset} onChange={value => { signatureCanvas.current = value; setSignatureReady(Boolean(value)); }} />
+        </div>
+        {signatureMode === 'type' && <>
+          <label className="oe-field"><span>{t('签名文字', 'Signature text')}</span><input maxLength={80} value={signatureText} disabled={locked} onChange={event => setSignatureText(event.target.value)} /></label>
+          <div className="oe-checker oe-typed-signature">{typedSignaturePreview ? <img src={typedSignaturePreview.dataUrl} alt={t('签名预览', 'Signature preview')}/> : <span>{t('输入姓名以预览', 'Enter your name to preview')}</span>}</div>
+        </>}
+        <div className="oe-signature-options">
+          <label className="oe-color-label"><span>{t('笔迹颜色', 'Ink')}</span><input type="color" value={signatureColor} disabled={locked} onChange={event => setSignatureColor(event.target.value)} /></label>
+          {signatureMode === 'draw' && <button className="oe-small-button" disabled={locked} onClick={() => setSignatureReset(previous => previous + 1)}>{t('清空画布', 'Clear canvas')}</button>}
+        </div>
+        <label className="oe-field"><span>{t('模板名称（可选）', 'Template name (optional)')}</span><input maxLength={80} value={signatureName} disabled={locked} onChange={event => setSignatureName(event.target.value)} placeholder={t('我的签名', 'My signature')} /></label>
+        <div className="oe-button-row">
+          <button className="oe-action primary" disabled={locked || !canCreateSignature} onClick={() => void createSignature(true)}><Plus size={14} />{t('签名到当前页', 'Sign this page')}</button>
+          <button className="oe-action" disabled={locked || !canCreateSignature} onClick={() => void createSignature(false)}><PenLine size={14} />{t('保存到本机库', 'Save to library')}</button>
+        </div>
+        <button className="oe-action wide" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名图片', 'Import signature image')}</button>
+        <p className="oe-note">{t('签名放入页面时记录本机日期、时间和 UTC 偏移。此时间随可见签名保存，属于本机时间记录。', 'Placing the signature records the device date, time and UTC offset. This local time is saved as part of the visible signature.')}</p>
+      </section>}
+      {tab === 'library' && <section className="oe-section"><div className="oe-section-heading"><h3>{t('本机内容库', 'Local content library')}</h3><span>{library.length}/{MAX_LIBRARY_ITEMS}</span></div><label className="oe-field"><span>{t('显示', 'Show')}</span><select value={libraryFilter} onChange={event => setLibraryFilter(event.target.value as typeof libraryFilter)}><option value="all">{t('全部', 'All')}</option><option value="stamp">{t('图章与片段', 'Stamps and fragments')}</option><option value="signature">{t('签名', 'Signatures')}</option></select></label><div className="oe-button-row"><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('stamp'))}><Upload size={14} />{t('导入图章', 'Import stamp')}</button><button className="oe-action" disabled={locked} onClick={() => void execute(() => importAsset('signature'))}><Upload size={14} />{t('导入签名', 'Import signature')}</button></div><p className="oe-note">{t('库保存在本机应用存储，不会上传。重要图章和签名请导出 PNG 备份；清除应用数据会移除库。', 'Stored only in this application on this device. Export important items as PNG backups. Clearing application data removes the library.')}</p><div className="oe-library-list">{library.filter(item => libraryFilter === 'all' || item.kind === libraryFilter).map(item => <article className="oe-library-item" key={item.id}><div className="oe-checker oe-library-preview"><img src={item.dataUrl} alt={item.name} /></div><label className="oe-field"><span>{item.kind === 'stamp' ? t('图章或片段名称', 'Stamp or fragment name') : t('签名名称', 'Signature name')}</span><input aria-label={t('重命名：', 'Rename: ') + item.name} value={renameDrafts[item.id] ?? item.name} maxLength={80} disabled={locked} onChange={event => setRenameDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => rename(item)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><div className="oe-library-actions"><button disabled={locked} onClick={() => void placeLibraryItem(item)}><Plus size={13} />{t('加到页面', 'Place')}</button><button disabled={locked} onClick={() => void exportLibraryItem(item)}><Download size={13} />PNG</button><button className="oe-danger" disabled={locked} aria-label={t('从本机库移除：', 'Remove from local library: ') + item.name} onClick={() => { try { persist(library.filter(value => value.id !== item.id)); } catch (error) { latest.current.onError(libraryError(error)); } }}><Trash2 size={13} /></button></div></article>)}</div>{!library.some(item => libraryFilter === 'all' || item.kind === libraryFilter) && <div className="oe-library-empty"><Stamp size={30} /><p>{t('还没有保存的项目', 'No saved items yet')}</p><span>{t('制作图章、书写签名，或导入已有图片。', 'Create a stamp, draw a signature or import an image.')}</span></div>}</section>}
       {message && <div className="oe-message" role="status"><Check size={14} />{message}</div>}
       <section className="oe-section oe-object-section">
         <div className="oe-section-heading"><h3>{t('当前页添加的内容', 'Added objects on this page')}</h3><span>{props.overlays.length}/30</span></div>
         {props.overlays.length === 0 ? <p className="oe-note">{t('添加内容后，可以在这里选择对象并调整位置和大小。', 'Add an object, then select it here to adjust position and size.')}</p> : <>
           <div className="oe-object-list">{props.overlays.map((item, index) => <button key={item.id} className={item.id === selectedOverlay ? 'selected' : ''} disabled={locked} onClick={() => setSelectedOverlay(item.id)}><span className="oe-object-thumb">{previews[item.assetId] ? <img src={previews[item.assetId]} alt=""/> : <ImagePlus size={14}/>}</span><span>{labels[item.id] || `${t('对象', 'Object')} ${index + 1}`}</span>{item.locked && <LockKeyhole size={11}/>}<small>{index + 1}</small></button>)}</div>
           {current && editable && <div className="oe-object-properties">
+            {current.featureSource && <><label className="oe-color-label"><span>{t('片段笔迹颜色', 'Feature ink color')}</span><input type="color" value={featureColor} disabled={locked || Boolean(current.locked)} onChange={event => setFeatureColor(event.target.value)}/></label><div className="oe-button-row"><button className="oe-action" disabled={locked || Boolean(current.locked)} onClick={() => void recolorFeature(current)}>{t('应用片段颜色', 'Apply feature color')}</button><button className="oe-action" disabled={locked || Boolean(current.locked) || current.assetId === current.featureSource.assetId} onClick={() => void recolorFeature(current, true)}>{t('恢复原色', 'Restore original color')}</button></div></>}
             <div className="oe-unit-row"><span>{t('坐标与尺寸单位', 'Position and size units')}</span><select aria-label={t('坐标与尺寸单位', 'Position and size units')} value={measureUnit} disabled={locked} onChange={event => setMeasureUnit(event.target.value as '%' | 'mm')}><option value="mm">{t('毫米 (mm)', 'Millimeters (mm)')}</option><option value="%">{t('页面百分比 (%)', 'Page percentage (%)')}</option></select></div>
             <div className="oe-fields">
               <MeasureField label={t('左边距', 'Left')} value={editable.x} maximum={1 - editable.width} extent={props.pageWidth} unit={measureUnit} disabled={locked || Boolean(current.locked)} onChange={x => updateDraft({ x })}/>

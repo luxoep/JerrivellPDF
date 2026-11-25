@@ -96,7 +96,7 @@ function rememberImage(value: unknown, command: string, cacheIt = true) {
     }
     return;
   }
-  const required = ['register_image', 'import_image', 'import_pdf_stamp', 'edit_image_asset', 'extract_content_image', 'get_image_asset', 'rasterize_page_asset'].includes(command);
+  const required = ['register_image', 'import_image', 'import_pdf_stamp', 'edit_image_asset', 'edit_feature', 'extract_content_image', 'get_image_asset', 'rasterize_page_asset'].includes(command);
   const object = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   // Image-returning commands share a flat contract. Recognize any future asset
   // producer by its shape as well, so adding a producer cannot silently omit it

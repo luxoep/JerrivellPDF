@@ -72,6 +72,17 @@ pub enum GeneratePages {
         page: PageRef,
         regions: Vec<Vec<ImagePoint>>,
     },
+    CutFeature {
+        page: PageRef,
+        region: Vec<ImagePoint>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
+pub enum FeatureRequest {
+    Extract { page: PageRef, region: Vec<ImagePoint> },
+    Tint { asset_id: String, color: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,6 +328,9 @@ pub struct SearchMatch {
     pub page_index: u32,
     pub match_count: usize,
     pub preview: String,
+    /// Highlight rectangles in displayed top-left page coordinates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rects: Vec<ContentBounds>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

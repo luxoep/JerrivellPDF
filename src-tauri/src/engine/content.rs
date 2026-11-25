@@ -475,10 +475,10 @@ pub(super) fn searchable_text(
     page: &PdfPage<'_>,
     text: &PdfPageText<'_>,
     query: &str,
-) -> Result<String, String> {
+) -> Result<(String, Vec<Option<usize>>), String> {
     let bounded = visible_text(page, text)?;
     if query.chars().any(char::is_whitespace) || bounded.to_lowercase().contains(query) {
-        return Ok(bounded);
+        return Ok((bounded, Vec::new()));
     }
     let visible = visible_text_rect(page)?;
     // PDFium may infer spaces between individually spaced letters. Keep its
@@ -492,7 +492,7 @@ pub(super) fn searchable_text(
         adjacent
     });
     if !needs_spacing_check {
-        return Ok(bounded);
+        return Ok((bounded, Vec::new()));
     }
     let chars = text.chars();
     let mut skipped = HashSet::new();
@@ -520,9 +520,10 @@ pub(super) fn searchable_text(
         };
     }
     if skipped.is_empty() {
-        return Ok(bounded);
+        return Ok((bounded, Vec::new()));
     }
     let mut result = String::new();
+    let mut mapping = Vec::new();
     let mut separator = String::new();
     let mut last_visible = false;
     for character in chars.iter() {
@@ -543,20 +544,109 @@ pub(super) fn searchable_text(
         let is_visible = bounds.does_overlap(&visible) || visible.contains(origin.0, origin.1);
         if is_visible {
             if last_visible {
+                mapping.extend(separator.chars().map(|_| None));
                 result.push_str(&separator);
             } else if !result.is_empty() && !result.ends_with('\n') {
                 result.push('\n');
+                mapping.push(None);
             }
             result.push(value);
+            mapping.push(Some(character.index()));
         }
         separator.clear();
         last_visible = is_visible;
     }
     if result.to_lowercase().contains(query) {
-        Ok(result)
+        Ok((result, mapping))
     } else {
-        Ok(bounded)
+        Ok((bounded, Vec::new()))
     }
+}
+
+/// Find matches in the same text that powers search previews. Ordinary
+/// matches use PDFium's text rectangles and compacted runs retain native
+/// character indices, so inferred letter spacing cannot shift a highlight.
+pub(super) fn search_page(
+    page: &PdfPage<'_>,
+    text: &PdfPageText<'_>,
+    query: &str,
+    page_index: usize,
+    limit: usize,
+) -> Result<Option<SearchMatch>, String> {
+    let (original, mapping) = searchable_text(page, text, query)?;
+    let lower = original.to_lowercase();
+    let mut matches = lower.match_indices(query);
+    let Some((start, _)) = matches.next() else {
+        return Ok(None);
+    };
+    let match_count = 1 + matches.count();
+    let offset = original
+        .chars()
+        .scan(0, |bytes, ch| {
+            *bytes += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+            Some(*bytes)
+        })
+        .take_while(|&end| end <= start)
+        .count();
+    let preview = original
+        .chars()
+        .skip(offset.saturating_sub(35))
+        .take(150)
+        .collect::<String>()
+        .replace(['\r', '\n'], " ");
+
+    let mut rects = Vec::new();
+    if limit > 0 {
+        let space = PageSpace::new(page)?;
+        if mapping.is_empty() {
+            // Ignore unpaintable hits (such as matches completely outside
+            // CropBox). The visible-text search count remains authoritative.
+            if let Ok(search) = text.search(query, &PdfSearchOptions::default()) {
+                for hit in search.iter(PdfSearchDirection::SearchForward) {
+                    let remaining = limit - rects.len();
+                    rects.extend(
+                        hit.iter()
+                            .filter_map(|segment| space.text_bounds(segment.bounds()))
+                            .take(remaining),
+                    );
+                    if rects.len() == limit {
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Match UTF-8 byte offsets against a source-character map. A
+            // folded glyph can occupy more than one code point (e.g. İ).
+            let mut positions = Vec::new();
+            for (ch, index) in original.chars().zip(mapping) {
+                let bytes = ch.to_lowercase().map(char::len_utf8).sum();
+                positions.extend(std::iter::repeat_n(index, bytes));
+            }
+            for (start, word) in lower.match_indices(query) {
+                let indices = positions[start..start + word.len()].iter().flatten();
+                let mut indices = indices.copied();
+                if let Some(first) = indices.next() {
+                    let end = indices.last().unwrap_or(first);
+                    let remaining = limit - rects.len();
+                    rects.extend(
+                        text.segments_subset(first, end - first + 1)
+                            .iter()
+                            .filter_map(|segment| space.text_bounds(segment.bounds()))
+                            .take(remaining),
+                    );
+                }
+                if rects.len() == limit {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(Some(SearchMatch {
+        page_index: page_index as u32,
+        match_count,
+        preview,
+        rects,
+    }))
 }
 
 /// Only spacing reported by PDFium as generated is considered, and only within
@@ -1279,18 +1369,24 @@ impl<'a> PdfEngine<'a> {
 
     #[cfg(test)]
     pub fn page_content_text(&self, reference: &PageRef) -> Result<String, String> {
-        self.page_text(reference, None)
+        self.with_search_page(reference, visible_text)
     }
 
-    pub(super) fn page_search_text(
+    pub(super) fn page_search_match(
         &self,
         reference: &PageRef,
         query: &str,
-    ) -> Result<String, String> {
-        self.page_text(reference, Some(query))
+        index: usize,
+        limit: usize,
+    ) -> Result<Option<SearchMatch>, String> {
+        self.with_search_page(reference, |page, text| search_page(page, text, query, index, limit))
     }
 
-    fn page_text(&self, reference: &PageRef, query: Option<&str>) -> Result<String, String> {
+    fn with_search_page<T>(
+        &self,
+        reference: &PageRef,
+        read: impl FnOnce(&PdfPage<'_>, &PdfPageText<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
         let mut output = self.copied_content_page(reference)?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;
         let mut fonts = ContentFontCache::default();
@@ -1300,10 +1396,7 @@ impl<'a> PdfEngine<'a> {
         if text.len() as usize > MAX_SEARCH_CHARS {
             return Err(invalid("页面文字超过查找预算。"));
         }
-        match query {
-            Some(query) => searchable_text(&page, &text, query),
-            None => visible_text(&page, &text),
-        }
+        read(&page, &text)
     }
 
     pub(super) fn apply_content_edits(

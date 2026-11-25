@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashSet};
 const MAX_PROJECT_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 16 * 1024 * 1024;
+const MAX_ASSET_DECODED_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_PLAN_BYTES: usize = 1_400_000;
 
 #[derive(serde::Serialize, Deserialize)]
@@ -270,6 +271,7 @@ pub(super) fn page_reference(value: &Value) -> Result<PageRef, String> {
                 "textSource",
                 "markSource",
                 "leaderFor",
+                "featureSource",
             ],
         )?;
         let id = string(&item["id"], 128, false)?;
@@ -286,8 +288,15 @@ pub(super) fn page_reference(value: &Value) -> Result<PageRef, String> {
         if item.get("textSource").is_some() && item.get("markSource").is_some() {
             return Err(invalid("对象来源类型冲突。"));
         }
+        if let Some(feature) = item.get("featureSource") {
+            keys(feature, &["assetId"])?;
+            string(&feature["assetId"], 128, false)?;
+            if item.get("textSource").is_some() || item.get("markSource").is_some() {
+                return Err(invalid("片段与文字或标记不能使用同一个对象。"));
+            }
+        }
         let mut native = object(item)?.clone();
-        for field in ["locked", "textSource", "markSource", "leaderFor"] {
+        for field in ["locked", "textSource", "markSource", "leaderFor", "featureSource"] {
             native.remove(field);
         }
         clean.push(Value::Object(native));
@@ -330,7 +339,7 @@ pub(super) fn references(pages: &[Value]) -> Result<Vec<PageRef>, String> {
         .collect()
 }
 
-fn asset_ids(refs: &[PageRef]) -> BTreeSet<String> {
+fn asset_ids(refs: &[PageRef], pages: &[Value]) -> BTreeSet<String> {
     refs.iter()
         .flat_map(|page| {
             page.overlays.iter().map(|o| o.asset_id.clone()).chain(
@@ -339,7 +348,13 @@ fn asset_ids(refs: &[PageRef]) -> BTreeSet<String> {
                     .filter_map(|e| e.replacement_asset_id.clone()),
             )
         })
+        .chain(feature_sources(pages).map(str::to_owned))
         .collect()
+}
+
+fn feature_sources(pages: &[Value]) -> impl Iterator<Item = &str> {
+    pages.iter().filter_map(|page| page["overlays"].as_array()).flatten()
+        .filter_map(|overlay| overlay["featureSource"]["assetId"].as_str())
 }
 
 /// PDFium may rewrite numeric spelling when taking the source snapshot.
@@ -467,6 +482,9 @@ fn validate_plan(engine: &PdfEngine<'_>, pages: &[Value], refs: &[PageRef]) -> R
                     return Err(invalid("项目原文对象与来源指纹不匹配。"));
                 }
             }
+        }
+        if feature_sources(std::slice::from_ref(metadata)).any(|id| !engine.assets.contains_key(id)) {
+            return Err(invalid("可编辑片段的原始图像缺失。"));
         }
         let mut decoration_ids = HashSet::new();
         for item in &page.decorations {
@@ -611,12 +629,17 @@ impl<'a> PdfEngine<'a> {
         }
         let mut assets = Vec::new();
         let mut asset_bytes = 0;
-        for id in asset_ids(&refs) {
+        let mut decoded_bytes = 0;
+        for id in asset_ids(&refs, &pages) {
             let image = self
                 .assets
                 .get(&id)
                 .ok_or_else(|| invalid("项目图片资源缺失。"))?;
             asset_bytes += image.png.len();
+            decoded_bytes += image.decoded_size();
+            if decoded_bytes > MAX_ASSET_DECODED_BYTES {
+                return Err(invalid("项目图片解码量超过 128 MiB，请减少图片或拆分项目。现有项目文件保持原样。"));
+            }
             if assets.len() >= 64 || asset_bytes > MAX_ASSET_BYTES {
                 return Err(invalid("项目图片资源超过 64 个或 16 MiB。"));
             }
@@ -632,9 +655,10 @@ impl<'a> PdfEngine<'a> {
                 page["sourceName"] = json!(name.rsplit(['/', '\\']).next().unwrap_or("source.pdf"));
             }
         }
+        let version = if feature_sources(&pages).next().is_some() { 3 } else { 2 };
         let file = ProjectFile {
             format: "jerrivell-project".into(),
-            version: 2,
+            version,
             title: title.into(),
             workspace: pages,
             sources,
@@ -682,7 +706,7 @@ impl<'a> PdfEngine<'a> {
             serde_json::from_slice(&bytes).map_err(|e| invalid(format!("项目文件无效：{e}")))?;
         drop(bytes);
         if project.format != "jerrivell-project"
-            || !matches!(project.version, 1 | 2)
+            || !matches!(project.version, 1 | 2 | 3)
             || project.sources.is_empty()
             || project.sources.len() > 32
             || project.assets.len() > 64
@@ -692,7 +716,7 @@ impl<'a> PdfEngine<'a> {
         string(&json!(project.title), 260, false)?;
         let old_refs = references(&project.workspace)?;
         let used_documents: BTreeSet<_> = old_refs.iter().map(|p| p.document_id.clone()).collect();
-        let used_assets = asset_ids(&old_refs);
+        let used_assets = asset_ids(&old_refs, &project.workspace);
         if used_documents.len() != project.sources.len()
             || used_assets.len() != project.assets.len()
         {
@@ -794,7 +818,7 @@ impl<'a> PdfEngine<'a> {
                 return Err(invalid("嵌入图片尺寸校验失败。"));
             }
             decoded_bytes += asset.width as u64 * asset.height as u64 * 4;
-            if decoded_bytes > 128 * 1024 * 1024 {
+            if decoded_bytes > MAX_ASSET_DECODED_BYTES {
                 return Err(invalid("项目图片解码量超过 128 MiB。"));
             }
             let id = format!(

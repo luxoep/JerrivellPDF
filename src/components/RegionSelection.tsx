@@ -32,20 +32,28 @@ export function RegionSelection({ image, crop, shape, onChange, onPreview, disab
     if (typeof requestAnimationFrame === 'function') previewFrame.current = requestAnimationFrame(paint); else paint();
   };
   const point = (event: PointerEvent, bounds: DOMRect) => imagePoint((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
-  const finishPolygon = () => { const next = selectionFromPoints(polygon.current, 'polygon'); if (next && !disabled) commit(next); reset(); };
+  const waitsForClosure = shape === 'polygon' || shape === 'curve';
+  const finishOutline = () => { const next = selectionFromPoints(polygon.current, shape); if (next && !disabled) { commit(next); reset(); } };
   const selected = ghost ? adding && regions.length < MAX_IMAGE_REGIONS ? merge(ghost) : ghost : crop;
   const selectedRegions = selectionRegions(selected);
   const finish = (event: PointerEvent<HTMLDivElement>, cancel = false) => {
     const active = gesture.current;
     if (!active || active.id !== event.pointerId) return;
     const end = point(event, active.bounds);
-    const next = selectionFromPoints(shape === 'lasso' ? [...active.points, end] : [active.points[0], end], shape);
+    const points = [...active.points, end];
     cancelPreview(); gesture.current = null; setGhost(null); onPreview?.(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (!cancel && !disabled && next) commit(next);
+    if (cancel || disabled) { setDraft(polygon.current); return; }
+    if (shape === 'curve') {
+      polygon.current = [...polygon.current, ...points].slice(0, 2048);
+      setDraft(polygon.current);
+    } else {
+      const next = selectionFromPoints(shape === 'lasso' ? points : [active.points[0], end], shape);
+      if (next) commit(next);
+    }
   };
   const canvas = <div ref={surface} role="group" tabIndex={0} aria-label={t('在 PDF 整页预览上拖动框选内容片段，也可使用下方百分比输入框', 'Drag on this PDF page to select a fragment, or use the percentage fields below')} className="region-selection-surface oe-checker" style={{ aspectRatio: `${image.width}/${image.height}` }}
-      onDoubleClick={event => { if (shape === 'polygon') { event.preventDefault(); finishPolygon(); } }}
+      onDoubleClick={event => { if (waitsForClosure) { event.preventDefault(); finishOutline(); } }}
       onPointerDown={event => {
         if (disabled || event.button !== 0 || gesture.current || !surface.current) return;
         const bounds = surface.current.getBoundingClientRect(); if (!bounds.width || !bounds.height) return;
@@ -55,24 +63,25 @@ export function RegionSelection({ image, crop, shape, onChange, onPreview, disab
       }} onPointerMove={event => {
         const active = gesture.current; if (!active || event.pointerId !== active.id || disabled) return;
         event.preventDefault(); const next = point(event, active.bounds);
-        if (shape === 'lasso') { const last = active.points.at(-1)!; if (Math.hypot((next.x - last.x) * image.width, (next.y - last.y) * image.height) >= 2 && active.points.length < 2048) active.points.push(next); }
+        if (shape === 'lasso' || shape === 'curve') { const last = active.points.at(-1)!; if (Math.hypot((next.x - last.x) * image.width, (next.y - last.y) * image.height) >= 2 && active.points.length + polygon.current.length < 2048) active.points.push(next); }
         else active.points = [active.points[0], next];
-        preview(selectionFromPoints(active.points, shape));
+        if (shape === 'curve') setDraft([...polygon.current, ...active.points]);
+        else preview(selectionFromPoints(active.points, shape));
       }} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onLostPointerCapture={event => finish(event, true)}>
       <img src={image.dataUrl} alt={t('PDF 整页预览，可框选区域', 'PDF page preview with selectable region')} draggable={false}/>
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
         <defs><mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="1" height="1"><rect width="1" height="1" fill="white"/>{selectedRegions.map((region,n) => <polygon key={n} points={outlineString(selectionOutline(region))} fill="black" fillRule="evenodd"/>)}</mask></defs>
         {selected && <rect width="1" height="1" fill="#243e4e4b" mask={`url(#${maskId})`}/>}
         {selectedRegions.map((region,n) => <polygon key={n} points={outlineString(selectionOutline(region))} fill="#829aaf1c" stroke="#456b89" strokeWidth=".0025"/>)}
-        {draft.length > 0 && <><polyline points={outlineString(draft)} fill="none" stroke="#456b89" strokeWidth=".003"/>{draft.map((p, n) => <ellipse key={n} cx={p.x} cy={p.y} rx=".004" ry=".004" fill="#9a603d"/>)}</>}
+        {draft.length > 0 && <><polyline points={outlineString(draft)} fill="none" stroke="#456b89" strokeWidth=".003"/>{shape === 'polygon' && draft.map((p, n) => <ellipse key={n} cx={p.x} cy={p.y} rx=".004" ry=".004" fill="#9a603d"/>)}</>}
       </svg>
     </div>;
   return <div className={`region-selection${zoomable ? ' is-zoomable' : ''}`} onKeyDown={event => {
     if (event.key === 'Escape' && (gesture.current || polygon.current.length)) { event.preventDefault(); event.stopPropagation(); reset(); }
-    if (event.key === 'Enter' && shape === 'polygon' && polygon.current.length >= 3) { event.preventDefault(); finishPolygon(); }
+    if (event.key === 'Enter' && waitsForClosure && polygon.current.length >= 3 && event.target === surface.current) { event.preventDefault(); finishOutline(); }
   }}>
     {allowMultiple && <div className="region-selection-controls"><label><input type="checkbox" checked={add} disabled={disabled} onChange={event => { reset(); setAdd(event.target.checked); setLimit(false); }}/>{t('叠加选区', 'Add regions')}</label><span>{regions.length} / {MAX_IMAGE_REGIONS}</span><button disabled={disabled || !regions.length} onClick={() => { reset(); setLimit(false); onChange(selectionUnion(regions.slice(0, -1))); }}>{t('撤回区域', 'Undo region')}</button><button disabled={disabled || !crop} onClick={() => { reset(); setLimit(false); onChange(null); }}>{t('清空选区', 'Clear regions')}</button>{limit && <span role="status">{t('已达 16 区上限，请撤回或清空。', '16-region limit. Undo or clear regions.')}</span>}</div>}
     {zoomable ? <PreviewZoom width={image.width} height={image.height} resetKey={image.id} label={t('可缩放的区域选择预览', 'Zoomable region selection preview')} disabled={disabled}>{canvas}</PreviewZoom> : canvas}
-    {shape === 'polygon' && <div className="region-polygon-actions"><span>{t('依次点击顶点，双击或按 Enter 闭合。', 'Click vertices; double-click or press Enter to close.')}</span><button disabled={disabled || draft.length < 3} onClick={finishPolygon}>{t('闭合选区', 'Close polygon')}</button><button disabled={disabled || !draft.length} onClick={() => { polygon.current = polygon.current.slice(0, -1); setDraft(polygon.current); }}>{t('撤回顶点', 'Undo vertex')}</button></div>}
+    {waitsForClosure && <div className="region-polygon-actions"><span>{shape === 'curve' ? t('拖画曲线，松手后可继续。完成时选择闭合。', 'Draw a curve. Release to pause, then close when ready.') : t('依次点击顶点，双击或按 Enter 闭合。', 'Click vertices; double-click or press Enter to close.')}</span><button disabled={disabled || draft.length < 3} onClick={finishOutline}>{shape === 'curve' ? t('闭合曲线', 'Close curve') : t('闭合选区', 'Close polygon')}</button><button disabled={disabled || !draft.length} onClick={() => { polygon.current = shape === 'curve' ? [] : polygon.current.slice(0, -1); setDraft(polygon.current); }}>{shape === 'curve' ? t('清除曲线草稿', 'Clear curve draft') : t('撤回顶点', 'Undo vertex')}</button></div>}
   </div>;
 }

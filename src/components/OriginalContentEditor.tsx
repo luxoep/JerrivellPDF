@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Check, CircleAlert, Copy, FileText, ImagePlus, LoaderCircle, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
+import { Check, CircleAlert, Copy, FileText, ImagePlus, LoaderCircle, RefreshCw, RotateCcw, Scissors, Trash2, X } from 'lucide-react';
 import { backend, errorMessage } from '../backend';
 import { useI18n } from '../i18n';
 import { contentEditFor, contentObjectId, geometryFromMillimeters, MAX_CONTENT_EDITS, POINTS_PER_MILLIMETER, removeContentEdit, upsertContentEdit } from '../originalContent';
@@ -38,6 +38,7 @@ export interface OriginalContentEditorProps {
   onBusyChange?: (busy: boolean) => void;
   onTextEditingChange?: (editing: boolean) => void;
   onEditLines?: () => void;
+  onExtractFeature?: () => void;
 }
 type GeometryDraft = { x: string; y: string; width: string; height: string };
 type Draft = { text: string; fontSize: string; fillColor: string; replaceFont: boolean; fontFamily: string; fontChoiceChanged: boolean; bold: boolean; italic: boolean; opacity: string; geometry: GeometryDraft; geometryChanged: boolean };
@@ -228,6 +229,7 @@ export function OriginalContentEditor(props: OriginalContentEditorProps) {
       {object?.kind === 'image' && <button className="oc-action oc-wide" disabled={!canEdit || !props.page} onClick={editPixels}>{t('图片裁切 / 橡皮擦','Image crop / Eraser')}</button>}
     </div>
     <div className="oc-scroll">{props.onEditLines && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onEditLines}><FileText size={14}/>{t('文字行排版与修改后预览', 'Text-line formatting and result preview')}</button><p className="oc-note">{t('文字行工具提供字距、对齐、装饰线与目标框；保留可搜索的 PDF 文字。', 'The line tool provides spacing, alignment, decoration strokes and a target frame while retaining searchable PDF text.')}</p></section>}
+      {props.onExtractFeature && <section className="oc-section"><button className="oe-action wide" disabled={blocked} onClick={props.onExtractFeature}><Scissors size={15}/>{t('提取或剪切特征','Extract or cut feature')}</button></section>}
       <section className="oc-section"><div className="oc-section-heading"><h3>{t('本页原有对象', 'Original page objects')}</h3><button disabled={blocked} onClick={props.onRefresh} aria-label={t('重新读取原有对象', 'Refresh original objects')}><RefreshCw size={13}/></button></div>
         {props.loading && <p className="oc-status" role="status"><LoaderCircle className="spin" size={14}/>{t('正在读取原有内容…', 'Reading original content…')}</p>}
         {props.error && <p className="oc-error" role="alert"><CircleAlert size={14}/>{props.error}</p>}

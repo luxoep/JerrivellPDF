@@ -23,7 +23,7 @@ function label(node) {
   return Array.isArray(node) ? node.map(label).join('') : label(node.props?.children);
 }
 const changed = (before, after) => !before || before.length !== after.length || after.some((value, n) => !Object.is(value, before[n]));
-async function fixture({ prepare, generate } = {}) {
+async function fixture({ prepare, generate, feature, search } = {}) {
   const slots = [], effects = [], listeners = new Map(), nativeEvents = new Map(), pendingFiles = [], calls = [], timers = new Map(), dialogs = [], events = [], cachedImages = new Map();
   let cursor = 0, pending = [], needsRender = true, tree, nextId = 0, timerId = 0, resets = 0;
   let pickerPaths = ['C:\\input.pdf'], pickerDeferred, retainDeferred, savePath = 'C:\\draft.jvp', saveFailure, loadFailure, closeListener;
@@ -73,7 +73,10 @@ async function fixture({ prepare, generate } = {}) {
       if (command === 'retain_documents') { if (retainDeferred) await retainDeferred; return; }
       if (command === 'save_editable_project') { if (saveFailure) throw saveFailure; return { path: args.path, pageCount: args.pages.length }; }
       if (command === 'load_editable_project') { if (loadFailure) throw loadFailure; return clone(project); }
+      if (command === 'search_pages' && search) return search(args);
       if (command === 'generate_pages' && generate) return generate(args.request);
+      if (command === 'edit_feature' && feature) return feature(args.request);
+      if (command === 'inspect_page_content') return { objects: [], totalObjects: 0, truncated: false, warnings: [] };
       throw new Error(`Unexpected native command: ${command}`);
     },
   };
@@ -135,6 +138,15 @@ async function fixture({ prepare, generate } = {}) {
     saveTo(path) { savePath = path; }, failSave(error) { saveFailure = error; }, failLoad(error) { loadFailure = error; },
     deferPicker() { let resolve; pickerDeferred = new Promise(done => resolve = done); return paths => resolve(paths); },
     deferRetain() { let resolve; retainDeferred = new Promise(done => resolve = done); return () => { resolve(); retainDeferred = null; }; },
+    async searchFor(value) {
+      const field = find(node => node.type === 'input' && node.props['aria-label'] === '查找文档中的文字');
+      assert.ok(field, 'The search field is open');
+      field.props.onChange({ target: { value } }); await settle();
+      const scheduled = [...timers.values()]; timers.clear();
+      for (const callback of scheduled) void callback();
+      await settle();
+    },
+    searchResult() { return find(node => node.type === 'button' && node.props.className?.startsWith('search-result ')); },
     async submitImport() { const form = find(node => node.type === 'form' && node.props.className === 'modal import-modal'); assert.ok(form, 'The selected PDFs await an import decision'); form.props.onSubmit({ preventDefault() {} }); await settle(); },
     importDialog() { return find(node => node.type === 'form' && node.props.className === 'modal import-modal'); },
     nativeClose() { const event = { preventDefault() { this.prevented = true; } }; closeListener(event); return event; },
@@ -409,3 +421,108 @@ console.log('Project App workflow: inline-draft guards; inactive-tab staged roll
   ui.cleanup();
 }
 console.log('PASS: App pages eraser opens without an overlay, cancels without mutations, retries a failed apply, preserves editable overlays and uses one undo/redo step');
+
+{
+  const ui = await fixture();
+  await ui.open(['C:\\input.pdf', 'C:\\second.pdf', 'C:\\third.pdf']);
+  await ui.activate('second.pdf');
+  const viewers = () => walk(ui.render(), node => node.type === 'PdfViewer');
+  const readerFor = name => viewers().find(node => node.props.pages[0].sourceName === name);
+  const split = () => ui.component('ReaderSplitButtons');
+  split().props.change('left-right'); await ui.settle();
+  assert.equal(split().props.direction, 'left-right');
+  assert.deepEqual(viewers().map(node => node.props.pages[0].sourceName), ['second.pdf', 'input.pdf']);
+
+  const peerHeader = () => walk(ui.render(), node => node.type === 'SplitPaneHeader').find(node => !node.props.active);
+  peerHeader().props.fit(); await ui.settle();
+  assert.equal(readerFor('input.pdf').props.zoom, 'page');
+  assert.equal(readerFor('second.pdf').props.zoom, 'fit');
+  const peer = readerFor('input.pdf').props;
+  peer.onZoom({fitPercent: 150}); peer.onActiveChange(peer.pages[1].id); await ui.settle();
+  assert.equal(readerFor('second.pdf').props.zoom, 'fit');
+  assert.equal(ui.tab('second.pdf').props['aria-selected'], true, 'Scrolling the other pane leaves this editing workspace active');
+  const view = { atStart: false, anchor: { id: peer.pages[1].id, x: .5, y: .5, viewportX: 200, viewportY: 180 } };
+  peer.captureView.current = () => view;
+  peer.onPagePointerDown(peer.pages[1].id); await ui.settle();
+  assert.equal(ui.tab('input.pdf').props['aria-selected'], true);
+  assert.deepEqual(clone(readerFor('input.pdf').props.viewRestore.view), view);
+  assert.equal(readerFor('input.pdf').props.zoom.fitPercent, 150);
+  await ui.edit();
+  assert.equal(readerFor('input.pdf').props.pages[1].rotation, 90);
+  assert.ok(readerFor('second.pdf').props.pages.every(page => page.rotation === 0));
+
+  split().props.change('top-bottom'); await ui.settle();
+  assert.equal(split().props.direction, 'top-bottom');
+  peerHeader().props.choose(ui.tab('third.pdf').props.id.slice('document-tab-'.length)); await ui.settle();
+  assert.deepEqual(viewers().map(node => node.props.pages[0].sourceName), ['third.pdf', 'input.pdf']);
+  split().props.change('top-bottom'); await ui.settle();
+  assert.equal(viewers().length, 1);
+  assert.equal(viewers()[0].props.pages[0].sourceName, 'input.pdf');
+  assert.equal(ui.tabs().length, 3);
+  assert.equal(ui.counts('open_document'), 3, 'Changing panes reuses the existing open documents');
+  ui.cleanup();
+}
+console.log('PASS: Split reader keeps independent scroll and zoom, edits the active document, reuses tabs, and switches both layouts');
+
+{
+  const pending = new Map();
+  const ui = await fixture({ search: ({ query }) => new Promise(resolve => pending.set(query, resolve)) });
+  await ui.open(); ui.key('f'); await ui.settle();
+  await ui.searchFor('old'); await ui.searchFor('new');
+  const box = { x: .1, y: .8, width: .2, height: .04 };
+  const hit = { pageIndex: 0, matchCount: 1, preview: 'new', rects: [box] };
+  pending.get('new')([hit]); await ui.settle();
+  const highlight = () => {
+    const viewer = ui.component('PdfViewer');
+    const controls = viewer.props.controls(viewer.props.pages[0], true, false, () => {});
+    return walk(controls, node => node.type === 'PageSearchHighlight')[0]?.props.bounds;
+  };
+  assert.deepEqual(clone(highlight()), [box]);
+  ui.searchResult().props.onClick(); await ui.settle();
+  assert.deepEqual(clone(ui.component('PdfViewer').props.navigation.point), { x: .2, y: .8200000000000001 });
+  pending.get('old')([{ ...hit, preview: 'old', rects: [{ ...box, x: .4 }] }]); await ui.settle();
+  assert.deepEqual(clone(highlight()), [box], 'A slower earlier search must not repaint highlight geometry');
+  await ui.edit();
+  assert.equal(highlight(), undefined, 'Rotation hides stale boxes before the matching update');
+  await ui.searchFor('');
+  assert.equal(highlight(), undefined);
+  ui.cleanup();
+}
+console.log('PASS: App search highlights and centers hits, drops out-of-order results, and clears stale boxes on rotation');
+
+{
+  const ui = await fixture({
+    feature(request) {
+      assert.equal(request.kind, 'extract');
+      return { id: 'opaque-feature', width: 400, height: 200, dataUrl: 'data:image/png;base64,FEATURE' };
+    },
+    generate(request) {
+      assert.equal(request.kind, 'cutFeature');
+      return { id: 'covered-source', path: 'memory://covered/source.pdf', fileName: 'source.pdf',
+        pageCount: 1, pages: [{ index: 0, width: 595, height: 842, rotation: 0 }], warnings: [] };
+    },
+  });
+  await ui.open();
+  const before = clone(ui.pages());
+  ui.button('Edit original').props.onClick(); await ui.settle();
+  ui.component('OriginalContentEditor').props.onExtractFeature(); await ui.settle();
+  const dialog = ui.component('PageEraseDialog');
+  const points = [{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.35},{x:.2,y:.35}];
+  await dialog.props.onFeature(points, true); await ui.settle();
+  const after = clone(ui.pages());
+  assert.equal(after[0].documentId, 'covered-source');
+  assert.equal(after[0].overlays[0].opacity, 1);
+  assert.equal(after[0].overlays[0].featureSource.assetId, 'opaque-feature');
+  assert.deepEqual(after[1], before[1], 'Only the active page is changed');
+  assert.equal(ui.component('OverlayEditor').props.fragments[0].featureSource.assetId, 'opaque-feature');
+  ui.key('s'); await ui.settle();
+  const pdf = ui.component('ExportDialog');
+  pdf.props.onSaved({failed:0,succeeded:1,results:[{path:'C:\drawing-copy.pdf'}]}); await ui.settle();
+  assert.equal(ui.isDirty(), true, 'A flat PDF export cannot clear the editable project save prompt');
+  ui.key('s', true); await ui.settle();
+  const written = ui.calls.find(item => item.command === 'save_editable_project');
+  assert.equal(written.args.pages[0].overlays[0].featureSource.assetId, 'opaque-feature');
+  assert.equal(ui.isDirty(), false);
+  ui.cleanup();
+}
+console.log('PASS: cutting a feature updates one page, opens its tray, and keeps the editable save distinct from PDF export');

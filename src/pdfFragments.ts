@@ -11,6 +11,8 @@ export interface PdfFragmentItem {
   name: string;
   image: ImageAsset;
   blendMode: 'normal' | 'multiply';
+  featureSource?: PageOverlay['featureSource'];
+  featureImage?: ImageAsset;
 }
 export interface FragmentDrop { pageId: string; x: number; y: number }
 export const MAX_FRAGMENT_ITEMS = 48;
@@ -28,7 +30,8 @@ export function mergeFragments(current: PdfFragmentItem[], incoming: PdfFragment
   for (const item of incoming) if (!next.some(previous => previous.key === item.key)) next.push(item);
   if (next.length > MAX_FRAGMENT_ITEMS) throw new Error('FRAGMENT_COUNT_LIMIT');
   // Count distinct PNGs once, matching their shared JS string / native image storage.
-  const bytes = [...new Set(next.map(item => item.image.dataUrl))].reduce((sum, png) => sum + png.length, 0);
+  const bytes = [...new Set(next.flatMap(item => item.featureImage ? [item.image.dataUrl, item.featureImage.dataUrl] : [item.image.dataUrl]))]
+    .reduce((sum, png) => sum + png.length, 0);
   if (bytes > MAX_FRAGMENT_BYTES) throw new Error('FRAGMENT_MEMORY_LIMIT');
   return next;
 }
@@ -55,6 +58,7 @@ export function fragmentOverlays(items: PdfFragmentItem[], pageWidth: number, pa
     const x = point ? point.x - width / 2 : .08 + (index % 5) * .035;
     const y = point ? point.y - height / 2 : .08 + (index % 5) * .035;
     return normalizedOverlay({ id: crypto.randomUUID(), assetId: item.image.id,
-      x, y, width, height, opacity: 1, rotation: 0, blendMode: item.blendMode });
+      x, y, width, height, opacity: 1, rotation: 0, blendMode: item.blendMode,
+      ...(item.featureSource ? { featureSource: item.featureSource } : {}) });
   });
 }

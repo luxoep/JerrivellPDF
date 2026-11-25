@@ -59,14 +59,16 @@ impl<'a> PdfEngine<'a> {
     }
 
     pub fn generate_pages(&mut self, request: &GeneratePages) -> Result<DocumentInfo, String> {
-        if let GeneratePages::EraseRegions { page, regions } = request {
-            return self.erase_regions(page, regions);
+        match request {
+            GeneratePages::EraseRegions { page, regions } => return self.erase_regions(page, regions),
+            GeneratePages::CutFeature { page, region } => return self.cut_feature(page, region),
+            _ => {}
         }
         let mut output = self.pdfium.create_new_pdf().map_err(pdf_error)?;
         let name;
         let mut protected = Vec::new();
         match request {
-            GeneratePages::EraseRegions { .. } => unreachable!(),
+            GeneratePages::EraseRegions { .. } | GeneratePages::CutFeature { .. } => unreachable!(),
             GeneratePages::Blank {
                 width,
                 height,

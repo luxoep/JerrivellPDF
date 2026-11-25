@@ -32,6 +32,8 @@ const MAX_RENDER_SIDE: u32 = 8192;
 const MAX_RENDER_PIXELS: u64 = 32 * 1024 * 1024;
 const MAX_PNG_BYTES: usize = 72 * 1024 * 1024;
 const MAX_SEARCH_CHARS: usize = 2_000_000;
+const MAX_SEARCH_RECTS_PER_PAGE: usize = 512;
+const MAX_SEARCH_RECTS: usize = 12_000;
 
 struct Source<'a> {
     document: PdfDocument<'a>,
@@ -352,31 +354,17 @@ impl<'a> PdfEngine<'a> {
             .ok_or_else(|| "DOCUMENT_CLOSED: 来源文档已关闭，请切换到仍打开的选项卡。".to_string())?;
         let query = query.to_lowercase();
         let mut matches = Vec::new();
+        let mut remaining = MAX_SEARCH_RECTS;
         for index in 0..source.document.pages().len() {
             let page = source.document.pages().get(index).map_err(pdf_error)?;
             let text = page.text().map_err(pdf_error)?;
             if text.len() as usize > MAX_SEARCH_CHARS {
                 return Err("页面文字量超过搜索限制。".into());
             }
-            let original = content::searchable_text(&page, &text, &query)?;
-            let lower = original.to_lowercase();
-            let match_count = lower.matches(&query).count();
-            if match_count > 0 {
-                // Character slicing avoids cutting UTF-8 in the middle of Chinese text.
-                let offset = lower
-                    .find(&query)
-                    .map(|i| lower[..i].chars().count())
-                    .unwrap_or(0);
-                let preview: String = original
-                    .chars()
-                    .skip(offset.saturating_sub(35))
-                    .take(150)
-                    .collect();
-                matches.push(SearchMatch {
-                    page_index: index as u32,
-                    match_count,
-                    preview: preview.replace(['\r', '\n'], " "),
-                });
+            let limit = remaining.min(MAX_SEARCH_RECTS_PER_PAGE);
+            if let Some(hit) = content::search_page(&page, &text, &query, index as usize, limit)? {
+                remaining -= hit.rects.len();
+                matches.push(hit);
             }
         }
         Ok(matches)
@@ -396,28 +384,12 @@ impl<'a> PdfEngine<'a> {
         }
         let query = query.to_lowercase();
         let mut matches = Vec::new();
+        let mut remaining = MAX_SEARCH_RECTS;
         for (index, reference) in pages.iter().enumerate() {
-            let original = self.page_search_text(reference, &query)?;
-            if original.chars().count() > MAX_SEARCH_CHARS {
-                return Err("页面文字量超过搜索限制。".into());
-            }
-            let lower = original.to_lowercase();
-            let count = lower.matches(&query).count();
-            if count > 0 {
-                let offset = lower
-                    .find(&query)
-                    .map(|i| lower[..i].chars().count())
-                    .unwrap_or(0);
-                let preview: String = original
-                    .chars()
-                    .skip(offset.saturating_sub(35))
-                    .take(150)
-                    .collect();
-                matches.push(SearchMatch {
-                    page_index: index as u32,
-                    match_count: count,
-                    preview: preview.replace(['\r', '\n'], " "),
-                });
+            let limit = remaining.min(MAX_SEARCH_RECTS_PER_PAGE);
+            if let Some(hit) = self.page_search_match(reference, &query, index, limit)? {
+                remaining -= hit.rects.len();
+                matches.push(hit);
             }
         }
         Ok(matches)
@@ -830,6 +802,10 @@ impl<'a> PdfEngine<'a> {
                 let p: EditImage = parse(&request.args)?;
                 self.edit_image_asset(&p.asset_id, p.crop.as_ref(), &p.strokes)
                     .map(|v| json!(v))
+            }
+            "edit_feature" => {
+                let p: FeatureRequest = parse(request.args.get("request").ok_or("缺少片段请求。")?)?;
+                self.edit_feature(&p).map(|v| json!(v))
             }
             "preview_image_edit" => {
                 let p: EditImage = parse(&request.args)?;

@@ -542,6 +542,65 @@ fn page_region_erase_keeps_text_paths_and_original_image_resolution() {
 }
 
 #[test]
+fn feature_cutout_keeps_paper_opaque_and_reopens_with_recolor_source() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("feature-source.pdf");
+    let original = base_pdf(0, false);
+    fs::write(&input, &original).unwrap();
+    let mut engine = PdfEngine::new(native_pdfium());
+    let document = engine.open_document(input.to_str().unwrap(), None).unwrap();
+    let page = plan(&document, 0);
+    let ellipse = (0..64).map(|index| {
+        let angle = index as f32 * std::f32::consts::TAU / 64.0;
+        ImagePoint { x: 0.704 + 0.15 * angle.cos(), y: 0.29 + 0.14 * angle.sin() }
+    }).collect::<Vec<_>>();
+    let original_asset = engine.edit_feature(&FeatureRequest::Extract { page: page.clone(), region: ellipse.clone() }).unwrap();
+    let pixel_data = |asset: &ImageAssetInfo| {
+        let data = base64::engine::general_purpose::STANDARD.decode(asset.data_url.split_once(',').unwrap().1).unwrap();
+        image::load_from_memory_with_format(&data, ImageFormat::Png).unwrap().into_rgba8()
+    };
+    let source_pixels = pixel_data(&original_asset);
+    assert_eq!(source_pixels.get_pixel(0, 0).0[3], 0);
+    let (w, h) = source_pixels.dimensions();
+    assert_eq!(source_pixels.get_pixel(w / 2, h * 4 / 5).0, [255; 4]);
+    assert_eq!(source_pixels.get_pixel(w / 2, h / 3).0, [0, 0, 255, 255]);
+    let tinted = engine.edit_feature(&FeatureRequest::Tint { asset_id: original_asset.id.clone(), color: "#aa2010".into() }).unwrap();
+    let tint_pixels = pixel_data(&tinted);
+    assert_eq!(tint_pixels.get_pixel(w / 2, h * 4 / 5).0, [255; 4]);
+    let colored = tint_pixels.get_pixel(w / 2, h / 3).0;
+    assert!(colored[0] > colored[1] * 2 && colored[3] == 255);
+
+    let generated = engine.generate_pages(&GeneratePages::CutFeature { page, region: ellipse }).unwrap();
+    let clean = plan(&generated, 0);
+    let cut = pixels(engine.render_page(&clean, 800).unwrap());
+    assert_eq!(cut.get_pixel((cut.width() as f32 * 0.704) as u32, (cut.height() as f32 * 0.283) as u32).0, [255; 4]);
+    let inspected = engine.inspect_page_content(&clean).unwrap();
+    assert!(inspected.objects.iter().any(|item| item.text.as_deref() == Some("KeepText") && item.editable));
+
+    let workspace = json!({"id":"feature","documentId":generated.id,"pageIndex":0,"rotation":0,
+        "width":generated.pages[0].width,"height":generated.pages[0].height,"sourceName":"feature.pdf",
+        "overlays":[{"id":"cutout","assetId":tinted.id,"featureSource":{"assetId":original_asset.id},
+            "x":0.12,"y":0.10,"width":0.25,"height":0.20,"opacity":1,"rotation":90}]});
+    let path = directory.path().join("portable.jvp");
+    engine.save_editable_project(path.to_str().unwrap(), vec![workspace], "Feature cut").unwrap();
+    let loaded = engine.load_editable_project(path.to_str().unwrap()).unwrap();
+    let mut workspace = loaded["workspace"][0].clone();
+    let original_id = workspace["overlays"][0]["featureSource"]["assetId"].as_str().unwrap().to_owned();
+    assert_ne!(original_id, original_asset.id);
+    assert_eq!(pixel_data(&engine.get_image_asset(&original_id).unwrap()), source_pixels);
+    let next = engine.edit_feature(&FeatureRequest::Tint { asset_id: original_id, color: "#008844".into() }).unwrap();
+    workspace["overlays"][0]["assetId"] = json!(next.id);
+    workspace["overlays"][0]["x"] = json!(0.72);
+    workspace["overlays"][0]["rotation"] = json!(180);
+    engine.save_editable_project(path.to_str().unwrap(), vec![workspace], "Feature cut").unwrap();
+    let reopened = engine.load_editable_project(path.to_str().unwrap()).unwrap();
+    assert_eq!(reopened["workspace"][0]["overlays"][0]["x"], json!(0.72));
+    assert_eq!(reopened["workspace"][0]["overlays"][0]["rotation"], 180);
+    assert_eq!(fs::read(&input).unwrap(), original);
+}
+
+#[test]
 fn original_text_local_font_embedding_bounds_and_invalid_patches() {
     let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let pdfium = native_pdfium();

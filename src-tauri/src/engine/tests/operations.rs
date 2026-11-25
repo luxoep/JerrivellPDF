@@ -493,13 +493,12 @@ fn native_text_line_spacing_preview_alignment_and_overflow() {
         .search_document(&styled_document.id, "REALSPACE")
         .unwrap()
         .is_empty());
-    assert_eq!(
-        engine
-            .search_pages(&[reference(&styled_document, 0, 0)], "HELLO")
-            .unwrap()
-            .len(),
-        1
-    );
+    let spaced_matches = engine
+        .search_pages(&[reference(&styled_document, 0, 0)], "HELLO")
+        .unwrap();
+    assert_eq!(spaced_matches.len(), 1);
+    assert_eq!(spaced_matches[0].match_count, 1);
+    assert!(!spaced_matches[0].rects.is_empty(), "Inferred letter spacing retains highlight geometry");
     let styled_path = temp.path().join("styled-search.pdf");
     engine
         .save_document(

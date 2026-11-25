@@ -38,3 +38,5 @@
 .oe-text-options[open] > summary, .oe-font-details[open] > summary { margin-bottom: 6px; }
 
 .oe-draw-text{width:100%;min-height:38px;margin-bottom:8px;gap:7px}
+.oe-typed-signature{min-height:75px;display:grid;place-items:center;border-radius:7px;padding:8px;color:#536773}
+.oe-typed-signature img{display:block;max-width:100%;max-height:90px;object-fit:contain}

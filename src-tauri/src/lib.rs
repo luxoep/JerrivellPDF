@@ -321,6 +321,14 @@ async fn edit_image_asset(
 }
 
 #[tauri::command]
+async fn edit_feature(
+    state: State<'_, Backend>,
+    request: FeatureRequest,
+) -> Result<ImageAssetInfo, String> {
+    call(state, "edit_feature", json!({"request":request})).await
+}
+
+#[tauri::command]
 async fn get_image_asset(
     state: State<'_, Backend>,
     asset_id: String,
@@ -569,6 +577,7 @@ pub fn run() {
             export_page,
             register_image,
             edit_image_asset,
+            edit_feature,
             get_image_asset,
             rasterize_page_asset,
             extract_content_image,

@@ -41,6 +41,7 @@
     "allow-export-page",
     "allow-register-image",
     "allow-edit-image-asset",
+    "allow-edit-feature",
     "allow-get-image-asset",
     "allow-rasterize-page-asset",
     "allow-extract-content-image",

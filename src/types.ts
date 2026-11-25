@@ -1,4 +1,4 @@
-import type { ContentEdit } from './originalContent';
+import type { ContentBounds, ContentEdit } from './originalContent';
 
 export interface PageOverlay {
   id: string;
@@ -20,6 +20,8 @@ export interface PageOverlay {
   markSource?: import('./markGeometry').MarkSource;
   /** A leader's final point is attached to this text overlay. */
   leaderFor?: string;
+  /** Original paper and ink for recoloring a reusable cutout. */
+  featureSource?: { assetId: string };
 }
 
 export interface ImageAsset {
@@ -103,9 +105,11 @@ export interface SearchMatch {
   pageIndex: number;
   matchCount: number;
   preview: string;
+  rects?: ContentBounds[];
 }
 
 export interface WorkspaceMatch extends SearchMatch {
   id: string;
   workspaceIndex: number;
+  pageKey?: string;
 }

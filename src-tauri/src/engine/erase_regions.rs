@@ -79,6 +79,40 @@ fn intersects([l, b, r, t]: [f64; 4], [ol, ob, or, ot]: [f64; 4]) -> bool {
     l < or && ol < r && b < ot && ob < t
 }
 
+fn page_space(page: &PdfPage<'_>) -> Result<Matrix, String> {
+    let config = PdfRenderConfig::new().set_target_size(10_000, 10_000);
+    let point = |x, y| {
+        page.pixels_to_points(x, y, &config)
+            .map(|(x, y)| (f64::from(x.value), f64::from(y.value)))
+            .map_err(pdf_error)
+    };
+    let (ox, oy) = point(0, 0)?;
+    let (rx, ry) = point(10_000, 0)?;
+    let (bx, by) = point(0, 10_000)?;
+    Ok([rx - ox, ry - oy, bx - ox, by - oy, ox, oy])
+}
+
+fn normalized_feature(region: &[ImagePoint]) -> Result<(Vec<Point>, [f64; 4]), String> {
+    if !(3..=256).contains(&region.len())
+        || region.iter().any(|p| {
+            ![p.x, p.y]
+                .iter()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        })
+    {
+        return Err("请先闭合页内选区。".into());
+    }
+    let outline = region
+        .iter()
+        .map(|p| (p.x.into(), p.y.into()))
+        .collect::<Vec<_>>();
+    let [l, b, r, t] = bounds(&outline);
+    if r - l < 0.001 || t - b < 0.001 {
+        return Err("选区过小，无法制作片段。".into());
+    }
+    Ok((outline, [l, b, r, t]))
+}
+
 fn page_xobjects(document: &Document, mut page: ObjectId) -> Result<Option<&Dictionary>, String> {
     for _ in 0..32 {
         let node = document.get_dictionary(page).map_err(pdf_error)?;
@@ -305,19 +339,7 @@ impl<'a> PdfEngine<'a> {
         base.overlays.clear();
         base.decorations.clear();
         let source = self.prepare_document(&[base])?;
-        let space = {
-            let page = source.pages().get(0).map_err(pdf_error)?;
-            let config = PdfRenderConfig::new().set_target_size(10_000, 10_000);
-            let point = |x, y| {
-                page.pixels_to_points(x, y, &config)
-                    .map(|(x, y)| (f64::from(x.value), f64::from(y.value)))
-                    .map_err(pdf_error)
-            };
-            let (ox, oy) = point(0, 0)?;
-            let (rx, ry) = point(10_000, 0)?;
-            let (bx, by) = point(0, 10_000)?;
-            [rx - ox, ry - oy, bx - ox, by - oy, ox, oy]
-        };
+        let space = page_space(&source.pages().get(0).map_err(pdf_error)?)?;
         let bytes = self.document_bytes(&source, MAX_FILE_BYTES as usize)?;
         drop(source);
         let mut document = Document::load_mem(&bytes).map_err(pdf_error)?;
@@ -341,5 +363,139 @@ impl<'a> PdfEngine<'a> {
             "局部擦除保留图片原分辨率并裁掉选区内的显示内容。裁掉的数据可能仍在文件内。".into(),
         ];
         Ok(info)
+    }
+
+    pub(super) fn cut_feature(
+        &mut self,
+        reference: &PageRef,
+        region: &[ImagePoint],
+    ) -> Result<DocumentInfo, String> {
+        let (outline, _) = normalized_feature(region)?;
+        let copy_allowed = self.source(reference)?.copy_allowed;
+        let mut base = reference.clone();
+        base.overlays.clear();
+        base.decorations.clear();
+        let source = self.prepare_document(&[base])?;
+        let space = page_space(&source.pages().get(0).map_err(pdf_error)?)?;
+        let mut operations = vec![Operation::new("q", vec![])];
+        operations.push(Operation::new("g", vec![Object::Integer(1)]));
+        add_path(&mut operations, &outline, space)?;
+        operations.extend([Operation::new("f*", vec![]), Operation::new("Q", vec![])]);
+        let cover = Content { operations }.encode().map_err(pdf_error)?;
+        let bytes = self.document_bytes(&source, MAX_FILE_BYTES as usize)?;
+        drop(source);
+        let mut document = Document::load_mem(&bytes).map_err(pdf_error)?;
+        let page = document
+            .get_pages()
+            .get(&1)
+            .copied()
+            .ok_or("无法定位页面。")?;
+        let original = document.get_page_contents(page);
+        let start = document.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()));
+        let mut finish = b"Q\n".to_vec();
+        finish.extend(cover);
+        let end = document.add_object(Stream::new(Dictionary::new(), finish));
+        let contents = [start]
+            .into_iter()
+            .chain(original)
+            .chain([end])
+            .map(Object::Reference)
+            .collect::<Vec<_>>();
+        document
+            .get_dictionary_mut(page)
+            .map_err(pdf_error)?
+            .set("Contents", contents);
+        let mut buffer = export::LimitedBuffer {
+            bytes: Vec::new(),
+            limit: MAX_FILE_BYTES as usize,
+        };
+        document.save_to(&mut buffer).map_err(pdf_error)?;
+        let mut info = self.add_generated_source(buffer.bytes, "剪切页面.pdf")?;
+        self.sources.get_mut(&info.id).unwrap().copy_allowed = copy_allowed;
+        info.warnings = vec!["特征剪切以白色纸底覆盖原位置；源对象可能仍保存在 PDF 中。".into()];
+        Ok(info)
+    }
+
+    pub fn edit_feature(&mut self, request: &FeatureRequest) -> Result<ImageAssetInfo, String> {
+        let pixels = match request {
+            FeatureRequest::Extract { page, region } => {
+                let (outline, [l, b, r, t]) = normalized_feature(region)?;
+                if self.source(page)?.copy_allowed == Some(false) {
+                    return Err("PDF 权限限制复制内容。".into());
+                }
+                let mut base = page.clone();
+                base.overlays.clear();
+                base.decorations.clear();
+                let source = self.prepare_document(&[base])?;
+                let mut page = source.pages().get(0).map_err(pdf_error)?;
+                let space = page_space(&page)?;
+                let [left, bottom, right, top] =
+                    bounds(&corners([l, b, r, t]).map(|p| apply(space, p)));
+                page.boundaries_mut()
+                    .set_crop(PdfRect::new(
+                        PdfPoints::new(bottom as f32),
+                        PdfPoints::new(left as f32),
+                        PdfPoints::new(top as f32),
+                        PdfPoints::new(right as f32),
+                    ))
+                    .map_err(pdf_error)?;
+                let (w, h) = (page.width().value, page.height().value);
+                if !(w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite()) {
+                    return Err("无法裁剪该页面区域。".into());
+                }
+                let scale = (2000.0 / w.max(h)).min(8.0);
+                let mut rgba = page
+                    .render_with_config(
+                        &PdfRenderConfig::new()
+                            .set_target_size((w * scale).ceil() as i32, (h * scale).ceil() as i32)
+                            .render_form_data(false)
+                            .render_annotations(false)
+                            .set_clear_color(PdfColor::WHITE),
+                    )
+                    .map_err(pdf_error)?
+                    .as_image()
+                    .map_err(pdf_error)?
+                    .into_rgba8();
+                let points = outline
+                    .into_iter()
+                    .map(|(x, y)| ImagePoint {
+                        x: ((x - l) / (r - l)) as f32,
+                        y: ((y - b) / (t - b)) as f32,
+                    })
+                    .collect();
+                let crop = PdfStampCrop {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                    points,
+                    regions: vec![],
+                };
+                super::image_edit::crop_mask(&mut rgba, &crop);
+                rgba
+            }
+            FeatureRequest::Tint { asset_id, color } => {
+                if color.len() != 7
+                    || !color.starts_with('#')
+                    || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+                {
+                    return Err("片段颜色无效。".into());
+                }
+                let value = u32::from_str_radix(&color[1..], 16).map_err(pdf_error)?;
+                let tint = [(value >> 16) as u8, (value >> 8) as u8, value as u8];
+                let asset = self.assets.get(asset_id).ok_or("片段原始图像已失效。")?;
+                let mut rgba = assets::decode_image(&asset.png, true)?.into_rgba8();
+                for pixel in rgba.pixels_mut().filter(|p| p.0[3] > 0) {
+                    let [r, g, b, _] = pixel.0;
+                    let ink =
+                        255 - ((77 * u16::from(r) + 150 * u16::from(g) + 29 * u16::from(b)) >> 8);
+                    for (component, tint) in pixel.0[..3].iter_mut().zip(tint) {
+                        *component = (255 - ink * (255 - u16::from(tint)) / 255) as u8;
+                    }
+                }
+                rgba
+            }
+        };
+        self.store_image(DynamicImage::ImageRgba8(pixels), None)
     }
 }

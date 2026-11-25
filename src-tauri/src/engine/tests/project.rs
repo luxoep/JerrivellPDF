@@ -24,6 +24,36 @@ fn page(document: &DocumentInfo, id: &str) -> Value {
 }
 
 #[test]
+fn project_save_rejects_combined_decoded_image_budget_before_replacing_file() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("original.pdf");
+    fs::write(&source, fixture("Original", 240, 360, 0)).unwrap();
+    let mut engine = PdfEngine::new(native_pdfium());
+    let document = engine.open_document(source.to_str().unwrap(), None).unwrap();
+    let destination = directory.path().join("existing.jvp");
+    engine.save_editable_project(destination.to_str().unwrap(), vec![page(&document, "empty")], "Safe").unwrap();
+    let previous = fs::read(&destination).unwrap();
+    let mut bytes = Cursor::new(Vec::new());
+    DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(4096, 4096, image::Rgba([25, 60, 200, 255])))
+        .write_to(&mut bytes, ImageFormat::Png).unwrap();
+    let png = bytes.into_inner();
+    assert!(png.len() * 3 < 16 * 1024 * 1024);
+    let mut pages = vec![];
+    for n in 0..3 {
+        let id = format!("large-image-{n}");
+        engine.assets.insert(id.clone(), ImageAsset { png: png.clone(), width: 4096, height: 4096, source_paths: vec![] });
+        let mut entry = page(&document, &format!("page-{n}"));
+        entry["overlays"] = json!([{"id":"image","assetId":id,"x":0.1,"y":0.1,"width":0.8,"height":0.8,"opacity":1}]);
+        pages.push(entry);
+    }
+    assert!(engine.save_editable_project(destination.to_str().unwrap(), pages, "Oversized")
+        .unwrap_err().contains("128 MiB"));
+    assert_eq!(fs::read(&destination).unwrap(), previous);
+    assert_eq!(engine.load_editable_project(destination.to_str().unwrap()).unwrap()["title"], "Safe");
+}
+
+#[test]
 fn project_portable_sources_semantics_native_edits_and_asset_remapping_round_trip() {
     let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let directory = tempfile::tempdir().unwrap();

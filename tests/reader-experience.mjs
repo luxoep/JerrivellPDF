@@ -172,9 +172,13 @@ assert.equal(activePages.at(-1), '6', 'Wheel scrolling must update the active pa
 assert.ok(viewerTree.props.children.props.children.length <= 5, 'Only nearby pages should mount raster components');
 viewerProps.navigation = { id: '150', sequence: 1 }; viewerTree = renderViewer();
 near(viewport.scrollTop, scrollLayout.pages[150].top - 24, 'Thumbnail/page-number navigation scrolls the continuous document');
+const searchRow = scrollLayout.pages[150];
+viewerProps.navigation = { id: '150', sequence: 2, point: { x: .8, y: .84 } }; viewerTree = renderViewer();
+near(viewport.scrollTop, searchRow.top + searchRow.height * .84 - size.height / 2, 'Search navigation centers a match below the fold');
+near(viewport.scrollLeft, searchRow.left + searchRow.width * .8 - size.width / 2, 'Search navigation scrolls horizontally to the match');
 viewport.clientWidth = 700; viewport.clientHeight = 500; viewerProps.zoom = 'page'; resizeCallback(); viewerTree = renderViewer(); viewerTree = renderViewer();
 assert.ok(Number.isFinite(viewport.scrollTop) && viewport.scrollTop > 0, 'Resize and fit-page retain document position');
-viewerProps.pages = [page('short', 600, 20), page('tall')]; viewerProps.zoom = 'fit'; viewerProps.navigation = { id: 'short', sequence: 2 }; activePages.length = 0; viewerTree = renderViewer();
+viewerProps.pages = [page('short', 600, 20), page('tall')]; viewerProps.zoom = 'fit'; viewerProps.navigation = { id: 'short', sequence: 3 }; activePages.length = 0; viewerTree = renderViewer();
 viewerTree.props.onScroll(); rafCallback(); assert.equal(activePages.length, 0, 'Navigation to a short page stays selected until the user actually scrolls');
 
 const sortListeners = new Map(), moves = [];
