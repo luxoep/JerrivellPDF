@@ -76,14 +76,15 @@ impl<'a> PdfEngine<'a> {
                     _ => index > pivot,
                 };
                 if !keep {
-                    drop(
-                        page.objects_mut()
-                            .remove_object_at_index(index)
-                            .map_err(pdf_error)?,
-                    );
+                    page.objects()
+                        .get(index)
+                        .map_err(pdf_error)?
+                        .set_inactive()
+                        .map_err(pdf_error)?;
                 }
             }
-            page.regenerate_content().map_err(pdf_error)?;
+            // This page is rendered and discarded. Regenerating content here
+            // can change shared graphics state between untouched streams.
             let (width, height) =
                 render_dimensions(page.width().value, page.height().value, target_width, false)?;
             let bitmap = page

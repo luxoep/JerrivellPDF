@@ -980,7 +980,9 @@ impl<'a> PdfEngine<'a> {
             .filter_map(|object| object.text.as_deref())
             .collect::<Vec<_>>()
             .join("");
-        let mut output = self.prepare_document(std::slice::from_ref(&request.page))?;
+        let mut output = self.single_content_stream(
+            self.prepare_document(std::slice::from_ref(&request.page))?,
+        )?;
         let mut page = output.pages().get(0).map_err(pdf_error)?;
         let space = PageSpace::new(&page)?;
         let width = page.width().value;
@@ -1204,7 +1206,83 @@ impl<'a> PdfEngine<'a> {
         let intrinsic = page.rotation().map_err(pdf_error)?.as_degrees() as u16;
         page.set_rotation(rotation(intrinsic + reference.rotation));
         drop(page);
-        Ok(output)
+        if reference.content_edits.is_empty() {
+            Ok(output)
+        } else {
+            self.single_content_stream(output)
+        }
+    }
+
+    fn single_content_stream(&self, page: PdfDocument<'a>) -> Result<PdfDocument<'a>, String> {
+        let limit = MAX_FILE_BYTES as usize;
+        let bytes = self.document_bytes(&page, limit)?;
+        let mut parsed = lopdf::Document::load_mem_with_options(
+            &bytes,
+            lopdf::LoadOptions::with_max_decompressed_size(limit),
+        )
+        .map_err(pdf_error)?;
+        let id = parsed
+            .get_pages()
+            .get(&1)
+            .copied()
+            .ok_or_else(|| invalid("无法定位原文编辑页面。"))?;
+        let streams = parsed.get_page_contents(id);
+        if streams.len() < 2 {
+            return Ok(page);
+        }
+
+        // PDF content streams share graphics state. PDFium regenerates only
+        // dirty streams and can lose dash changes across stream boundaries.
+        // Join their original instructions before editing so PDFium writes
+        // each path's own dash pattern from a clean initial graphics state.
+        let mut content = Vec::new();
+        for stream in streams {
+            let stream = parsed
+                .get_object(stream)
+                .and_then(lopdf::Object::as_stream)
+                .map_err(pdf_error)?;
+            let remaining = limit.saturating_sub(content.len());
+            let bytes = stream
+                .decompressed_content_with_limit(remaining)
+                .map_err(pdf_error)?;
+            if bytes.len() >= remaining {
+                return Err(invalid("页面绘制指令超过原文编辑大小限制。"));
+            }
+            // PDFium omits these operators when it regenerates a stream.
+            // Keep them in their original streams when editing nearby content.
+            let maybe_unsupported = bytes
+                .split(|byte| byte.is_ascii_whitespace() || b"\0()<>[]{}/%".contains(byte))
+                .any(|token| matches!(token, b"BI" | b"sh"));
+            if maybe_unsupported
+                && !lopdf::content::Content::decode(&bytes).is_ok_and(|content| {
+                    content
+                        .operations
+                        .iter()
+                        .all(|op| !matches!(op.operator.as_str(), "BI" | "sh"))
+                })
+            {
+                return Ok(page);
+            }
+            content.extend(bytes);
+            content.push(b'\n');
+        }
+        let mut stream = lopdf::Stream::new(lopdf::Dictionary::new(), content);
+        stream.compress().map_err(pdf_error)?;
+        let stream = parsed.add_object(stream);
+        parsed
+            .get_dictionary_mut(id)
+            .map_err(pdf_error)?
+            .set("Contents", stream);
+        parsed.prune_objects();
+        let mut buffer = export::LimitedBuffer {
+            bytes: Vec::new(),
+            limit,
+        };
+        parsed.save_to(&mut buffer).map_err(pdf_error)?;
+        drop(page);
+        self.pdfium
+            .load_pdf_from_byte_vec(buffer.bytes, None)
+            .map_err(pdf_error)
     }
 
     fn content_font_style(

@@ -526,14 +526,24 @@ impl<'a> PdfEngine<'a> {
         fonts: &mut super::content::ContentFontCache,
     ) -> Result<(), String> {
         let source = self.source(reference)?;
+        let editable = if reference.content_edits.is_empty() {
+            None
+        } else {
+            Some(self.copied_content_page(reference)?)
+        };
+        let (document, source_index) = editable.as_ref().map_or(
+            (&source.document, reference.page_index as i32),
+            |document| (document, 0),
+        );
         output
             .pages_mut()
-            .copy_page_from_document(&source.document, reference.page_index as i32, index)
+            .copy_page_from_document(document, source_index, index)
             .map_err(pdf_error)?;
         let mut page = output.pages().get(index).map_err(pdf_error)?;
-        let intrinsic = page.rotation().map_err(pdf_error)?.as_degrees() as u16;
-        page.set_rotation(rotation(intrinsic + reference.rotation));
-        if !reference.content_edits.is_empty() {
+        if editable.is_none() {
+            let intrinsic = page.rotation().map_err(pdf_error)?.as_degrees() as u16;
+            page.set_rotation(rotation(intrinsic + reference.rotation));
+        } else {
             self.apply_content_edits(output, &mut page, reference, fonts)?;
         }
         if reference.overlays.is_empty() {

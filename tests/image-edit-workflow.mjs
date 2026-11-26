@@ -40,7 +40,17 @@ function find(node,predicate,result=[]){if(!node||typeof node!=='object')return 
 function harness(Component,props){const state={cursor:0,slots:[],effects:[],pending:[],tree:null};return{state,render(){host=state;state.cursor=0;state.pending=[];state.tree=Component(props);for(const effect of state.pending)effect();return state.tree;},button(name){const nodes=find(state.tree,node=>node.type==='button'&&(label(node).trim()===name||node.props['aria-label']===name));assert.equal(nodes.length,1,`button ${name}`);return nodes[0];},cleanup(){for(const effect of state.effects)effect?.cleanup?.();}};}
 function png(withInk=false){const width=160,height=120,scan=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*(width*4+1)+1+x*4;scan.set(withInk&&x>=18&&x<34&&y>=18&&y<34?[0,0,0,255]:x<80?[210,35,69,255]:[54,188,120,255],i);}function chunk(type,data){const tag=Buffer.from(type),body=Buffer.concat([tag,data]);let crc=0xffffffff;for(const byte of body){crc^=byte;for(let n=0;n<8;n++)crc=crc>>>1^(crc&1?0xedb88320:0);}const size=Buffer.alloc(4),sum=Buffer.alloc(4);size.writeUInt32BE(data.length);sum.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([size,body,sum]);}const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(scan)),chunk('IEND',Buffer.alloc(0))]);}
 const hash=value=>createHash('sha256').update(value).digest('hex');
-async function save(plan,name){const path=join(output,name),before=await api.renderPage(plan,800);const report=await api.backend('prepare_export',{parts:[{name,pages:[api.pageReference(plan)]}]},3);assert.equal((await api.backend('save_prepared_export',{token:report.token,paths:[path]},3)).failed,0);const reopened=await api.backend('open_document',{path}),ref={documentId:reopened.id,pageIndex:0,rotation:0};assert.equal(hash((await api.renderPage(ref,800)).dataUrl),hash(before.dataUrl),'Saved pixels match the actual export preview');return{reopened,ref};}
+async function save(plan, name, remainingPages = []) {
+ const path = join(output, name), before = await api.renderPage(plan, 800);
+ const pages = [plan, ...remainingPages].map(api.pageReference);
+ const report = await api.backend('prepare_export', { parts: [{ name, pages }] }, 3);
+ assert.equal((await api.backend('save_prepared_export', { token:report.token, paths:[path] }, 3)).failed, 0);
+ const reopened = await api.backend('open_document', { path });
+ const ref = { documentId:reopened.id, pageIndex:0, rotation:0 };
+ assert.equal(reopened.pageCount, pages.length);
+ assert.equal(hash((await api.renderPage(ref, 800)).dataUrl), hash(before.dataUrl), 'Saved pixels match the actual export preview');
+ return { reopened, ref };
+}
 async function exportPng(asset,name){await api.backend('export_image',{assetId:asset.id,outputPath:join(output,name)});}
 try{
  const doc=await api.backend('open_document',{path:join(root,'fixtures/sample.pdf')}),sourceHash=hash(await readFile(join(root,'fixtures/sample.pdf')));
@@ -106,7 +116,19 @@ try{
  const liveNode=find(tree,node=>node.type===live.LivePageImage)[0];assert.ok(find(live.LivePageImage(liveNode.props),node=>node.props['data-object-moving']).length);preview.cleanup();
  const raster=await api.backend('rasterize_page_asset',{page:api.pageReference(plan)});assert.ok(api.previewImageAsset(raster.id));assert.ok(Math.max(raster.width,raster.height)<=2400);
  const blank=await api.backend('generate_pages',{request:{kind:'blank',width:595,height:842,count:1}});await save({...page,documentId:blank.id,overlays:[{id:'raster',assetId:raster.id,x:0,y:0,width:1,height:1,opacity:1}]},'explicit-raster-page.pdf');
+ const region = [{x:.08,y:.26},{x:.32,y:.26},{x:.32,y:.29},{x:.08,y:.29}];
+ const feature = await api.backend('edit_feature', { request: { kind:'extract', page:api.pageReference(page), region } });
+ const tinted = await api.backend('edit_feature', { request: { kind:'tint', assetId:feature.id, color:'#cf1929' } });
+ const cut = await api.backend('generate_pages', { request: { kind:'cutFeature', page:api.pageReference(page), region } });
+ const featurePage = { ...page, documentId:cut.id, overlays:[{ id:'feature', assetId:tinted.id,
+   featureSource:{assetId:feature.id}, x:.39, y:.22, width:.24, height:.03, opacity:1 }] };
+ const remainingPages = doc.pages.slice(1).map(({ index }) => ({ ...page, pageIndex:index }));
+ await save(featurePage, 'original-feature-cutout.pdf', remainingPages);
+ const outputPath = join(output, 'original-feature-cutout.png');
+ await api.backend('export_page', { page:api.pageReference(featurePage), targetWidth:800, outputPath });
+ const featurePreview = await api.renderPage(featurePage, 800);
+ assert.deepEqual(await readFile(outputPath), Buffer.from(featurePreview.dataUrl.split(',')[1], 'base64'));
  assert.equal(hash(await readFile(join(root,'fixtures/sample.pdf'))),sourceHash);
- const result={status:'PASS',executable:exe,output,realImageEditor:true,realOriginalImageEditor:true,concaveCrop:true,multiRegionImageAndPdf:true,transparentEraser:true,defaultBackgroundRepair:true,mixedRepairAndTransparency:true,repairPreviewMatchesApplied:true,transientRepairPreviews:65,zeroNativeCallsDuringGestures:true,workspaceUndoUsesNewAsset:true,sourceUnchanged:true,savedReopenedPixelsMatch:true,originalObjectPreviewMoves:20,originalObjectLayerCalls:1,explicitPageRaster:true,foreground:layers.foreground.map(layer=>layer.blendMode)};
+ const result={status:'PASS',executable:exe,output,realImageEditor:true,realOriginalImageEditor:true,concaveCrop:true,multiRegionImageAndPdf:true,transparentEraser:true,defaultBackgroundRepair:true,mixedRepairAndTransparency:true,repairPreviewMatchesApplied:true,transientRepairPreviews:65,zeroNativeCallsDuringGestures:true,workspaceUndoUsesNewAsset:true,sourceUnchanged:true,savedReopenedPixelsMatch:true,originalObjectPreviewMoves:20,originalObjectLayerCalls:1,explicitPageRaster:true,featureCutoutPdfAndPngExport:true,foreground:layers.foreground.map(layer=>layer.blendMode)};
  await writeFile(join(output,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 }finally{child.stdin.end();child.kill();lines.close();}

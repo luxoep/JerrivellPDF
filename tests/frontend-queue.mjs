@@ -30,6 +30,13 @@ const lockedReference = exports.pageReference({ documentId: 'locked', pageIndex:
   overlays: [{ id: 'overlay', assetId: 'image', x: .1, y: .1, width: .2, height: .2, opacity: 1, locked: true, blendMode: 'multiply' }] });
 assert.equal('locked' in lockedReference.overlays[0], false);
 assert.equal(lockedReference.overlays[0].blendMode, 'multiply');
+
+const featureOverlay = { id: 'cutout', assetId: 'tinted-image', x: .1, y: .2, width: .3, height: .4,
+  opacity: .8, blendMode: 'normal', rotation: 90 };
+const cutout = { ...featureOverlay, featureSource: { assetId: 'original-image' } };
+const cutoutPage = { documentId: 'cut-page', pageIndex: 0, rotation: 0, overlays: [cutout] };
+assert.deepEqual(JSON.parse(JSON.stringify(exports.pageReference(cutoutPage).overlays)), [featureOverlay]);
+assert.equal(cutout.featureSource.assetId, 'original-image');
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const next = () => { assert.ok(calls.length, 'expected a native invocation'); return calls.shift(); };
 

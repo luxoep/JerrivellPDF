@@ -218,7 +218,9 @@ export const renderDiagnostics = () => ({ estimatedCacheBytes: cacheBytes, cache
 export function pageReference(page: PageRef): PageRef {
   return { documentId: page.documentId, pageIndex: page.pageIndex, rotation: page.rotation,
     ...(page.contentEdits?.length ? { contentEdits: page.contentEdits.map(edit => ({ ...edit, ...(edit.bounds ? { bounds: { ...edit.bounds } } : {}) })) } : {}),
-    ...(page.overlays?.length ? { overlays: page.overlays.map(({ locked: _locked, textSource: _textSource, markSource: _markSource, leaderFor: _leaderFor, ...overlay }) => ({ ...overlay })) } : {}),
+    ...(page.overlays?.length ? { overlays: page.overlays.map(({ id, assetId, x, y, width, height, opacity, rotation, blendMode }) => ({
+      id, assetId, x, y, width, height, opacity, rotation, blendMode,
+    })) } : {}),
     ...(page.decorations?.length ? { decorations: page.decorations.map(item => ({ ...item })) } : {}) };
 }
 

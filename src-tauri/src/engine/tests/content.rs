@@ -103,6 +103,145 @@ fn near(actual: f32, expected: f32, message: &str) {
 }
 
 #[test]
+fn original_edits_preserve_line_styles_across_content_streams() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("dimension-lines.pdf");
+    let mut drawing = lopdf::Document::load_mem(&base_pdf(0, false)).unwrap();
+    let page = drawing.get_pages()[&1];
+    let form = drawing.add_object(lopdf::Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 6.into(), 6.into()],
+            "Resources" => dictionary! {},
+        },
+        b"0 0 1 rg 0 0 6 6 re f".to_vec(),
+    ));
+    drawing.get_dictionary_mut(page).unwrap()
+        .get_mut(b"Resources").unwrap().as_dict_mut().unwrap()
+        .set("XObject", dictionary! { "Detail" => form });
+    let first = drawing.add_object(lopdf::Stream::new(
+        dictionary! {},
+        b"q 1 0 0 1 28 274 cm /Detail Do Q\n2 w 20 260 m 210 260 l S\nq [12 5 2 5 2 5] 2 d 20 220 m 210 220 l S".to_vec(),
+    ));
+    let mut second = b"20 180 m 210 180 l S\n[] 0 d 20 140 m 210 140 l S\nQ\nq 50 310 200 -45 re W n 20 278 m 250 278 l S Q\n".to_vec();
+    second.extend(drawing.get_page_content(page));
+    let second = drawing.add_object(lopdf::Stream::new(dictionary! {}, second));
+    drawing.get_dictionary_mut(page).unwrap().set(
+        "Contents",
+        vec![first.into(), second.into()],
+    );
+    drawing.save(&source).unwrap();
+    let original_bytes = fs::read(&source).unwrap();
+    let mut engine = PdfEngine::new(native_pdfium());
+    let opened = engine.open_document(source.to_str().unwrap(), None).unwrap();
+    let original = plan(&opened, 0);
+    let inspection = engine.inspect_page_content(&original).unwrap();
+    let text = inspection
+        .objects.iter()
+        .find(|item| item.text.as_deref() == Some("AlphaOld"))
+        .unwrap();
+    let render = |engine: &PdfEngine<'_>, page: &PageRef| pixels(engine.render_page(page, 800).unwrap());
+    let before = render(&engine, &original);
+    let line_pixels = |image: &RgbaImage| {
+        [44, 80, 160, 240, 320]
+            .into_iter()
+            .flat_map(|y| (42..110).map(move |x| *image.get_pixel(x, y)))
+            .collect::<Vec<_>>()
+    };
+    let has_gap = |y| (42..420).any(|x| before.get_pixel(x, y).0[0] == 255);
+    assert!(has_gap(160) && has_gap(240), "dash patterns must include gaps");
+    assert!(!has_gap(80) && !has_gap(320), "solid paths must be continuous");
+
+    let layers = engine
+        .render_object_layers(&original, text.object_index, &text.fingerprint, 800)
+        .unwrap();
+    assert!(line_pixels(&pixels(layers.lower)) == line_pixels(&before), "drag preview changes line styles");
+
+    let mut edited = original.clone();
+    edited.content_edits.push(patch(text, json!({"text":"BetaNew"})));
+    let edited_pixels = render(&engine, &edited);
+    assert!(line_pixels(&edited_pixels) == line_pixels(&before), "editing changes neighboring line styles");
+
+    let path = directory.path().join("edited.pdf");
+    engine.save_document(path.to_str().unwrap(), &[edited]).unwrap();
+    let reopened = engine.open_document(path.to_str().unwrap(), None).unwrap();
+    let saved = plan(&reopened, 0);
+    assert!(render(&engine, &saved) == edited_pixels, "saving changes the edited preview");
+    assert!(engine.page_content_text(&saved).unwrap().contains("BetaNew"));
+
+    let region =[(0.58, 0.22), (0.8, 0.22), (0.8, 0.35), (0.58, 0.35)]
+        .map(|(x, y)| ImagePoint { x, y })
+        .to_vec();
+    let asset = engine.edit_feature(&FeatureRequest::Extract { page: original.clone(), region: region.clone() }).unwrap();
+    let generated = engine.generate_pages(&GeneratePages::CutFeature { page: original, region }).unwrap();
+    let mut with_fragment = plan(&generated, 0);
+    with_fragment.overlays.push(serde_json::from_value(json!({
+        "id": "fragment", "assetId": asset.id, "x": 0.6, "y": 0.6,
+        "width": 0.22, "height": 0.13, "opacity": 1.0
+    })).unwrap());
+    let path = directory.path().join("fragment.pdf");
+    engine.save_document(path.to_str().unwrap(), &[with_fragment]).unwrap();
+    let reopened = engine.open_document(path.to_str().unwrap(), None).unwrap();
+    assert!(line_pixels(&render(&engine, &plan(&reopened, 0))) == line_pixels(&before), "feature export changes line styles outside the cut");
+    assert_eq!(fs::read(&source).unwrap(), original_bytes);
+}
+
+#[test]
+fn original_edit_preserves_shading_and_inline_images_in_other_streams() {
+    let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let directory = tempfile::tempdir().unwrap();
+    let mut drawing = lopdf::Document::load_mem(&base_pdf(0, false)).unwrap();
+    let page = drawing.get_pages()[&1];
+    drawing.get_dictionary_mut(page).unwrap()
+        .get_mut(b"Resources").unwrap().as_dict_mut().unwrap().set("Shading", dictionary! {
+            "Gradient" => dictionary! {
+                "ShadingType" => 2, "ColorSpace" => "DeviceRGB",
+                "Coords" => vec![180.into(), 0.into(), 220.into(), 0.into()],
+                "Function" => dictionary! {
+                    "FunctionType" => 2, "Domain" => vec![0.into(), 1.into()],
+                    "C0" => vec![1.into(), 0.into(), 0.into()],
+                    "C1" => vec![0.into(), 0.into(), 1.into()], "N" => 1,
+                },
+            },
+        });
+    let gradient = drawing.add_object(lopdf::Stream::new(
+        dictionary! {},
+        b"q 180 40 40 30 re W n /Gradient sh Q\n".to_vec(),
+    ));
+    let inline = drawing.add_object(lopdf::Stream::new(
+        dictionary! {},
+        b"q 40 0 0 30 240 40 cm BI /W 1 /H 1 /BPC 8 /CS /RGB ID \x00\xff\x00 EI Q\n".to_vec(),
+    ));
+    let text_stream = drawing.get_page_contents(page)[0];
+    let mut engine = PdfEngine::new(native_pdfium());
+    for (name, artwork_stream, pixel_x) in [("shading", gradient, 400), ("inline", inline, 520)] {
+        drawing.get_dictionary_mut(page).unwrap().set(
+            "Contents", vec![artwork_stream.into(), text_stream.into()],
+        );
+        let source = directory.path().join(format!("{name}.pdf"));
+        drawing.save(&source).unwrap();
+        let opened = engine.open_document(source.to_str().unwrap(), None).unwrap();
+        let mut edited = plan(&opened, 0);
+        let sample = |engine: &PdfEngine<'_>, page: &PageRef| {
+            let rendered = pixels(engine.render_page(page, 800).unwrap());
+            *rendered.get_pixel(pixel_x, 490)
+        };
+        let artwork = sample(&engine, &edited);
+        assert_ne!(artwork, Rgba([255; 4]));
+        let inspection = engine.inspect_page_content(&edited).unwrap();
+        let text = inspection.objects.iter().find(|item| item.text.as_deref() == Some("AlphaOld")).unwrap();
+        edited.content_edits.push(patch(text, json!({"text":"BetaNew"})));
+        let path = directory.path().join(format!("edited-{name}.pdf"));
+        engine.save_document(path.to_str().unwrap(), &[edited]).unwrap();
+        let reopened = engine.open_document(path.to_str().unwrap(), None).unwrap();
+        let saved = plan(&reopened, 0);
+        assert_eq!(sample(&engine, &saved), artwork, "{name} changed after saving");
+        assert!(engine.page_content_text(&saved).unwrap().contains("BetaNew"));
+    }
+}
+
+#[test]
 fn original_objects_edit_search_geometry_images_delete_and_round_trip() {
     let _serial = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let pdfium = native_pdfium();
