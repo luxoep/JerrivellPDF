@@ -35,6 +35,8 @@ Search works on readable text layers. OCR is planned. Curve cuts and erasure can
 - [Release history](docs/RELEASES.md) · [0.15.1 release notes](docs/RELEASE_NOTES.md) · [Release validation](docs/VALIDATION.md)
 - [Publication and asset provenance](PUBLICATION.md) · [Licenses and notices](THIRD_PARTY_NOTICES.md)
 
+The next optimization focuses on sharper previews, more responsive multi-document reading, and faster local drawing comparisons. [CPU and GPU acceleration plan](docs/ROADMAP.md#next-optimization--cpu-and-gpu-acceleration)
+
 Report problems with the app version, Windows version and steps to reproduce. Use synthetic or authorized public samples. [GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)
 
 ## 简体中文
@@ -64,6 +66,8 @@ Report problems with the app version, Windows version and steps to reproduce. Us
 - [快速开始](docs/QUICK_START.zh-CN.md) · [从源码构建](docs/BUILDING.zh-CN.md) · [路线图](docs/ROADMAP.zh-CN.md)
 - [版本索引](docs/RELEASES.zh-CN.md) · [0.15.1 发布说明](docs/RELEASE_NOTES.zh-CN.md) · [发布验证](docs/VALIDATION.zh-CN.md)
 - [发布材料与来源](PUBLICATION.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
+
+下一步优先优化预览清晰度、多文档阅读流畅度和本地图纸对比速度。[CPU 与 GPU 加速规划](docs/ROADMAP.zh-CN.md#下一步优化--cpu-与-gpu-加速)
 
 反馈时请附软件版本、Windows 版本和复现步骤。示例请使用合成文件或获准公开的样本。[GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)
 
