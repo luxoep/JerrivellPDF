@@ -1,11 +1,12 @@
 # Jerrivell PDF 版本下载
 
-[English](RELEASES.md) · [0.15.0 发布说明](RELEASE_NOTES.zh-CN.md)
+[English](RELEASES.md) · [0.15.1 发布说明](RELEASE_NOTES.zh-CN.md)
 
 在对应版本的发布页下载 Windows x64 安装包、对应源码及其他附件。各历史版本沿用发布时附带的许可。[最新版](https://github.com/luxoep/JerrivellPDF/releases/latest) · [如何校验下载文件](../PUBLICATION.md#简体中文)
 
 | 版本 | Windows x64 安装包与对应源码 | 本版原创代码许可 |
 | --- | --- | --- |
+| 0.15.1 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.15.1) | MIT OR Apache-2.0 |
 | 0.15.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.15.0) | MIT OR Apache-2.0 |
 | 0.14.1 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.14.1) | MIT OR Apache-2.0 |
 | 0.13.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.13.0) | MIT OR Apache-2.0 |

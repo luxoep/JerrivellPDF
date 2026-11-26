@@ -12,7 +12,7 @@ A local, open-source Windows PDF workspace for everyday documents and mechanical
 ### Download and open
 
 1. Install the [Microsoft Edge WebView2 Evergreen Runtime (x64)](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if it is missing. The installer expects the runtime to be present.
-2. Download and run the Windows x64 installer. Check its SHA-256 against the file on the release page. The 0.15.0 installer is unsigned. [Download 0.15.0 for Windows x64](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe)
+2. Download and run the Windows x64 installer. Check its SHA-256 against the file on the release page. The 0.15.1 installer is unsigned. [Download 0.15.1 for Windows x64](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.1/Jerrivell.PDF_0.15.1_x64-setup.exe)
 3. Open **Jerrivell PDF** from the Windows Start menu. The installed app runs independently of the development toolchain.
 
 ### Work with PDFs
@@ -32,7 +32,7 @@ Search works on readable text layers. OCR is planned. Curve cuts and erasure can
 ### Documentation
 
 - [Quick start](docs/QUICK_START.md) · [Build from source](docs/BUILDING.md) · [Roadmap](docs/ROADMAP.md)
-- [Release history](docs/RELEASES.md) · [0.15.0 release notes](docs/RELEASE_NOTES.md) · [Release validation](docs/VALIDATION.md)
+- [Release history](docs/RELEASES.md) · [0.15.1 release notes](docs/RELEASE_NOTES.md) · [Release validation](docs/VALIDATION.md)
 - [Publication and asset provenance](PUBLICATION.md) · [Licenses and notices](THIRD_PARTY_NOTICES.md)
 
 Report problems with the app version, Windows version and steps to reproduce. Use synthetic or authorized public samples. [GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)
@@ -42,7 +42,7 @@ Report problems with the app version, Windows version and steps to reproduce. Us
 ### 下载并打开
 
 1. 如本机缺少运行环境，先安装 [Microsoft Edge WebView2 Evergreen Runtime（x64）](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。安装器使用系统已有的运行环境。
-2. 下载并运行 Windows x64 安装包。可用发布页提供的 SHA-256 核对文件。0.15.0 安装包尚未签名。[下载 0.15.0 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe)
+2. 下载并运行 Windows x64 安装包。可用发布页提供的 SHA-256 核对文件。0.15.1 安装包尚未签名。[下载 0.15.1 Windows x64 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.1/Jerrivell.PDF_0.15.1_x64-setup.exe)
 3. 从 Windows 开始菜单打开 **Jerrivell PDF**。安装后的程序可独立运行，无需配置开发工具链。
 
 ### 常用操作
@@ -62,7 +62,7 @@ Report problems with the app version, Windows version and steps to reproduce. Us
 ### 文档入口
 
 - [快速开始](docs/QUICK_START.zh-CN.md) · [从源码构建](docs/BUILDING.zh-CN.md) · [路线图](docs/ROADMAP.zh-CN.md)
-- [版本索引](docs/RELEASES.zh-CN.md) · [0.15.0 发布说明](docs/RELEASE_NOTES.zh-CN.md) · [发布验证](docs/VALIDATION.zh-CN.md)
+- [版本索引](docs/RELEASES.zh-CN.md) · [0.15.1 发布说明](docs/RELEASE_NOTES.zh-CN.md) · [发布验证](docs/VALIDATION.zh-CN.md)
 - [发布材料与来源](PUBLICATION.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
 
 反馈时请附软件版本、Windows 版本和复现步骤。示例请使用合成文件或获准公开的样本。[GitHub Issues](https://github.com/luxoep/JerrivellPDF/issues)

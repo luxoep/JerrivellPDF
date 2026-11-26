@@ -3,11 +3,11 @@
 
 [English](QUICK_START.md) · [首页](../README.md)
 
-适用于 Windows x64 上的 Jerrivell PDF 0.15.0。安装完成后，文档在本机处理。
+适用于 Windows x64 上的 Jerrivell PDF 0.15.1。安装完成后，文档在本机处理。
 
 ## 安装或升级
 
-1. 从 GitHub 下载 Windows x64 安装包，在发布页对照 `SHA256SUMS.txt` 核对 SHA-256。[0.15.0 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe) · [全部版本](https://github.com/luxoep/JerrivellPDF/releases)
+1. 从 GitHub 下载 Windows x64 安装包，在发布页对照 `SHA256SUMS.txt` 核对 SHA-256。[0.15.1 安装包](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.1/Jerrivell.PDF_0.15.1_x64-setup.exe) · [全部版本](https://github.com/luxoep/JerrivellPDF/releases)
 2. 如有需要，单独安装 Microsoft Edge WebView2 Evergreen Runtime（x64）。离线电脑可提前取得微软独立安装程序，再传到目标电脑安装。[WebView2 下载](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 3. 运行 Jerrivell PDF 安装包，再从开始菜单打开 **Jerrivell PDF**。在其他电脑上使用完整安装包，以取得匹配的 PDFium 和许可文件。
 
@@ -30,7 +30,7 @@
 | 阅读或分发用的 PDF | 用「保存副本」或 `Ctrl+S` 打开导出预检。检查页序和提示后保存。新增对象可能以可见内容写入。 |
 | 一组图纸页对的复核进度 | 用「保存对比项目」保存 `.jvcmp`。一并保留 A、B 两份 PDF，方便下次核验。 |
 
-0.15.0 采用手动保存。自动恢复在后续路线中规划。[路线图](ROADMAP.zh-CN.md)
+0.15.1 采用手动保存。自动恢复在后续路线中规划。[路线图](ROADMAP.zh-CN.md)
 
 ## 编辑、标记与签名
 

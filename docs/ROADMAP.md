@@ -3,7 +3,7 @@
 
 [简体中文](ROADMAP.zh-CN.md) · [Project home](../README.md)
 
-The next milestone focuses on safe recovery of editing work. Version 0.15.0 already supports portable editable projects, split-view editing, search highlights and drawing review. The stages below describe planned work and acceptance checks. [Current release](RELEASES.md) · [0.15.0 validation](VALIDATION.md)
+The next milestone focuses on safe recovery of editing work. Version 0.15.1 already supports portable editable projects, split-view editing, search highlights and drawing review. The stages below describe planned work and acceptance checks. [Current release](RELEASES.md) · [0.15.1 validation](VALIDATION.md)
 
 ## 1. Local autosave and recovery
 

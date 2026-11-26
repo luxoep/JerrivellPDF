@@ -3,11 +3,11 @@
 
 [简体中文](QUICK_START.zh-CN.md) · [Home](../README.md)
 
-For Jerrivell PDF 0.15.0 on Windows x64. Document work runs locally after installation.
+For Jerrivell PDF 0.15.1 on Windows x64. Document work runs locally after installation.
 
 ## Install or upgrade
 
-1. Download the Windows x64 installer from GitHub and compare its SHA-256 with `SHA256SUMS.txt` on the release page. [0.15.0 installer](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.0/Jerrivell.PDF_0.15.0_x64-setup.exe) · [All releases](https://github.com/luxoep/JerrivellPDF/releases)
+1. Download the Windows x64 installer from GitHub and compare its SHA-256 with `SHA256SUMS.txt` on the release page. [0.15.1 installer](https://github.com/luxoep/JerrivellPDF/releases/download/v0.15.1/Jerrivell.PDF_0.15.1_x64-setup.exe) · [All releases](https://github.com/luxoep/JerrivellPDF/releases)
 2. Install the x64 Microsoft Edge WebView2 Evergreen Runtime separately if needed. For an offline PC, get Microsoft's standalone installer before transferring it to that PC. [WebView2 download](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 3. Run the Jerrivell PDF installer and open **Jerrivell PDF** from the Start menu. Use the full installer on a new PC so it receives the matching PDFium runtime and license files.
 
@@ -30,7 +30,7 @@ Drag thumbnails to reorder pages. Use the page controls to rotate, delete, dupli
 | A PDF to read or share | **Save copy** or `Ctrl+S` opens the export review. Check page order and the warnings, then save the PDF. Added objects may be written as visual content. |
 | Review progress for one drawing page pair | **Save comparison project** creates a `.jvcmp`. Keep the A and B PDFs available so the app can verify them when reopening. |
 
-Save projects manually in 0.15.0. Automatic recovery is a planned improvement. [Roadmap](ROADMAP.md)
+Save projects manually in 0.15.1. Automatic recovery is a planned improvement. [Roadmap](ROADMAP.md)
 
 ## Edit, mark and sign
 

@@ -1,12 +1,13 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Jerrivell PDF releases
 
-[简体中文](RELEASES.zh-CN.md) · [Release notes for 0.15.0](RELEASE_NOTES.md)
+[简体中文](RELEASES.zh-CN.md) · [Release notes for 0.15.1](RELEASE_NOTES.md)
 
 Get the Windows x64 installer, corresponding source and other release files from the release for your version. Each archived release retains the license it shipped with. [Latest release](https://github.com/luxoep/JerrivellPDF/releases/latest) · [How to verify a download](../PUBLICATION.md#english)
 
 | Version | Downloads | License for the project's own code in this release |
 | --- | --- | --- |
+| 0.15.1 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.15.1) | MIT OR Apache-2.0 |
 | 0.15.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.15.0) | MIT OR Apache-2.0 |
 | 0.14.1 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.14.1) | MIT OR Apache-2.0 |
 | 0.13.0 | [Release](https://github.com/luxoep/JerrivellPDF/releases/tag/v0.13.0) | MIT OR Apache-2.0 |

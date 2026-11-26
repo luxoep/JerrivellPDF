@@ -19,12 +19,12 @@
 
 ## 准备源码和依赖
 
-需要构建公开发行版的源码时，克隆后切换到 `v0.15.0`。日常开发使用默认检出的分支。
+需要构建公开发行版的源码时，克隆后切换到 `v0.15.1`。日常开发使用默认检出的分支。
 
 ```powershell
 git clone https://github.com/luxoep/JerrivellPDF.git
 Set-Location JerrivellPDF
-# 可选：git switch --detach v0.15.0
+# 可选：git switch --detach v0.15.1
 npm.cmd ci
 npm.cmd run setup:pdfium
 cargo fetch --locked --target x86_64-pc-windows-msvc --manifest-path src-tauri/Cargo.toml

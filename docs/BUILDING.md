@@ -19,12 +19,12 @@ The desktop build targets **Windows x64**. Run the commands below from the repos
 
 ## Prepare the checkout
 
-To reproduce the source of the public release, select tag `v0.15.0` after cloning. Use the default checkout for development.
+To reproduce the source of the public release, select tag `v0.15.1` after cloning. Use the default checkout for development.
 
 ```powershell
 git clone https://github.com/luxoep/JerrivellPDF.git
 Set-Location JerrivellPDF
-# Optional: git switch --detach v0.15.0
+# Optional: git switch --detach v0.15.1
 npm.cmd ci
 npm.cmd run setup:pdfium
 cargo fetch --locked --target x86_64-pc-windows-msvc --manifest-path src-tauri/Cargo.toml
